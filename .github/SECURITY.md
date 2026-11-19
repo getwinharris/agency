@@ -4,7 +4,7 @@
 
 Please don't open a public issue for security problems.
 
-Report privately with [GitHub's private vulnerability reporting](https://github.com/davidondrej/cloudroom/security/advisories/new), or email [david@davidondrej.com](mailto:david@davidondrej.com).
+Report privately with [GitHub's private vulnerability reporting](https://github.com/getwinharris/agency/security/advisories/new), or email [bapxmediahub@gmail.com](mailto:bapxmediahub@gmail).
 
 Include the version, steps to reproduce, and the impact. We reply within 72 hours and credit you in the release notes, unless you'd rather stay anonymous.
 
