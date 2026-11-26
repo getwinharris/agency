@@ -24,3 +24,7 @@ tokio-stream = "0.1"
 # Already built through axum; named here for preview tunnels (HTTP upgrades).
 hyper = { version = "1", default-features = false }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Also used by Tokio and ring. Use the platform's file flags for site snapshots.
+libc = "0.2"

@@ -33,3 +33,17 @@ The deployment checks the container by digest and tests the landing, Docs, Media
 Failed checks restore and verify the previously healthy image and its routing configuration. The timer rechecks the live release. A persistent failure with a verified fallback also restores that release and records the SHA that is now serving. On the first placement, a failed deployment removes the new service. A confirmed rollback skips the failed workflow attempt on subsequent checks. Rerun the workflow after correcting the cause. A failed rollback is logged and remains eligible for recovery. Retain the previous image locally. To pause deployment, stop the timer. The web data volume persists across image replacement.
 
 Sign in to Admin as `operator` to view MediaHub inquiries and publish changes to its homepage. The web data volume contains briefs, operator notes, and published copy. Keep backups private because these include contact details and consent.
+
+## Publish the sandbox pilot
+
+After the web release includes the exact pilot route and read-only release volume, approve one project under the [workspace layout](../core/docs/sites.md). Run the project's build in its own sandbox and have it produce `dist/index.html` and any standalone assets. Check that all output can be made public.
+
+From the Agency checkout on Hostinger, replace the three labels with the approved project identifiers.
+
+```sh
+sudo bash deploy/publish-site.sh ACCOUNT BUSINESS PROJECT
+```
+
+The helper uses the verified web image from the deployment record. The native `cloudroom publish-site stage` command copies the approved build into an operator-private directory. Then `cloudroom publish-site release` runs once in the same image with a read-only snapshot and a writable `traefik-vmm1_agency-web-sites` volume. The web service reads this separate volume at `/var/lib/bapx-sites`. The first release binds the label to the approved project. Run the same command for its next build.
+
+Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the existing four-host health checks for first-party release verification. Preserve the site release volume on deployment and keep its backups private.
