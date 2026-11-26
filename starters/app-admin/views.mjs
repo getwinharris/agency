@@ -189,7 +189,7 @@ function renderSubmission(submission, session, assignees) {
   </li>`).join("\n");
 
   return `<section class="panel padded" id="lead" aria-labelledby="lead-title">
-    <h2 id="lead-title">${escapeHtml(submission.formTitle)} enquiry</h2>
+    <h2 id="lead-title">${escapeHtml(submission.formTitle)}</h2>
     <p><a href="#original-submission">View original submission</a></p>
     <form class="stack" method="post" action="/admin/submissions/${encodeURIComponent(submission.id)}">
       ${csrfField(session)}
