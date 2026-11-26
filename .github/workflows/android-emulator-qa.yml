@@ -1,0 +1,203 @@
+name: Android emulator QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/44-android-workspace]
+
+permissions:
+  contents: read
+
+jobs:
+  install-open-reopen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Enable Android virtualization
+        run: |
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Install SDK tools and the test image
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' \
+            platform-tools emulator 'system-images;android-28;google_apis;x86_64'
+          printf 'no\n' | avdmanager create avd --name bapx-qa \
+            --package 'system-images;android-28;google_apis;x86_64' --device pixel_2
+      - name: Verify install, HTTPS workspace open, and cookie persistence
+        run: |
+          set -euo pipefail
+          umask 077
+          export JAVA_HOME="${JAVA_HOME_21_X64:-$JAVA_HOME}"
+          export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          fixture=$(mktemp -d "$RUNNER_TEMP/bapx-android.XXXXXX")
+          export FIXTURE="$fixture"
+          export BAPX_ANDROID_WORKSPACE_URL=https://127.0.0.1:38443/
+          export BAPX_ANDROID_KEYSTORE="$fixture/qa.p12"
+          export BAPX_ANDROID_KEY_ALIAS=android-fixture-qa
+          BAPX_ANDROID_KEYSTORE_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+          export BAPX_ANDROID_KEYSTORE_PASSWORD
+          export BAPX_ANDROID_OUTPUT_DIR="$fixture/apk"
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$BAPX_ANDROID_KEYSTORE" \
+            -alias "$BAPX_ANDROID_KEY_ALIAS" -storepass:env BAPX_ANDROID_KEYSTORE_PASSWORD \
+            -dname 'CN=bapX Android fixture QA only' -keyalg RSA -keysize 2048 -validity 3
+          bash gui/apps/android/build.sh
+          rm -f -- "$BAPX_ANDROID_KEYSTORE"
+          unset BAPX_ANDROID_KEYSTORE_PASSWORD
+          apk="$fixture/apk/bapx-agents-v0.1.0-android.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c 4 "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$apk"
+
+          # Root only this disposable emulator to add a CA for the loopback-only fixture.
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj '/CN=bapX Android QA root' \
+            -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign \
+            -keyout "$fixture/ca-key.pem" -out "$fixture/ca.pem"
+          openssl req -new -nodes -newkey rsa:2048 -subj '/CN=127.0.0.1' \
+            -keyout "$fixture/site-key.pem" -out "$fixture/site.csr"
+          printf '%s\n' 'subjectAltName = IP:127.0.0.1' 'extendedKeyUsage = serverAuth' > "$fixture/site.ext"
+          openssl x509 -req -days 1 -in "$fixture/site.csr" -CA "$fixture/ca.pem" \
+            -CAkey "$fixture/ca-key.pem" -CAcreateserial -extfile "$fixture/site.ext" \
+            -out "$fixture/site.pem"
+          cat > "$fixture/fixture.py" <<'PY'
+          from http.cookies import SimpleCookie
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
+          import os
+          import ssl
+
+          root = Path(os.environ["FIXTURE"])
+
+          class Fixture(BaseHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path == "/sign-in":
+                      self.send_response(303)
+                      self.send_header("Set-Cookie", "fixture_session=active; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600")
+                      self.send_header("Location", "/")
+                      self.end_headers()
+                      return
+                  if self.path != "/":
+                      self.send_error(404)
+                      return
+                  cookies = SimpleCookie(self.headers.get("Cookie", ""))
+                  signed_in = "fixture_session" in cookies and cookies["fixture_session"].value == "active"
+                  print("signed-in" if signed_in else "signed-out", flush=True)
+                  content = "<h1>Fixture session active</h1>" if signed_in else '<a href="/sign-in">Sign in to test workspace</a>'
+                  body = ("<!doctype html><meta name=viewport content=\"width=device-width,initial-scale=1\">"
+                          "<title>bapX Android HTTPS fixture</title><main>" + content + "</main>").encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/html; charset=utf-8")
+                  self.send_header("Cache-Control", "no-store")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, *_):
+                  pass
+
+          server = ThreadingHTTPServer(("127.0.0.1", 38443), Fixture)
+          tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          tls.load_cert_chain(root / "site.pem", root / "site-key.pem")
+          server.socket = tls.wrap_socket(server.socket, server_side=True)
+          server.serve_forever()
+          PY
+          python3 "$fixture/fixture.py" > "$fixture/fixture.log" 2>&1 &
+          fixture_pid=$!
+          emulator -avd bapx-qa -port 5554 -no-window -noaudio -no-boot-anim \
+            -no-snapshot -writable-system -gpu swiftshader_indirect \
+            > "$fixture/emulator.log" 2>&1 &
+          emulator_pid=$!
+          device=(adb -s emulator-5554)
+          cleanup() {
+            if [[ $? -ne 0 ]]; then
+              tail -100 "$fixture/emulator.log" || true
+              cat "$fixture/fixture.log" || true
+              "${device[@]}" logcat -b crash -d || true
+            fi
+            "${device[@]}" emu kill || true
+            kill "$fixture_pid" "$emulator_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          await_boot() {
+            timeout 150 "${device[@]}" wait-for-device
+            for _ in {1..120}; do
+              [[ $("${device[@]}" shell getprop sys.boot_completed | tr -d '\r') == 1 ]] && return
+              sleep 2
+            done
+            return 1
+          }
+          await_boot
+          "${device[@]}" root
+          "${device[@]}" wait-for-device
+          "${device[@]}" disable-verity
+          "${device[@]}" reboot
+          await_boot
+          "${device[@]}" root
+          "${device[@]}" wait-for-device
+          "${device[@]}" remount
+          hash=$(openssl x509 -subject_hash_old -noout -in "$fixture/ca.pem")
+          "${device[@]}" push "$fixture/ca.pem" "/system/etc/security/cacerts/$hash.0"
+          "${device[@]}" shell chmod 0644 "/system/etc/security/cacerts/$hash.0"
+          "${device[@]}" shell restorecon "/system/etc/security/cacerts/$hash.0"
+          "${device[@]}" reverse tcp:38443 tcp:38443
+          "${device[@]}" shell input keyevent KEYCODE_WAKEUP
+          "${device[@]}" shell wm dismiss-keyguard
+          "${device[@]}" shell settings put global window_animation_scale 0
+          "${device[@]}" shell settings put global transition_animation_scale 0
+          "${device[@]}" shell settings put global animator_duration_scale 0
+
+          browser_component=$("${device[@]}" shell cmd package resolve-activity --brief \
+            -a android.intent.action.VIEW -c android.intent.category.BROWSABLE \
+            -d "$BAPX_ANDROID_WORKSPACE_URL" | tr -d '\r' | tail -1)
+          [[ $browser_component == */* && $browser_component != android/* ]] || {
+            printf 'The emulator needs a default HTTPS browser. Resolver returned %s\n' "$browser_component" >&2
+            exit 1
+          }
+          browser=${browser_component%%/*}
+          if [[ $browser == com.android.chrome ]]; then
+            "${device[@]}" shell 'echo "chrome --disable-fre --no-default-browser-check" > /data/local/tmp/chrome-command-line'
+          fi
+          "${device[@]}" install "$apk"
+          "${device[@]}" shell cmd package resolve-activity --brief in.bapx.agents \
+            | grep -F 'in.bapx.agents/.WorkspaceActivity'
+          "${device[@]}" shell am start -W -n in.bapx.agents/.WorkspaceActivity
+          await_fixture() {
+            local event=$1 count=$2
+            for _ in {1..35}; do
+              [[ $(grep -cx "$event" "$fixture/fixture.log" || true) -ge $count ]] && return
+              sleep 1
+            done
+            return 1
+          }
+          await_fixture signed-out 1
+          for _ in {1..8}; do
+            "${device[@]}" shell uiautomator dump /sdcard/bapx-qa.xml >/dev/null
+            "${device[@]}" pull /sdcard/bapx-qa.xml "$fixture/ui.xml" >/dev/null
+            if position=$(python3 - "$fixture/ui.xml" <<'PY'
+          from sys import argv
+          from xml.etree import ElementTree
+          import re
+
+          for item in ElementTree.parse(argv[1]).iter("node"):
+              if any(item.get(name) == "Sign in to test workspace" for name in ("text", "content-desc")):
+                  left, top, right, bottom = map(int, re.findall(r"\d+", item.get("bounds", "")))
+                  print((left + right) // 2, (top + bottom) // 2)
+                  raise SystemExit(0)
+          raise SystemExit(1)
+          PY
+            ); then
+              break
+            fi
+            sleep 1
+          done
+          read -r x y <<< "$position"
+          [[ -n $x && -n $y ]]
+          "${device[@]}" shell input tap "$x" "$y"
+          await_fixture signed-in 1
+          previous=$(grep -cx signed-in "$fixture/fixture.log")
+          "${device[@]}" shell am force-stop in.bapx.agents
+          "${device[@]}" shell am force-stop "$browser"
+          "${device[@]}" shell am start -W -n in.bapx.agents/.WorkspaceActivity
+          await_fixture signed-in "$((previous + 1))"
+          echo 'Installed the Android APK, opened an isolated HTTPS workspace and retained browser sign-in across process restarts.'
