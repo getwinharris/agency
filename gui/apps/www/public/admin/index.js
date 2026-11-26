@@ -16,6 +16,9 @@ let view = "inbox";
 let records = null;
 let selectedId = null;
 let currentCopy = null;
+let copyMode = "draft";
+let copyOperation = null;
+let copyConflict = false;
 let sessionVersion = 0;
 
 function notice(id, message, error = false) {
@@ -42,7 +45,9 @@ async function request(path, data) {
     if (response.status === 401 && operator) {
       showLogin("Your session expired. Sign in again.");
     }
-    throw new Error(payload?.message || "Admin is temporarily unavailable.");
+    const error = new Error(payload?.message || "Admin is temporarily unavailable.");
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -53,6 +58,9 @@ function showLogin(message = "") {
   records = null;
   selectedId = null;
   currentCopy = null;
+  copyMode = "draft";
+  copyOperation = null;
+  copyConflict = false;
   byId("inbox").hidden = true;
   byId("copy").hidden = true;
   byId("side-menu").hidden = true;
@@ -69,7 +77,8 @@ function showLogin(message = "") {
   byId("detail-brief").textContent = "";
   byId("publish-copy").reset();
   byId("password").value = "";
-  previewCopy();
+  notice("copy-notice", "");
+  renderCopy();
   byId("login").hidden = false;
   notice("login-notice", message, Boolean(message));
 }
@@ -236,34 +245,86 @@ async function loadInbox() {
   }
 }
 
-function previewCopy() {
-  byId("preview-headline").textContent = byId("headline").value;
-  byId("preview-intro").textContent = byId("brief-intro").value;
+function draftCopy() {
+  return {
+    headline: byId("headline").value.trim(),
+    briefIntro: byId("brief-intro").value.trim(),
+  };
+}
+
+function hasCopyChanges(draft) {
+  return currentCopy && (draft.headline !== currentCopy.headline || draft.briefIntro !== currentCopy.briefIntro);
+}
+
+function renderCopy() {
+  const draft = draftCopy();
+  const changed = hasCopyChanges(draft);
+  const busy = Boolean(copyOperation);
+  const canEdit = currentCopy && !busy;
+  const preview = copyMode === "published" ? currentCopy : draft;
+  byId("headline").disabled = !canEdit;
+  byId("brief-intro").disabled = !canEdit;
+  byId("reload-copy").disabled = busy;
+  byId("reset-copy").disabled = !canEdit || !changed || copyConflict;
+  byId("publish").disabled = !canEdit || !changed || !draft.headline || !draft.briefIntro || copyConflict;
+  byId("publish-copy").setAttribute("aria-busy", String(busy));
+
+  for (const mode of ["draft", "published"]) {
+    const button = byId(`copy-mode-${mode}`);
+    button.disabled = !currentCopy;
+    button.setAttribute("aria-pressed", String(copyMode === mode));
+  }
+  byId("preview-page").hidden = !currentCopy;
+  byId("preview-empty").hidden = Boolean(currentCopy);
+  byId("preview-headline").textContent = preview?.headline || "Headline is empty";
+  byId("preview-intro").textContent = preview?.briefIntro || "Introduction is empty";
+
+  const state = copyOperation || (copyConflict ? "conflict" : currentCopy ? (changed ? "draft" : "published") : "unavailable");
+  const label = {
+    loading: "Loading…",
+    publishing: "Publishing…",
+    conflict: "Refresh required",
+    draft: "Unsaved changes",
+    published: "Published",
+    unavailable: "Copy unavailable",
+  }[state];
+  const status = byId("copy-state");
+  status.dataset.state = state;
+  if (status.textContent !== label) status.textContent = label;
 }
 
 function fillCopy(copy) {
   byId("headline").value = copy.headline;
   byId("brief-intro").value = copy.briefIntro;
-  previewCopy();
 }
 
 async function loadCopy() {
+  if (!operator || copyOperation) return;
   const version = sessionVersion;
-  const button = byId("reload-copy");
-  button.disabled = true;
-  byId("publish").disabled = true;
-  notice("copy-notice", "Loading homepage copy…");
+  const previous = currentCopy;
+  const draft = draftCopy();
+  copyOperation = "loading";
+  notice("copy-notice", "");
+  renderCopy();
   try {
     const result = await request("mediahub");
     if (version !== sessionVersion) return;
     currentCopy = result;
-    fillCopy(currentCopy);
-    notice("copy-notice", "");
+    copyConflict = false;
+    fillCopy({
+      headline: previous && draft.headline !== previous.headline ? draft.headline : result.headline,
+      briefIntro: previous && draft.briefIntro !== previous.briefIntro ? draft.briefIntro : result.briefIntro,
+    });
+    if (hasCopyChanges(draftCopy())) {
+      notice("copy-notice", "Published copy refreshed. Your edits are still here.");
+    }
   } catch (error) {
     if (version === sessionVersion) notice("copy-notice", error.message, true);
   } finally {
-    button.disabled = false;
-    byId("publish").disabled = !currentCopy;
+    if (version === sessionVersion) {
+      copyOperation = null;
+      renderCopy();
+    }
   }
 }
 
@@ -273,7 +334,22 @@ byId("reload-inbox").addEventListener("click", loadInbox);
 byId("reload-copy").addEventListener("click", loadCopy);
 byId("search").addEventListener("input", renderInbox);
 byId("filter").addEventListener("change", renderInbox);
-byId("publish-copy").addEventListener("input", previewCopy);
+byId("publish-copy").addEventListener("input", () => {
+  copyMode = "draft";
+  renderCopy();
+});
+for (const mode of ["draft", "published"]) {
+  byId(`copy-mode-${mode}`).addEventListener("click", () => {
+    copyMode = mode;
+    renderCopy();
+  });
+}
+byId("reset-copy").addEventListener("click", () => {
+  fillCopy(currentCopy);
+  renderCopy();
+  notice("copy-notice", "Edits reset to the published copy.");
+  byId("headline").focus();
+});
 
 byId("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -344,25 +420,39 @@ byId("update-inquiry").addEventListener("submit", async (event) => {
 
 byId("publish-copy").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!currentCopy) return;
+  const draft = draftCopy();
+  if (!hasCopyChanges(draft) || !draft.headline || !draft.briefIntro || copyOperation || copyConflict) return;
   const version = sessionVersion;
-  const button = byId("publish");
-  button.disabled = true;
+  let returnFocus = "publish";
+  copyOperation = "publishing";
   notice("copy-notice", "");
+  renderCopy();
   try {
     const published = await request("mediahub", {
       updatedAt: currentCopy.updatedAt,
-      headline: byId("headline").value,
-      briefIntro: byId("brief-intro").value,
+      ...draft,
     });
     if (version !== sessionVersion) return;
     currentCopy = published;
-    fillCopy(currentCopy);
+    fillCopy(published);
+    copyMode = "published";
+    returnFocus = "copy-mode-published";
     notice("copy-notice", "Published to mediahub.bapx.in.");
   } catch (error) {
-    if (version === sessionVersion) notice("copy-notice", error.message, true);
+    if (version === sessionVersion) {
+      copyConflict = error.status === 409;
+      if (copyConflict) returnFocus = "reload-copy";
+      const message = copyConflict
+        ? "Someone published a newer version. Refresh the published copy to compare it with your edits."
+        : error.message;
+      notice("copy-notice", message, true);
+    }
   } finally {
-    button.disabled = !currentCopy;
+    if (version === sessionVersion) {
+      copyOperation = null;
+      renderCopy();
+      if (view === "copy" && document.activeElement === document.body) byId(returnFocus).focus();
+    }
   }
 });
 

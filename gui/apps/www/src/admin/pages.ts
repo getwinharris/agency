@@ -1,3 +1,5 @@
+import { faviconLinks, wordmark } from "../brand.ts";
+
 export function adminPages(): Record<string, string> {
   return {
     "admin/index.html": `<!doctype html>
@@ -7,7 +9,7 @@ export function adminPages(): Record<string, string> {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>bapX Admin</title>
-  <link rel="icon" href="/brand/favicon.svg?v=583e9a9d" type="image/svg+xml">
+  ${faviconLinks}
   <link rel="stylesheet" href="/admin/index.css">
   <script src="/admin/index.js" defer></script>
 </head>
@@ -15,8 +17,8 @@ export function adminPages(): Record<string, string> {
   <a class="skip" href="#main">Skip to content</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="bapX Admin home">
-      <img src="/brand/mark.svg" alt="" width="30" height="30">
-      <span>bapX</span><span class="brand-divider" aria-hidden="true"></span><span class="domain-word">Admin</span>
+      <img src="${wordmark}" alt="" width="90" height="30">
+      <span class="brand-divider" aria-hidden="true"></span><span class="domain-word">Admin</span>
     </a>
     <div id="operator-bar" class="operator" hidden>
       <span class="operator-name" id="operator-name"></span>
@@ -123,34 +125,52 @@ export function adminPages(): Record<string, string> {
         </div>
       </section>
       <section id="copy" class="workspace" aria-labelledby="copy-title" hidden>
-        <header class="page-heading">
+        <header class="page-heading copy-heading">
           <div>
             <p class="eyebrow">MediaHub</p>
             <h1 id="copy-title">Homepage copy</h1>
             <p class="page-summary">Edit the headline and introduction to the project brief form.</p>
           </div>
-          <button type="button" class="control" id="reload-copy">Refresh</button>
+          <button type="button" class="control" id="reload-copy">Refresh published copy</button>
         </header>
         <div class="copy-grid">
           <section class="panel copy-editor" aria-labelledby="copy-editor-title">
-            <div class="panel-header"><h2 id="copy-editor-title">Editable fields</h2></div>
+            <div class="panel-header">
+              <h2 id="copy-editor-title">Edit copy</h2>
+              <p id="copy-state" class="copy-state" role="status"></p>
+            </div>
             <form id="publish-copy" method="post" action="/api/admin/mediahub">
               <label for="headline">Main headline</label>
-              <input id="headline" name="headline" required maxlength="220">
+              <input id="headline" name="headline" required maxlength="220" disabled>
               <label for="brief-intro">Project brief introduction</label>
-              <textarea id="brief-intro" name="briefIntro" required maxlength="420" rows="4"></textarea>
-              <div class="form-actions">
+              <textarea id="brief-intro" name="briefIntro" required maxlength="420" rows="4" disabled></textarea>
+              <div class="form-actions copy-actions">
                 <button type="submit" class="control primary" id="publish" disabled>Publish to MediaHub</button>
-                <p class="notice" id="copy-notice" role="status"></p>
+                <button type="button" class="control" id="reset-copy" disabled>Reset edits</button>
               </div>
+              <p class="notice copy-notice" id="copy-notice" role="status"></p>
             </form>
           </section>
           <section class="panel copy-preview" aria-labelledby="copy-preview-title">
-            <div class="panel-header"><h2 id="copy-preview-title">Text preview</h2></div>
-            <div class="preview-text">
-              <p class="eyebrow">Homepage</p>
-              <p id="preview-headline" class="preview-headline"></p>
-              <p id="preview-intro" class="preview-intro"></p>
+            <div class="panel-header preview-header">
+              <h2 id="copy-preview-title">Homepage preview</h2>
+              <div class="preview-modes" role="group" aria-label="Preview version">
+                <button type="button" class="control" id="copy-mode-draft" aria-pressed="true" disabled>Draft</button>
+                <button type="button" class="control" id="copy-mode-published" aria-pressed="false" disabled>Published</button>
+              </div>
+            </div>
+            <p id="preview-empty" class="empty">The preview appears when the published copy loads.</p>
+            <div id="preview-page" class="preview-page" hidden>
+              <div class="preview-brand">
+                <img src="${wordmark}" width="66" height="22" alt="bapX"> <strong>MediaHub</strong>
+              </div>
+              <div class="preview-hero">
+                <h3 id="preview-headline" class="preview-headline"></h3>
+              </div>
+              <div class="preview-brief">
+                <h3>Tell us what you need to move forward.</h3>
+                <p id="preview-intro" class="preview-intro"></p>
+              </div>
             </div>
           </section>
         </div>

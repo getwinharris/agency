@@ -17,7 +17,14 @@ pub struct Journal {
     writable: bool,
     /// The last segment read, so a replay or page of old records decompresses each segment once.
     segment: Option<Segment>,
-    _lock: File,
+    lock: File,
+}
+
+impl Drop for Journal {
+    fn drop(&mut self) {
+        // A forked child can retain the lock descriptor until it execs.
+        let _ = self.lock.unlock();
+    }
 }
 
 const SNAPSHOT: &str = "snapshot.json";
@@ -146,7 +153,7 @@ impl Journal {
             uploading,
             writable: true,
             segment: None,
-            _lock: lock,
+            lock,
         })
     }
 
@@ -426,6 +433,22 @@ mod tests {
     thread_local! {
         /// How many directory syncs fail before they work again.
         pub(super) static FAILED_SYNCS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    #[test]
+    fn journal_reopens_after_drop_with_a_duplicate_lock_descriptor() {
+        let dir = std::env::temp_dir().join(format!("cloudroom-lock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let owner = Journal::open(&dir).unwrap();
+        let duplicate = owner.lock.try_clone().unwrap();
+        assert!(matches!(Journal::open(&dir), Err(e) if e.kind() == io::ErrorKind::WouldBlock));
+
+        drop(owner);
+        let successor = Journal::open(&dir).unwrap();
+        drop(duplicate);
+        assert!(matches!(Journal::open(&dir), Err(e) if e.kind() == io::ErrorKind::WouldBlock));
+        drop(successor);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

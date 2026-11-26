@@ -3,7 +3,8 @@ flowchart TD
   contracts["AGENTS.md, OKF.md, DESIGN.md"]
   codex[".agents/skills: native Codex project skills"]
   web["gui/apps/www: TypeScript templates and assets"]
-  desktop["gui/apps/desktop: Mac and Windows packages"]
+  desktop["gui/apps/desktop: macOS, Windows, and Linux packages"]
+  sharedSkills["skills/: portable Agent Skills with native discovery checks"]
   core["core: private native agent service"]
   webMode["cloudroom serve-web: Rust first-party web server"]
   deploy["deploy: verified main image and Traefik routes"]
@@ -14,6 +15,7 @@ flowchart TD
   root --> appStarter["starters/app-admin: opt-in customer site and its own /admin"]
   appStarter --> appData["Private app data: project-specific volume outside the release"]
   root --> desktop
+  root --> sharedSkills
   root --> core
   web --> webMode
   deploy --> webMode
@@ -22,6 +24,7 @@ flowchart TD
   webMode --> docs["docs.bapx.in: documentation"]
   webMode --> mediahub["mediahub.bapx.in: portfolio and project briefs"]
   webMode --> admin["admin.bapx.in: authenticated operator workflow"]
+  landing -->|"Guided website and automation briefs"| mediahub
   admin --> privateData["Private Agency web volume"]
   mediahub --> privateData
 

@@ -1,4 +1,5 @@
 import { mediahubClients, type MediaHubClient } from "./portfolio.ts";
+import { faviconLinks, wordmark } from "../brand.ts";
 
 const mediaHubUrl = "https://mediahub.bapx.in";
 const businessEmail = "bapxmediahub@gmail.com";
@@ -9,8 +10,8 @@ const services = [
   ["Content & production", "Content and production", "Posters, reels, editing, photography direction, motion, print, television, radio, and campaign production."],
   ["Social Media Management", "Social Media Management", "Channel strategy, content calendars, publishing, community workflows, and recurring creative production."],
   ["Digital Marketing", "Digital Marketing", "Audience strategy, Meta and search campaigns, landing journeys, lead operations, and measurement."],
-  ["Websites & commerce", "Websites and commerce", "Campaign sites, booking, ecommerce, customer accounts, owner CMS, CRM, and operational integrations."],
-  ["AI, data & automation", "AI, data, and automation", "Custom applications, enterprise data, agents, workflow automation, CRM/ERP, and forward-deployed engineering."],
+  ["Websites & commerce", "Websites and commerce", "Campaign sites, booking, ecommerce, customer accounts, owner CMS, CRM, and operational integrations.", "websites"],
+  ["AI, data & automation", "AI, data, and automation", "Custom applications, enterprise data, agents, workflow automation, CRM/ERP, and forward-deployed engineering.", "automation"],
 ] as const;
 
 const budgets = ["Under ₹50,000", "₹50,000–₹1,50,000", "₹1,50,000–₹5,00,000", "Above ₹5,00,000", "Need help scoping"];
@@ -26,7 +27,7 @@ function navigation(isHome: boolean): string {
   return `<header class="site-header">
     <nav class="container navigation" aria-label="Primary navigation">
       <a class="lockup" href="/" aria-label="bapX MediaHub home">
-        <img src="/brand/mark.svg" width="32" height="32" alt=""><span>bapX</span><strong>MediaHub</strong>
+        <img src="${wordmark}" width="114" height="38" alt=""><strong>MediaHub</strong>
       </a>
       <div class="desktop-links">${links}</div>
       <a class="button button-primary nav-cta" href="${home}#brief">Start a project</a>
@@ -48,13 +49,13 @@ function documentPage(title: string, summary: string, path: string, content: str
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(summary)}">
   <link rel="canonical" href="${canonical}">
-  <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg?v=583e9a9d">
+  ${faviconLinks}
   <meta property="og:type" content="website">
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(summary)}">
   <meta property="og:url" content="${canonical}">
   <meta property="og:image" content="${mediaHubUrl}${socialImage}">
-  <link rel="stylesheet" href="/mediahub/site.css?v=agency">
+  <link rel="stylesheet" href="/mediahub/site.css?v=wordmark">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -64,7 +65,7 @@ function documentPage(title: string, summary: string, path: string, content: str
     <span>bapX MediaHub &copy; ${new Date().getFullYear()}</span>
     <div><a href="mailto:${businessEmail}">${businessEmail}</a><a href="https://bapx.in/privacy/">Privacy</a><a href="https://bapx.in/">bapX Home</a></div>
   </div></footer>
-  <script type="module" src="/mediahub/brief.js"></script>
+  <script type="module" src="/mediahub/brief.js?v=brief-paths"></script>
 </body>
 </html>`;
 }
@@ -90,7 +91,9 @@ function selectField(name: string, label: string, prompt: string, choices: strin
 }
 
 function briefForm(): string {
-  const serviceOptions = services.map(([title, value]) => `<option value="${escapeHtml(value)}">${escapeHtml(title)}</option>`).join("");
+  const serviceOptions = services.map(([title, value, , project]) => (
+    `<option value="${escapeHtml(value)}"${project ? ` data-project="${project}"` : ""}>${escapeHtml(title)}</option>`
+  )).join("");
   return `<section class="section brief-section" id="brief">
     <div class="container two-up">
       <div>

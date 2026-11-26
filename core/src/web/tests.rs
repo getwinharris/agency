@@ -26,6 +26,8 @@ async fn public_routes_and_private_intake() {
         ("mediahub/clients/example/index.html", "Story"),
         ("docs/index.html", "Docs"),
         ("brand/favicon.svg", "<svg/>"),
+        ("brand/favicon.ico", "ICO"),
+        ("brand/favicon-96x96.png", "PNG"),
     ] {
         let path = root.join(page);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -67,8 +69,16 @@ async fn public_routes_and_private_intake() {
         .await
         .unwrap();
     assert_eq!(health["service"], "bapx-web");
-    let favicon = get("bapx.in", "/favicon.ico").send().await.unwrap();
+    let favicon = get("bapx.in", "/favicon.svg").send().await.unwrap();
     assert_eq!(favicon.headers()[header::LOCATION], "/brand/favicon.svg");
+    for (path, mime) in [
+        ("/favicon.ico", "image/vnd.microsoft.icon"),
+        ("/favicon-96x96.png", "image/png"),
+    ] {
+        let icon = get("bapx.in", path).send().await.unwrap();
+        assert_eq!(icon.status(), StatusCode::OK);
+        assert_eq!(icon.headers()[header::CONTENT_TYPE], mime);
+    }
     for (host, path) in [
         ("agents.bapx.in", "/"),
         ("bapx.in", "/v1/health"),
