@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@cloudroom/config/server";
 import { createCallerProofIssuer } from "@cloudroom/config/caller-proof";
+import { HUMAN_CLICK_PUBLIC_KEY_ENV } from "@cloudroom/config/human-click";
 import { isLoopbackHostname } from "@cloudroom/config/loopback";
 import { moveLegacyUserSkills, resolveUserSkillsRootPath } from "@cloudroom/config/skill-storage-paths";
 import { toOptionalString } from "@cloudroom/config/strings";
@@ -41,13 +42,14 @@ import { installFirstResponseTelemetry } from "./services/system/first-response-
 import { installSkillTelemetry } from "./services/system/skill-telemetry.js";
 import { installTokenTelemetry } from "./services/system/token-telemetry.js";
 import { startOrgPlugin } from "./services/cloudroom/org-plugin.js";
+import { setMacCommandReview } from "./services/cloudroom/previews.js";
 import { startSetupTelemetry } from "./services/cloudroom/setup-telemetry.js";
 import { installTitleRecheck } from "./services/threads/title-recheck.js";
 import { installThreadPurpose } from "./services/threads/thread-purpose.js";
 import { installProjectSummaries } from "./services/cloudroom/project-nudge.js";
 import { installAuthFailureTelemetry } from "./services/system/auth-failure-telemetry.js";
 import { installPlanLimitTelemetry } from "./services/system/plan-limit-telemetry.js";
-import { createTelemetryService } from "./services/system/telemetry.js";
+import { createTelemetryPrivacyFilter, createTelemetryService } from "./services/system/telemetry.js";
 import { TerminalSessionLifecycle } from "./services/terminals/terminal-session-lifecycle.js";
 import { createLifecycleDedupers } from "./lifecycle-dedupers.js";
 import type { ServerRuntimeConfig } from "./types.js";
@@ -95,6 +97,9 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   const isProduction = process.env.NODE_ENV === "production";
   const staticDir =
     isProduction && existsSync(appDistDir) ? appDistDir : undefined;
+  // Read once, then dropped, so no process this server starts inherits it.
+  const humanClickPublicKey = process.env[HUMAN_CLICK_PUBLIC_KEY_ENV];
+  delete process.env[HUMAN_CLICK_PUBLIC_KEY_ENV];
   const runtimeConfig: ServerRuntimeConfig = {
     appVersion: serverConfig.BB_APP_VERSION,
     builtinSkillsRootPath: resolveBuiltinSkillsRootPath(),
@@ -103,6 +108,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     dataDir: serverConfig.BB_DATA_DIR,
     featureFlags: serverConfig.featureFlags,
     hostDaemonPort: serverConfig.BB_HOST_DAEMON_PORT,
+    humanClickPublicKey,
     inheritedSkillsRootPaths: serverConfig.BB_INHERITED_SKILLS_ROOTS,
     inferenceFallbackModel: serverConfig.BB_INFERENCE_FALLBACK,
     inferenceModel: serverConfig.BB_INFERENCE,
@@ -110,6 +116,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     openAiApiKey: serverConfig.OPENAI_API_KEY,
     serverPort: serverConfig.BB_SERVER_PORT,
     sharedSkillRoots: { user: [], project: [] },
+    telemetryAllowed: serverConfig.BB_TELEMETRY,
     transcriptionModel: serverConfig.BB_TRANSCRIPTION,
     userSkillsRootPath: resolveUserSkillsRootPath(homedir()),
   };
@@ -129,8 +136,8 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   const providerRegistry = createProviderRegistryService({
     deferRegistrationsSettled: true,
     readUserProviderPreferences: () => {
-      const { defaultProviderId, hiddenProviderIds } = getAppSettings(db);
-      return { defaultProviderId, hiddenProviderIds, usage: readProviderUsage() };
+      const { defaultProviderId, hiddenProviderIds, customProviderOrder } = getAppSettings(db);
+      return { defaultProviderId, hiddenProviderIds, customOrder: customProviderOrder, usage: readProviderUsage() };
     },
   });
 
@@ -162,13 +169,17 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     logger,
   });
 
+  const initialSettings = getAppSettings(db);
+  await setMacCommandReview({ config: runtimeConfig }, initialSettings.macCommandReviewEnabled).catch((error) => {
+    logger.warn({ err: error }, "Failed to mirror Mac-command review setting");
+  });
   const telemetry = await createTelemetryService({
     appSurface: serverConfig.BB_APP_SURFACE,
     appVersion: serverConfig.BB_APP_VERSION,
     dataDir: serverConfig.BB_DATA_DIR,
     desktopVersion: process.env.BB_DESKTOP_VERSION,
     enabled: serverConfig.BB_TELEMETRY && isProduction,
-    telemetryEnabled: getAppSettings(db).telemetryEnabled,
+    telemetryEnabled: initialSettings.telemetryEnabled,
     logger,
   });
 
@@ -243,6 +254,11 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   });
   cloud.start();
   telemetry.setPlanSource(() => cloud.sandboxes.currentPlan());
+  telemetry.setPrivacyFilter(createTelemetryPrivacyFilter({
+    db,
+    getCustomModels: () => runtimeConfig.customModels,
+    providerRegistry,
+  }));
   telemetry.setTargetSource(async () => {
     const account = await cloud.sandboxes.account();
     return account
@@ -250,7 +266,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       : { website: configuredWebsite() };
   });
   const stopFirstResponseTelemetry = installFirstResponseTelemetry({ db, hub, telemetry }, (threadId, at) => cloud.sandboxes.wokeSince(threadId, at), (threadId, at) => cloud.sandboxes.startupSince(threadId, at));
-  const stopAuthFailureTelemetry = installAuthFailureTelemetry({ db, logger, telemetry });
+  const stopAuthFailureTelemetry = installAuthFailureTelemetry({ db, logger, telemetry, telemetryAllowed: serverConfig.BB_TELEMETRY });
   const stopPlanLimitTelemetry = installPlanLimitTelemetry({ db, telemetry, dataDir: runtimeConfig.dataDir, logger });
   const stopTokenTelemetry = installTokenTelemetry({ db, telemetry, dataDir: runtimeConfig.dataDir, logger });
   const stopSkillTelemetry = installSkillTelemetry({ db, telemetry, dataDir: runtimeConfig.dataDir, logger });

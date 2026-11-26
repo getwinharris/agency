@@ -5,6 +5,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
   closeAutomationRun,
+  closeRunForSignIn,
   disableAutomationsForDeletedThread,
   getAutomation,
   listAutomationRuns,
@@ -17,12 +18,13 @@ import {
   setAutomationEnabled,
   setAutomationRunSentId,
   setAutomationRunThread,
+  REFUSED,
   THREAD_ARCHIVED_ERROR,
   type AutomationRow,
   type AutomationRunRow,
   type Db,
 } from "./data.js";
-import { loopAgent, type FallbackSdk } from "./fallback.js";
+import { fallbackNote, loopAgent, type FallbackSdk } from "./fallback.js";
 import { publishAutomationChange } from "./realtime.js";
 import { savedReports } from "./review.js";
 import { executeStoredScript, mapScriptResultToRun } from "./script-runner.js";
@@ -96,11 +98,15 @@ function isProjectGoneError(error: unknown): boolean {
   return projectGoneErrorSchema.safeParse(error).success;
 }
 
+/** The header names the loop, so the chat shows it as a "Loop run" divider (LoopRunMarker.tsx). Keep the prefix:
+ *  the server finds loop runs by it. */
 function renderAutomationDueMessage(args: {
   automationId: string;
+  name: string;
   prompt: string;
 }): string {
-  return `[room-cli automation due:${args.automationId}]\n\n${args.prompt}`;
+  const name = args.name.replace(/["\]\s]+/g, " ").trim();
+  return `[room-cli automation due:${args.automationId}${name ? ` "${name}"` : ""}]\n\n${args.prompt}`;
 }
 
 /** The loop's prompt with its webhook events as data, as cloud loops send it (ADR 0262). */
@@ -217,16 +223,20 @@ export async function executeAgentRun(
       pastNotes(room, db, args.automation.id),
       reportAsk(room.sdk),
     ]);
+    const agent = await loopAgent(room.sdk, db, args.automation, args.execution);
     const input = {
       requestId: args.run.id,
       projectId: args.automation.projectId,
       environment: args.execution.environment,
       prompt: withEvents(
-        args.execution.prompt + memoryText(notes) + ask,
+        fallbackNote(args.automation, args.execution, agent) +
+          args.execution.prompt +
+          memoryText(notes) +
+          ask,
         args.events,
       ),
       title: args.automation.name,
-      ...(await loopAgent(room.sdk, db, args.automation, args.execution)),
+      ...agent,
       permissionMode: args.execution.permissionMode,
     };
     let spawned: unknown;
@@ -395,6 +405,7 @@ async function reuseTargetThreadForRun(
         type: "text",
         text: renderAutomationDueMessage({
           automationId: args.automation.id,
+          name: args.automation.name,
           prompt: withEvents(args.execution.prompt + ask, args.events),
         }),
         mentions: [],
@@ -511,17 +522,22 @@ export async function closeAutomationRunForSettledThread(
     status: "idle" | "failed";
     error?: string | null;
     rateLimited?: boolean;
+    /** The agent whose login failed this turn. */
+    signIn?: string;
+    /** The provider refused the work: the run fails, and its retry goes to the other provider (fallback.ts). */
+    refused?: boolean;
   },
 ): Promise<void> {
   const runs = listRunningAutomationRunsByThread(db, args.threadId);
   const now = Date.now();
   const changedProjects = new Set<string>();
-  const error = args.error ?? "Turn failed";
+  const error = `${args.refused ? REFUSED : ""}${args.error ?? "Turn failed"}`;
   for (const run of runs) {
     const stopped =
       args.status === "idle" &&
       (await stoppedRunSkip(room, run, args.threadId, args.threadCreatedAt, true));
-    // A plan limit is the agent's account, not the loop: skip the run, so it never counts toward a pause.
+    // A plan limit is the agent's account, not the loop: skip the run, so it never counts toward a pause. So is a
+    // failed login of a one-agent repeating loop's own agent, which also holds the loop until it signs in again (#609).
     const closed = stopped
       ? closeAutomationRun(db, {
           runId: run.id,
@@ -537,13 +553,21 @@ export async function closeAutomationRunForSettledThread(
             threadId: args.threadId,
             now,
           })
-        : closeAutomationRun(db, {
-            runId: run.id,
-            status: args.status === "idle" ? "succeeded" : "failed",
-            error: args.status === "idle" ? null : error,
-            threadId: args.threadId,
-            now,
-          });
+        : args.status === "failed" && args.signIn
+          ? closeRunForSignIn(db, {
+              runId: run.id,
+              threadId: args.threadId,
+              providerId: args.signIn,
+              error,
+              now,
+            })
+          : closeAutomationRun(db, {
+              runId: run.id,
+              status: args.status === "idle" ? "succeeded" : "failed",
+              error: args.status === "idle" ? null : error,
+              threadId: args.threadId,
+              now,
+            });
     if (!closed) continue;
     const automation = getAutomation(db, closed.automationId);
     if (automation) changedProjects.add(automation.projectId);

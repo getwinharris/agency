@@ -1,9 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import type { CustomProviderModel } from "@cloudroom/config/app-managed-config";
 import { DEFAULTS } from "@cloudroom/config/defaults";
+import { getInstalledPlugin, type DbConnection } from "@cloudroom/db";
 import { readOrCreateSecretFile } from "@cloudroom/secret-storage";
 import type { AppSurface, RequestAppSurface } from "@cloudroom/config/app-surface";
 import type { ServerLogger } from "../../types.js";
+import { isPublicPlugin } from "../plugins/plugin-registration.js";
+import type { ProviderRegistryService } from "../providers/provider-registry.js";
+import { modelName } from "./usage-analytics.js";
 
 export const TELEMETRY_ID_FILE_NAME = "telemetry-id";
 /** Events wait in memory and reach our own server through the website in batches (ADR 20261102-201050). */
@@ -15,10 +20,10 @@ const telemetryAppSurfaceStorage = new AsyncLocalStorage<RequestAppSurface>();
 export type TelemetryExecution = "local" | "cloud_sandbox" | "cloud_vm";
 
 /** The desktop app's first-run setup funnel: which step people see, act on, finish, skip, or leave. */
-export const SETUP_STEPS = ["account", "agent", "github", "project", "first_agent"] as const;
+export const SETUP_STEPS = ["account", "agent", "github", "project"] as const;
 export const SETUP_ACTIONS = ["viewed", "started", "done", "skipped", "closed", "detected", "waitlist"] as const;
 export const SETUP_AGENTS = ["pi", "opencode", "cursor", "hermes", "grok", "devin", "droid", "kimi", "antigravity", "fx", "openclaw", "agent-zero"] as const;
-export const SETUP_DETAILS = ["github", "google", "email", "claude", "codex", "both", "none", "existing", "found", "folder", "recent_folder", "bb_import", "chat_import", "auto", "manual", "cloud", "local", "blocked", "failed", ...SETUP_AGENTS] as const;
+export const SETUP_DETAILS = ["github", "gitlab", "google", "email", "claude", "codex", "both", "none", "existing", "found", "folder", "recent_folder", "bb_import", "chat_import", "auto", "manual", "repos", "mac", ...SETUP_AGENTS] as const;
 
 export type TelemetryValue = string | number | boolean | null;
 
@@ -160,7 +165,6 @@ export type TelemetryEvent =
   | { name: "limit_card"; properties: { provider: string; execution: TelemetryExecution; can_switch_account: boolean; other_agents: number } }
   | { name: "upgrade_prompt"; properties: { where: (typeof UPGRADE_PROMPTS)[number]; action: "viewed" | "clicked" } }
   | { name: "activation_step"; properties: { step: ActivationStep; action: "clicked" | "done" | "hidden" } }
-  | { name: "starter_prompt"; properties: { starter: StarterPrompt } }
   | { name: "popup"; properties: { popup: Popup; action: "viewed" | "closed" | PopupDetail } }
   /** A card at the top right (docs/scopes/corner-cards.md). `viewed`: a new showing started. `key` names the showing; `variant` is its design. */
   | { name: "corner"; properties: { card: CornerCard; key: string; action: "viewed" | CornerAnswer; variant?: string } }
@@ -180,17 +184,17 @@ export type ShareAction = (typeof SHARE_CLICKS)[number] | "created" | "updated" 
 export const WRAPPED_ACTIONS = ["viewed", "opened", "closed", "saved", "copied", "shared"] as const;
 export const CLOUD_CHOICE_ACTIONS = ["picked_local", "cloud_blocked", "forced_local", "switched_agent"] as const;
 export const CLOUD_CHOICE_REASONS = ["signed_out", "agent_unsupported", "agent_not_in_cloud", "claude_not_connected", "queue", "region"] as const;
-export const UPGRADE_PROMPTS = ["limit_notice", "queue", "queue_badge", "plan_card", "free_tip", "auto_delete", "try_cloud", "new_thread_cloud", "limit_notice_pack", "mac_battery", "mac_cpu", "mac_memory", "mac_heat", "mac_disk", "mac_network", "moment_slept", "moment_quit", "moment_crowded"] as const;
-export const ACTIVATION_STEPS = ["cloud", "subagents", "second", "phone", "loop"] as const;
+export const UPGRADE_PROMPTS = ["limit_notice", "queue", "queue_badge", "capacity_card", "capacity_badge", "limit_link", "plan_card", "free_tip", "auto_delete", "try_cloud", "new_thread_cloud", "limit_notice_pack", "mac_battery", "mac_cpu", "mac_memory", "mac_heat", "mac_disk", "mac_network", "moment_slept", "moment_quit", "moment_crowded", "one_click_scan"] as const;
+export const ACTIVATION_STEPS = ["cloud", "skill", "loop", "subagents", "phone"] as const;
 export type ActivationStep = (typeof ACTIVATION_STEPS)[number];
-export const STARTER_PROMPTS = ["security", "keys", "packages", "mac"] as const;
-export type StarterPrompt = (typeof STARTER_PROMPTS)[number];
 export const POPUPS = ["credits", "star", "install", "star_card", "cloud_card"] as const;
 export type Popup = (typeof POPUPS)[number];
 export const POPUP_DETAILS = ["starred", "opened", "already", "migrated"] as const;
 export type PopupDetail = (typeof POPUP_DETAILS)[number];
-/** The cards at the top right, as the app's corner module lists them (packages/shared-ui/src/lib/corner.ts). */
-export const CORNER_CARDS = ["invite", "checklist", "wrapped", "scan", "partner"] as const;
+/** The cards at the top right, as the app's corner module lists them (packages/shared-ui/src/lib/corner.ts).
+ *  `build` is the "build next" note on the chat input (docs/scopes/build-next.md): it never shows at the top right,
+ *  and only keeps its showings and answers in the same record. Its `variant` is the bet the user ticked. */
+export const CORNER_CARDS = ["invite", "call", "checklist", "wrapped", "scan", "partner", "build"] as const;
 export type CornerCard = (typeof CORNER_CARDS)[number];
 export const CORNER_ANSWERS = ["opened", "closed"] as const;
 export type CornerAnswer = (typeof CORNER_ANSWERS)[number];
@@ -201,12 +205,129 @@ export type PluginTelemetryProperties = Record<string, TelemetryValue>;
 /** Where batches go. Signed-in apps add their login, so the website can save the verified account with the events. */
 export type TelemetryTarget = { website: string; authorization?: string };
 
+/** Masks custom/non-public model names and private/custom provider IDs before events leave this computer. */
+export interface TelemetryPrivacyFilter {
+  isPrivateModel(model: string): boolean;
+  isPrivateProvider(provider: string): boolean;
+}
+
+const PUBLIC_MODEL_VENDORS = new Set([
+  "openrouter", "anthropic", "openai", "google", "google-ai", "google-vertex", "google-gemini-cli",
+  "xai", "x-ai", "grok", "moonshot", "moonshotai", "moonshotai-cn", "kimi", "kimi-for-coding",
+  "deepseek", "qwen", "qwen-portal", "alibaba", "alibaba-coding-plan", "dashscope",
+  "meta", "meta-llama", "mistral", "mistralai", "mistral-ai", "zhipu", "zhipuai", "zai", "z-ai",
+  "zai-coding-plan", "minimax", "minimax-cn", "cursor", "cohere", "perplexity",
+  "amazon", "amazon-bedrock", "aws-bedrock", "bedrock", "vertex", "azure", "azure-openai",
+  "nvidia", "microsoft", "huggingface", "together", "fireworks", "groq", "cerebras", "sambanova",
+  "vercel", "opencode", "opencode-go", "opencode-zen", "github-copilot", "copilot", "codex", "claude",
+  "gemini", "antigravity", "droid", "factory", "devin", "hermes", "fx", "amp",
+  "kilo", "kilo-auto", "cline", "openclaw", "agent-zero", "stepfun", "bytedance", "bytedance-seed",
+  "xiaomi", "ai21", "nousresearch", "nous", "allenai", "inflection", "inception", "arcee-ai",
+  "featherless", "chutes", "nebius", "novita", "deepinfra", "baseten", "replicate", "cloudflare",
+  "synthetic", "venice",
+]);
+const PUBLIC_MODEL_SENTINELS = new Set(["auto", "default", "best", "unknown", "opusplan"]);
+const KILO_AUTO_MODES = new Set(["free", "frontier", "balanced", "efficient"]);
+const PUBLIC_MODEL_SUFFIX = /:(?:free|thinking|beta|exacto|nitro|floor|online|extended|high|medium|low|max|fast)$/i;
+const PUBLIC_MODEL_FAMILY =
+  /^(?:(?:claude|opus|sonnet|haiku|fable|gpt|chatgpt|codex|gemini|gemma|grok|kimi|moonshot|deepseek|qwen|qwq|llama|muse|mistral|mixtral|codestral|devstral|pixtral|ministral|magistral|glm|minimax|composer|nova|command|sonar|phi|nemotron|granite|trinity|mercury|doubao|seed|step|swe|devin|jamba|hermes|mimo|big-pickle)(?:$|[0-9._ -])|o[134](?:$|[- .]))/;
+
+/** Allowlist for public model names (raw IDs or normalized display names). Anything else becomes "custom". */
+export function isPublicModel(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 120) return false;
+  const cleaned = trimmed.replace(/\[\d+[km]\]$/i, "").replace(PUBLIC_MODEL_SUFFIX, "");
+  // Reject ARNs, fine-tune IDs (`ft:...`), Ollama tags, or other private qualifiers.
+  if (cleaned.includes(":")) return false;
+  const parts = cleaned.split("/");
+  if (parts.length > 3 || parts.some((part) => !part)) return false;
+  const prefixes = parts.slice(0, -1).map((part) => part.toLowerCase());
+  if (!prefixes.every((prefix) => PUBLIC_MODEL_VENDORS.has(prefix))) return false;
+  const base = parts[parts.length - 1]!.toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._ -]{0,80}$/.test(base)) return false;
+  if (PUBLIC_MODEL_SENTINELS.has(base)) return true;
+  if (prefixes[prefixes.length - 1] === "kilo-auto" && KILO_AUTO_MODES.has(base)) return true;
+  return PUBLIC_MODEL_FAMILY.test(base);
+}
+
+export function createTelemetryPrivacyFilter(args: {
+  db: DbConnection;
+  getCustomModels: () => readonly CustomProviderModel[];
+  providerRegistry: Pick<ProviderRegistryService, "get" | "list">;
+}): TelemetryPrivacyFilter {
+  return {
+    isPrivateModel(model: string): boolean {
+      const customModels = args.getCustomModels();
+      if (customModels.length > 0) {
+        const normalized = modelName(model);
+        const configured = customModels.some(
+          (entry) =>
+            entry.model === model ||
+            entry.displayName === model ||
+            (normalized !== "Unknown" && modelName(entry.model) === normalized),
+        );
+        if (configured) return true;
+      }
+      return !isPublicModel(model);
+    },
+    isPrivateProvider(provider: string): boolean {
+      if (!provider || provider === "none") return false;
+      const registration = args.providerRegistry.get(provider);
+      if (registration !== null) {
+        if (registration.bridgeOptions.customAgent === true) return true;
+        const plugin = getInstalledPlugin(args.db, registration.pluginId);
+        return (
+          plugin !== undefined &&
+          !isPublicPlugin(plugin.provenance, plugin.catalogMarketplaceName ?? undefined)
+        );
+      }
+      // Once ACP providers are loaded, every shipped ACP agent is registered; any other `acp-*` ID is a removed custom one.
+      if (
+        provider.startsWith("acp-") &&
+        args.providerRegistry.list().some((entry) => entry.info.family === "acp")
+      ) {
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
+function sanitizeTelemetryProperties(
+  name: string,
+  eventProperties: Record<string, unknown>,
+  filter: TelemetryPrivacyFilter | null,
+): Record<string, unknown> {
+  let patched: Record<string, unknown> | null = null;
+  const set = (key: string, value: string): void => {
+    patched ??= { ...eventProperties };
+    patched[key] = value;
+  };
+  let privateProvider = false;
+  if (filter) {
+    const providerKeys = name === "harness_switched" ? ["from", "to"] : ["provider", "default_agent"];
+    for (const key of providerKeys) {
+      const value = eventProperties[key];
+      if (typeof value === "string" && filter.isPrivateProvider(value)) {
+        set(key, "custom");
+        if (key === "provider") privateProvider = true;
+      }
+    }
+  }
+  const model = eventProperties.model;
+  if (typeof model === "string" && model.trim().length > 0 && (privateProvider || (filter ? filter.isPrivateModel(model) : !isPublicModel(model)))) {
+    set("model", "custom");
+  }
+  return patched ?? eventProperties;
+}
+
 export interface TelemetryService {
   capture(event: TelemetryEvent): void;
   capturePlugin(pluginId: string, name: string, properties: PluginTelemetryProperties): void;
   flush(): Promise<void>;
   setEnabled(enabled: boolean): void;
   setPlanSource(source: () => string | null): void;
+  setPrivacyFilter(filter: TelemetryPrivacyFilter): void;
   setTargetSource(source: () => Promise<TelemetryTarget>): void;
 }
 
@@ -227,6 +348,7 @@ const noopTelemetryService: TelemetryService = {
   flush: () => Promise.resolve(),
   setEnabled: () => {},
   setPlanSource: () => {},
+  setPrivacyFilter: () => {},
   setTargetSource: () => {},
 };
 
@@ -252,14 +374,19 @@ export async function createTelemetryService(
   if (!args.enabled || args.appVersion === DEFAULTS.appVersion) {
     return noopTelemetryService;
   }
-  const distinctId = await readOrCreateSecretFile({
+  let distinctId: Promise<string> | null = null;
+  const readDistinctId = () => (distinctId ??= readOrCreateSecretFile({
     bytes: 16,
     dataDir: args.dataDir,
     encoding: "hex",
     fileName: TELEMETRY_ID_FILE_NAME,
-  });
+  }).catch((error: unknown) => {
+    distinctId = null;
+    throw error;
+  }));
   let telemetryEnabled = args.telemetryEnabled;
   let planSource: () => string | null = () => null;
+  let privacyFilter: TelemetryPrivacyFilter | null = null;
   let targetSource: (() => Promise<TelemetryTarget>) | null = null;
   const queue: { id: string; name: string; at: string; properties: object }[] = [];
   let flushing: Promise<void> | null = null;
@@ -270,8 +397,10 @@ export async function createTelemetryService(
       const batch = queue.slice(0, BATCH_SIZE);
       const { website, authorization } = await targetSource();
       if (optOuts !== startedAt) return; // Turned off during that wait: this copy of the batch must not leave.
+      const installId = await readDistinctId();
+      if (optOuts !== startedAt) return;
       const response = await fetch(`${website}/api/desktop/events`, {
-        body: JSON.stringify({ install_id: distinctId, events: batch }),
+        body: JSON.stringify({ install_id: installId, events: batch }),
         headers: { "content-type": "application/json", ...(authorization ? { authorization } : {}) },
         method: "POST",
         redirect: "error",
@@ -296,13 +425,14 @@ export async function createTelemetryService(
     cloudroom_version: args.desktopVersion ?? null,
     platform: process.platform,
   };
-  const send = (name: string, eventProperties: object): void => {
+  const send = (name: string, eventProperties: Record<string, unknown>): void => {
     if (!telemetryEnabled) return;
     const appSurface = telemetryAppSurfaceStorage.getStore() ?? args.appSurface;
     const plan = planSource();
+    const sanitized = sanitizeTelemetryProperties(name, eventProperties, privacyFilter);
     const properties = {
       ...commonProperties,
-      ...eventProperties,
+      ...sanitized,
       app_surface: appSurface,
       plan: plan && PLANS.includes(plan) ? plan : null,
     };
@@ -322,6 +452,9 @@ export async function createTelemetryService(
     },
     setPlanSource(source): void {
       planSource = source;
+    },
+    setPrivacyFilter(filter): void {
+      privacyFilter = filter;
     },
     setTargetSource(source): void {
       targetSource = source;

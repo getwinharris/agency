@@ -58,6 +58,10 @@ import {
   transcribeVoiceInput,
 } from "../services/ai/voice-transcription.js";
 import {
+  getVoiceTranscriptionJob,
+  startVoiceTranscriptionJob,
+} from "../services/ai/voice-transcription-jobs.js";
+import {
   listInstallableProviderInfos,
   listSystemProviderInfos,
   resolveSystemExecutionOptions,
@@ -87,6 +91,8 @@ import {
 import { environmentProviderMachineAvailability } from "../services/environments/provider-machine-availability.js";
 import { machineProviderAcceptsEmptyInputs } from "../services/machines/provider-availability.js";
 import { requirePublicProject } from "../services/lib/entity-lookup.js";
+import { clearUnsentMinutes } from "../services/cloudroom/time-in-app.js";
+import { setMacCommandReview } from "../services/cloudroom/previews.js";
 
 const LEADING_ENVIRONMENT_PROVIDER_IDS: readonly string[] = [
   "project-checkout",
@@ -218,6 +224,7 @@ export function registerSystemRoutes(
         primaryHostId === null
           ? null
           : deps.hub.getDaemonPlatformForHost(primaryHostId),
+      telemetryAllowed: deps.config.telemetryAllowed !== false,
       voiceTranscriptionEnabled: resolveVoiceTranscriptionEnabled(deps),
       aiServices: {
         inference: deps.config.inferenceModel,
@@ -266,7 +273,13 @@ export function registerSystemRoutes(
     );
   });
 
-  put(routes.generalSettings, (context, payload) => {
+  put(routes.generalSettings, async (context, payload) => {
+    if (getGateAuthKind(context) === "machine")
+      throw new ApiError(
+        403,
+        "forbidden",
+        "Machine credentials cannot change general settings",
+      );
     const {
       showUnhandledProviderEvents,
       providerOrder: _retiredProviderOrder,
@@ -283,10 +296,12 @@ export function registerSystemRoutes(
       commandGuardEnabled: settings.commandGuardEnabled ?? current.commandGuardEnabled,
       systemPromptEnabled: settings.systemPromptEnabled ?? current.systemPromptEnabled,
       bugReportsEnabled: settings.bugReportsEnabled ?? current.bugReportsEnabled,
+      macCommandReviewEnabled: settings.macCommandReviewEnabled ?? current.macCommandReviewEnabled,
       agentQuestionsEnabled: settings.agentQuestionsEnabled ?? current.agentQuestionsEnabled,
       stripAiCoAuthorsEnabled: settings.stripAiCoAuthorsEnabled ?? current.stripAiCoAuthorsEnabled,
       providerAutoUpdate: settings.providerAutoUpdate ?? current.providerAutoUpdate,
       hiddenProviderIds: settings.hiddenProviderIds ?? current.hiddenProviderIds,
+      customProviderOrder: settings.customProviderOrder ?? current.customProviderOrder,
       showDiagnosticEvents:
         diagnosticValue === undefined ||
         (showUnhandledProviderEvents !== undefined &&
@@ -294,8 +309,14 @@ export function registerSystemRoutes(
           ? showUnhandledProviderEvents
           : diagnosticValue,
     });
+    if (updatedSettings.macCommandReviewEnabled !== current.macCommandReviewEnabled) {
+      await setMacCommandReview(deps, updatedSettings.macCommandReviewEnabled);
+    }
     setAppSettings(deps.db, updatedSettings);
     deps.telemetry.setEnabled(updatedSettings.telemetryEnabled);
+    if (!updatedSettings.telemetryEnabled) {
+      void clearUnsentMinutes(deps).catch(() => {});
+    }
     deps.hub.notifySystem(["config-changed"]);
     if (current.providerAutoUpdate.some((id) => !updatedSettings.providerAutoUpdate.includes(id))) {
       for (const hostId of deps.hub.listConnectedHostIds()) {
@@ -625,23 +646,41 @@ export function registerSystemRoutes(
     context.json(await restartSystemModelDiscovery(deps, body)),
   );
 
-  post(routes.voiceTranscription, async (context) => {
+  async function readVoiceForm(context: {
+    req: { formData(): Promise<FormData> };
+  }): Promise<{ file: File; prompt?: string; clientId?: string }> {
     const formData = await context.req.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw new ApiError(400, "invalid_request", "Audio file is required");
     }
+    const rawPrompt = formData.get("prompt");
+    const rawClientId = formData.get("clientId");
+    return {
+      file,
+      prompt: typeof rawPrompt === "string" ? rawPrompt : undefined,
+      clientId: typeof rawClientId === "string" ? rawClientId : undefined,
+    };
+  }
+
+  post(routes.voiceTranscription, async (context) => {
+    const form = await readVoiceForm(context);
     return context.json({
       text: await transcribeVoiceInput(deps, {
-        file,
-        prompt:
-          typeof formData.get("prompt") === "string"
-            ? String(formData.get("prompt"))
-            : undefined,
+        ...form,
         relayed: getGateAuthKind(context) !== null,
       }),
     });
   });
+
+  post(routes.startVoiceTranscriptionJob, async (context) => {
+    const form = await readVoiceForm(context);
+    return context.json(startVoiceTranscriptionJob(deps, form), 202);
+  });
+
+  get(routes.voiceTranscriptionJob, (context) =>
+    context.json(getVoiceTranscriptionJob(deps, context.req.param("id"))),
+  );
 
   get(routes.version, async (context, query) =>
     context.json(

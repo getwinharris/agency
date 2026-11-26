@@ -27,6 +27,82 @@ const SCRIPT_TYPES: [&str; 10] = [
 ];
 // Where read-only commands may write (READ_ONLY), so agents can swap paths there without asking.
 pub(super) const TEMP_FOLDERS: [&str; 2] = ["/private/tmp", "/private/var/folders"];
+const NOT_APPROVED: &str =
+    "The user did not approve this command on their Mac. Do not retry it unless they ask you to.";
+const CHANGED: &str = "The folder changed after it was approved, so this command did not run.";
+// A command whose sandbox slept (or went Off) never starts: it would change the Mac with nobody to read the result.
+const UNWANTED: &str =
+    "The Mac stopped taking commands from this sandbox, so this command did not run.";
+const STOPPED: &str =
+    "The sandbox stopped while the approval was open, so this command did not run.";
+
+/// The real path of the folder a command would run in, and its identity. The OS opens the path as given, so `..` never
+/// skips a missing part, and its real path must be that same folder. The error is the one starting there would give.
+pub(super) fn real_folder(path: &Path) -> std::result::Result<(String, [u64; 2]), String> {
+    use std::os::unix::fs::MetadataExt;
+    let info = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if !info.is_dir() {
+        return Err(std::io::Error::from_raw_os_error(20).to_string()); // ENOTDIR
+    }
+    let real = disk_path(path).unwrap_or_else(|| realpath(path));
+    match std::fs::metadata(&real) {
+        Ok(same) if (same.dev(), same.ino()) == (info.dev(), info.ino()) => Ok((
+            real.to_string_lossy().into_owned(),
+            [info.dev(), info.ino()],
+        )),
+        _ => {
+            Err("The folder changed while the Mac checked it, so this command did not run.".into())
+        }
+    }
+}
+
+/// macOS: an open folder's real path in the letter case stored on disk, as `pwd -P` shows it (F_GETPATH). realpath
+/// keeps the typed case, such as ~/CODE for ~/code. None if it can't tell.
+#[cfg(target_os = "macos")]
+pub(super) fn disk_path(path: &Path) -> Option<PathBuf> {
+    use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt, io::AsRawFd};
+    unsafe extern "C" {
+        fn fcntl(fd: i32, command: i32, ...) -> i32;
+    }
+    const F_GETPATH: i32 = 50;
+    // Only a folder: a FIFO swapped in at this path would block the open forever.
+    const O_DIRECTORY: i32 = 0x100000;
+    let folder = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECTORY)
+        .open(path)
+        .ok()?;
+    let mut buffer = [0u8; 1024]; // MAXPATHLEN
+    if unsafe { fcntl(folder.as_raw_fd(), F_GETPATH, buffer.as_mut_ptr()) } == -1 {
+        return None;
+    }
+    let end = buffer.iter().position(|&byte| byte == 0)?;
+    (end > 0).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(&buffer[..end])))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(super) fn disk_path(_: &Path) -> Option<PathBuf> {
+    None
+}
+
+/// Whether a real folder is inside a temp folder. Folders compare by identity, so another spelling of the same folder,
+/// such as other letter case, still counts.
+pub(super) fn in_temp(folder: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let id = |path: &Path| {
+        std::fs::metadata(path)
+            .ok()
+            .map(|info| (info.dev(), info.ino()))
+    };
+    let roots: Vec<_> = TEMP_FOLDERS
+        .iter()
+        .filter_map(|root| id(Path::new(root)))
+        .collect();
+    folder.ancestors().any(|path| {
+        TEMP_FOLDERS.iter().any(|root| path == Path::new(root))
+            || id(path).is_some_and(|path| roots.contains(&path))
+    })
+}
 // A push's own tar. macOS's bsdtar refuses `..` and writing through symlinks, even when PATH puts GNU tar first.
 const COPY_TAR: &str = if cfg!(target_os = "macos") {
     "/usr/bin/tar"
@@ -108,6 +184,24 @@ fn saved_level(config: &Value) -> Option<&'static str> {
     }
 }
 
+/// Whether Jev Mac-command security review is enabled in Settings -> Privacy.
+/// Defaults to true only when the file does not exist; fails closed on read or parse errors.
+fn review_enabled(config: &Value) -> bool {
+    let Some(file) = text(config, "connectionFile") else {
+        return false;
+    };
+    let path = Path::new(file).with_file_name("cloudroom-mac-review.json");
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+        Err(_) => return false,
+    };
+    match serde_json::from_str::<Value>(&raw) {
+        Ok(Value::Object(saved)) => saved.get("enabled") == Some(&Value::Bool(true)),
+        _ => false,
+    }
+}
+
 /// Python's truthiness, for job fields.
 fn truthy(value: &Value) -> bool {
     match value {
@@ -156,7 +250,7 @@ fn expanduser(text: &str, home: &Path) -> PathBuf {
 }
 
 /// Python's `shlex.quote`.
-pub(super) fn quote(text: &str) -> String {
+pub(crate) fn quote(text: &str) -> String {
     if text.is_empty() {
         return "''".into();
     }
@@ -281,20 +375,30 @@ pub(super) fn popup_text(job: &Value, home: &Path) -> String {
     } else {
         String::new()
     };
+    // The folder is the real path the command runs in (refusal resolves it), so `.`, `..` and links can't hide it.
+    let cwd = job["cwd"]
+        .as_str()
+        .filter(|cwd| !cwd.is_empty())
+        .unwrap_or("~");
+    let shown = match Path::new(cwd).strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+        Ok(rest) => format!("~/{}", rest.to_string_lossy()),
+        _ => cwd.to_owned(),
+    };
+    let (folder, cut) = visible(&shown, 200, 1);
+    if cut > 0 {
+        warnings += &format!(
+            "Warning: {} more characters of the folder are not shown.\n\n",
+            thousands(cut)
+        );
+    }
     if ["/tmp", "/var/folders", "TMPDIR"]
         .iter()
         .any(|word| raw.contains(word))
+        || in_temp(Path::new(cwd))
     {
         warnings += "Warning: the command uses files in a temp folder. Cloud agents can change those without asking, and they are not shown.\n\n";
     }
-    let (folder, cut) = visible(
-        job["cwd"]
-            .as_str()
-            .filter(|cwd| !cwd.is_empty())
-            .unwrap_or("~"),
-        200,
-        1,
-    );
     let mut text = format!(
         "Command:\n{}\n\nFolder: {folder}{}",
         block(&command),
@@ -1333,6 +1437,10 @@ impl Jobs {
 
     /// Why this job may not run as asked, or None. Everything else that is not full access runs read-only.
     pub(super) async fn refusal(&self, core: &Core, job: &mut Value) -> Option<String> {
+        // Only Ask first's own check below approves a folder, never the job itself.
+        if let Some(fields) = job.as_object_mut() {
+            fields.remove("approvedFolder");
+        }
         let (current, closed) = self.closed(core).await;
         if closed.is_some() {
             return closed;
@@ -1353,7 +1461,26 @@ impl Jobs {
         if current == "read-only" {
             return Some("Mac access is Read-only, so this command cannot change the Mac. The user can switch it to Ask first or Full in the Cloudroom sidebar.".into());
         }
-        if current == "ask" && self.approve(core, job).await {
+        if current != "ask" {
+            return Some(NOT_APPROVED.into());
+        }
+        // Ask first shows, and then runs in, the same real folder: never the agent's text, whose `..` or links could point
+        // elsewhere, such as a temp folder it filled.
+        let cwd = job["cwd"]
+            .as_str()
+            .filter(|cwd| !cwd.is_empty())
+            .unwrap_or("~");
+        match real_folder(&home().join(expanduser(cwd, &home()))) {
+            Ok((real, id)) => {
+                job["cwd"] = json!(real);
+                job["approvedFolder"] = json!(id);
+            }
+            Err(error) => return Some(error),
+        }
+        if !self.wanted.lock().unwrap().contains(&core.key) {
+            return Some(UNWANTED.into());
+        }
+        if self.approve(core, job).await {
             // The user may have lowered Mac access while the popup was open.
             let now = level(&self.enabled().unwrap_or(Value::Null));
             return if ["ask", "full"].contains(&now) {
@@ -1362,7 +1489,7 @@ impl Jobs {
                 Some("Mac access was lowered, so this command did not run.".into())
             };
         }
-        Some("The user did not approve this command on their Mac. Do not retry it unless they ask you to.".into())
+        Some(NOT_APPROVED.into())
     }
 
     async fn approve(&self, core: &Core, job: &Value) -> bool {
@@ -1399,6 +1526,9 @@ impl Jobs {
     }
 
     fn review(self: &Arc<Self>, core: &Core, job: &Value, level: &'static str, script: bool) {
+        if !review_enabled(&core.config) {
+            return;
+        }
         let (Some(account), Some(token)) = (
             core.connection["account"]["id"]
                 .as_str()
@@ -1496,6 +1626,16 @@ impl Jobs {
                 None => Some("The Mac could not download this command's input from the cloud, so it did not run. Try again.".to_owned()),
             };
         }
+        // Approved on Ask first: Core must still want it. The pop-up stays open up to 5 minutes after the first confirmation,
+        // and a sandbox that slept or restarted meanwhile would leave nobody to read the result (feedback 0024).
+        if refused.is_none()
+            && job.get("approvedFolder").is_some()
+            && post(json!({"state": "running"}), Duration::from_secs(10))
+                .await
+                .is_err()
+        {
+            refused = Some(STOPPED.to_owned());
+        }
         // Refused commands are checked too, but a script file is read only for a command that will run.
         self.review(
             &core,
@@ -1520,10 +1660,10 @@ impl Jobs {
                 json!({"state": "done", "code": 126, "stdout": "", "stderr": hex(reason.as_bytes()), "truncated": false})
             }
             None => {
-                let sandbox = sandboxed.then_some(&core.key);
                 self.run(
                     &job,
-                    sandbox,
+                    &core.key,
+                    sandboxed,
                     &data,
                     text(&core.config, "shellPath"),
                     text(&core.config, "serverUrl"),
@@ -1541,20 +1681,20 @@ impl Jobs {
         }
     }
 
-    /// Runs one approved job as this user, through the login shell, and returns its result. With `sandbox`, the key of
-    /// the core that sent it, it runs read-only, and everything it starts ends with it or with that core's stream.
+    /// Runs one approved job from `core` as this user, through the login shell, and returns its result. `sandboxed` runs
+    /// it read-only, and everything it starts ends with it or with that core's stream.
     pub(super) async fn run(
         &self,
         job: &Value,
-        sandbox: Option<&Key>,
+        core: &Key,
+        sandboxed: bool,
         data: &Path,
         saved_path: Option<&str>,
         server: Option<&str>,
     ) -> Value {
         let id = job["id"].as_str().unwrap_or_default().to_owned();
-        let sandboxed = sandbox.is_some();
         // Never the job's ID, which a sandbox can pick.
-        let mark = match sandbox.map(|_| super::uuid4()).transpose() {
+        let mark = match sandboxed.then(super::uuid4).transpose() {
             Ok(token) => token.map(|token| format!("{}.{}", self.boot, &token[..16])),
             Err(error) => {
                 return json!({"state": "done", "code": 127, "stdout": "", "stderr": hex(error.to_string().as_bytes()), "truncated": false});
@@ -1588,15 +1728,38 @@ impl Jobs {
         }
         let raw = job["command"].as_str().unwrap_or_default();
         // Agents and Core's copy scripts write sh, which fish can't parse (#204), so fish loads its login setup, then
-        // hands the unchanged command to sh.
-        let line = if fish {
-            format!(
-                "exec /bin/sh -c '{}'",
-                raw.replace('\\', "\\\\").replace('\'', "\\'")
-            )
+        // hands the unchanged command to sh. Inside fish's '…' only \ and ' are special.
+        let fish_quote =
+            |text: &str| format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"));
+        let mut line = if fish {
+            format!("exec /bin/sh -c {}", fish_quote(raw))
         } else {
             raw.to_owned()
         };
+        // An approved command must start in its folder, whatever the login files did: builtins, so their functions can't
+        // pose as cd, and the folder checked once there (#2470). zsh's `command` skips builtins; dash and ksh have no
+        // `builtin`, so other shells use `command`.
+        let approved = job["cwd"]
+            .as_str()
+            .filter(|_| !job["approvedFolder"].is_null());
+        if let Some(cwd) = approved {
+            line = if fish {
+                let (cwd, changed) = (fish_quote(cwd), fish_quote(CHANGED));
+                format!(
+                    "builtin cd {cwd}; and builtin test (builtin pwd -P) = {cwd}; or begin; builtin echo {changed} >&2; builtin exit 126; end; {line}"
+                )
+            } else {
+                let (cwd, changed) = (quote(cwd), quote(CHANGED));
+                let b = if login.ends_with("/zsh") {
+                    "builtin"
+                } else {
+                    "command"
+                };
+                format!(
+                    "{b} cd -- {cwd} && {b} test \"$({b} pwd -P)\" = {cwd} || {{ {b} echo {changed} >&2; {b} exit 126; }}; {line}"
+                )
+            };
+        }
         let mut argv = match &mark {
             Some(mark) => read_only(data, &home(), &[&self.mark, &self.boot, mark]),
             None => Vec::new(),
@@ -1609,6 +1772,16 @@ impl Jobs {
                 .unwrap_or("~"),
             &home(),
         ));
+        // The folder the user approved must still be the same folder, at the same real path.
+        if let Some(cwd) = approved
+            && real_folder(&folder)
+                != Ok((
+                    cwd.to_owned(),
+                    serde_json::from_value(job["approvedFolder"].clone()).unwrap_or_default(),
+                ))
+        {
+            return json!({"state": "done", "code": 126, "stdout": "", "stderr": hex(CHANGED.as_bytes()), "truncated": false});
+        }
         let mut result =
             json!({"state": "done", "code": 127, "stdout": "", "stderr": "", "truncated": false});
         let spawned = {
@@ -1626,11 +1799,10 @@ impl Jobs {
                 denied(
                     "Cloudroom on the Mac is stopping, so this command did not run. Try again in a minute.",
                 )
-            } else if sandbox.is_some_and(|key| !self.wanted.lock().unwrap().contains(key)) {
-                // end_unwanted only ends what started before: Off or a sleeping sandbox counts from here on.
-                denied(
-                    "The Mac stopped taking commands from this sandbox, so this command did not run.",
-                )
+            } else if !self.wanted.lock().unwrap().contains(core) {
+                // end_unwanted only ends what started before: Off or a sleeping sandbox counts from here on. A write
+                // command too, as in client.py.
+                denied(UNWANTED)
             } else {
                 let spawned = command(&argv[0])
                     .args(&argv[1..])
@@ -1643,9 +1815,9 @@ impl Jobs {
                     && let Some(pid) = child.id()
                 {
                     processes.running.insert(id.clone(), pid);
-                    if let (Some(mark), Some(key)) = (&mark, sandbox) {
+                    if let Some(mark) = &mark {
                         let running = Sandbox {
-                            core: Some(key.clone()),
+                            core: Some(core.clone()),
                             allowed: None,
                             shell: Some(pid),
                         };

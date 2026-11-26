@@ -145,7 +145,7 @@ describe("buildPluginApp", () => {
     expect(css).toContain(".animate-in");
     expect(css).toContain(".fade-in-0");
     const scope =
-      ":where([data-bb-plugin=fixture],[data-bb-plugin-root]:not([data-bb-plugin]))";
+      ":where([data-room-plugin=fixture],[data-room-plugin-root]:not([data-room-plugin]),[data-bb-plugin=fixture],[data-bb-plugin-root]:not([data-bb-plugin]))";
     expect(css).toContain(`${scope} .animate-in`);
     expect(css).toContain(`${scope}.animate-in`);
     expect(css).not.toContain("@scope");
@@ -189,7 +189,7 @@ describe("buildPluginApp", () => {
       css.lastIndexOf("@layer utilities{"),
     );
     const scope =
-      ":where([data-bb-plugin=fixture],[data-bb-plugin-root]:not([data-bb-plugin]))";
+      ":where([data-room-plugin=fixture],[data-room-plugin-root]:not([data-room-plugin]),[data-bb-plugin=fixture],[data-bb-plugin-root]:not([data-bb-plugin]))";
     expect(css).not.toContain(`${scope} .fixture-highlight`);
     expect(css).not.toContain(`${scope}.fixture-highlight`);
   });
@@ -365,12 +365,7 @@ describe("buildPluginApp", () => {
       packageName: "bb-plugin-scaffolded",
       bbVersion: "0.9.0",
     });
-    await linkScaffoldDeps(targetDir, [
-      "@radix-ui/react-checkbox",
-      "@radix-ui/react-slot",
-      "@hugeicons/react",
-      "@hugeicons/core-free-icons",
-    ]);
+    await linkScaffoldDeps(targetDir, ["@hugeicons/core-free-icons"]);
     const result = await buildPluginApp(
       targetDir,
       TEST_ROOM_VERSION,

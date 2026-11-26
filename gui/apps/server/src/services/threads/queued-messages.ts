@@ -4,6 +4,7 @@ import {
   createQueuedThreadMessageInTransaction,
   deleteClaimedQueuedThreadMessageInTransaction,
   getQueuedThreadMessage,
+  keepQueuedThreadNoticeForUser,
   getEnvironment,
   isErrorQueueReleaseHeld,
   getHost,
@@ -15,14 +16,19 @@ import {
   releaseStaleQueuedMessageClaims,
   setQueuedThreadMessageWaitingOn,
   threadHasProviderSession,
+  events,
+  listStoredTurnInputAcceptedRowsByClientRequestIds,
   type ClaimedQueuedThreadMessageRow,
+  type DbConnection,
   type DbQueryConnection,
   type QueuedThreadMessageClaimPolicy,
   type QueuedThreadMessageEligibility,
   type QueuedThreadMessageRow,
 } from "@cloudroom/db";
+import { and, eq, sql } from "drizzle-orm";
 import { queuedMessageSystemNoticeSchema } from "@cloudroom/domain";
 import type {
+  ClientTurnRequestId,
   QueuedMessageWaitingOn,
   Thread,
   ThreadQueuedMessage,
@@ -52,8 +58,10 @@ import {
   isManualCompactionActive,
 } from "./thread-events.js";
 import { attemptDispatch } from "./dispatch-attempt.js";
-import { deliverParentSystemMessage } from "./parent-system-messages.js";
-import { withChildReportAge } from "./child-thread-notifications.js";
+import {
+  deliverQueuedParentNotice,
+  isChildInteractionSettled,
+} from "./child-thread-notifications.js";
 import {
   createQueuedMessageClaimLostError,
   createQueuedMessageNotDeliveredError,
@@ -128,8 +136,10 @@ export function createAutomaticQueuedMessageEligibility(
       if (hold === "plan-limit" && row.systemNotice !== null) return false;
     }
     if (row.payloadKind === "retry") return true;
+    // A held retry waits for the user, so it must not hold the rest (#2279).
     retryQueued ??= listQueuedThreadMessages(deps.db, args.thread.id).some(
-      (queued) => queued.payloadKind === "retry",
+      (queued) =>
+        queued.payloadKind === "retry" && queued.failureReason === null,
     );
     return !retryQueued;
   };
@@ -272,7 +282,9 @@ export async function createQueuedMessageForThread(
               ? { kind: "stopping" }
               : { kind: "thread-busy" },
           sendAt: null,
-          payload: { kind: "inline" },
+          payload: payload.fromComposer
+            ? { kind: "inline", fromComposer: true }
+            : { kind: "inline" },
           systemNotice: null,
           hardQueue: payload.hardQueue === true,
         });
@@ -424,6 +436,32 @@ async function sendClaimedQueuedMessage(
 }
 
 /**
+ * Drops a claimed child needs-attention notice whose interaction settled
+ * while it waited, so the automatic drain doesn't wake the parent for nothing.
+ * The caller moves on to the next row itself, which keeps the order (#2452).
+ */
+function dropSettledChildNotice(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  claimed: ClaimedQueuedThreadMessageRow,
+): boolean {
+  let interactionId: string | undefined;
+  try {
+    interactionId = queuedMessageSystemNoticeSchema.parse(
+      JSON.parse(claimed.systemNotice ?? "null"),
+    ).interactionId;
+  } catch {
+    return false; // Ordinary rows and unreadable notices go the usual way.
+  }
+  if (!isChildInteractionSettled(deps.db, interactionId)) return false;
+  const dropped = deps.db.transaction(
+    (tx) => deleteClaimedQueuedThreadMessageInTransaction(tx, claimed),
+    { behavior: "immediate" },
+  );
+  if (dropped) deps.hub.notifyThread(claimed.threadId, ["queue-changed"]);
+  return dropped;
+}
+
+/**
  * Delivers a claimed row that is one of core's own system notices.
  *
  * Such a row is not a user dispatch and does not go through the checkpoint:
@@ -451,13 +489,11 @@ async function sendClaimedSystemNotice(
     );
   }
   const queuedMessage = toThreadQueuedMessage(claimed);
-  const delivered = await deliverParentSystemMessage(deps, {
+  const delivered = await deliverQueuedParentNotice(deps, {
     childReport: notice.childReport,
-    input: withChildReportAge(
-      deps.db,
-      queuedMessage.content,
-      notice.childReport,
-    ),
+    input: queuedMessage.content,
+    // An explicit send that requeues keeps the user's override (#2452).
+    interactionId: args.sendNow ? undefined : notice.interactionId,
     parentThread: args.thread,
     sendNow: args.sendNow,
     systemMessageKind: notice.kind,
@@ -590,6 +626,12 @@ export async function sendQueuedMessage(
       throw new ApiError(404, "invalid_request", "Queued message not found");
     return toThreadQueuedMessage(existing);
   }
+  if (sendNow && queuedMessage.systemNotice !== null) {
+    // Send now makes the notice the user's, even if it has to wait (#2452).
+    keepQueuedThreadNoticeForUser(deps.db, queuedMessage.id);
+  } else if (!sendNow && dropSettledChildNotice(deps, queuedMessage)) {
+    return toThreadQueuedMessage(queuedMessage);
+  }
   const thread = getThread(deps.db, args.threadId);
   if (
     thread &&
@@ -648,12 +690,20 @@ export async function sendQueuedMessageNow(
   | { delivery: "sent" }
   | { delivery: "queued"; queuedMessage: ThreadQueuedMessage }
 > {
-  await sendQueuedMessage(deps, {
-    claimPolicy: { kind: "explicit-send" },
-    mode: args.mode,
-    queuedMessageId: args.queuedMessageId,
-    threadId: args.threadId,
-  });
+  try {
+    await sendQueuedMessage(deps, {
+      claimPolicy: { kind: "explicit-send" },
+      mode: args.mode,
+      queuedMessageId: args.queuedMessageId,
+      threadId: args.threadId,
+    });
+  } catch (error) {
+    // The drain may have delivered it first; the sender must not resend (#1954).
+    if (wasQueuedMessageDrainAccepted(deps.db, args)) {
+      return { delivery: "sent" };
+    }
+    throw error;
+  }
   const remainingQueuedMessage = getQueuedThreadMessage(
     deps.db,
     args.queuedMessageId,
@@ -664,6 +714,36 @@ export async function sendQueuedMessageNow(
         queuedMessage: toThreadQueuedMessage(remainingQueuedMessage),
       }
     : { delivery: "sent" };
+}
+
+/**
+ * The drain sent this row on this thread, and the provider accepted it.
+ * Forks copy acceptances without a provider thread, so those never count.
+ */
+export function wasQueuedMessageDrainAccepted(
+  db: DbConnection,
+  args: { queuedMessageId: string; threadId: string },
+): boolean {
+  if (getQueuedThreadMessage(db, args.queuedMessageId) !== null) return false;
+  const requestIds = db
+    .select({
+      id: sql<ClientTurnRequestId>`json_extract(${events.data}, '$.requestId')`,
+    })
+    .from(events)
+    .where(
+      and(
+        eq(events.threadId, args.threadId),
+        eq(events.type, "client/turn/requested"),
+        sql`json_extract(${events.data}, '$.queuedMessageId') = ${args.queuedMessageId}`,
+      ),
+    )
+    .all()
+    .map((row) => row.id);
+  return listStoredTurnInputAcceptedRowsByClientRequestIds(db, {
+    threadId: args.threadId,
+    clientRequestIds: requestIds,
+    afterSequence: 0,
+  }).some((row) => row.providerThreadId !== null);
 }
 
 export async function sendNextQueuedMessageIfPresent(
@@ -695,6 +775,9 @@ export async function sendNextQueuedMessageIfPresent(
   ) {
     releaseClaim(deps, nextQueuedMessage);
     return false;
+  }
+  if (dropSettledChildNotice(deps, nextQueuedMessage)) {
+    return sendNextQueuedMessageIfPresent(deps, args);
   }
 
   try {

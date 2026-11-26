@@ -1,23 +1,25 @@
-import { COMPUTER } from "@cloudroom/domain";
+import { COMPUTER, gitlabRepository, isCloudGithubLoginError, stripGitUrlCredentials } from "@cloudroom/domain";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
-import { lstat, mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
+import { createWriteStream, existsSync, realpathSync } from "node:fs";
+import { lstat, mkdtemp, open, readdir, readFile, readlink, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
+import { createGzip } from "node:zlib";
 import { z } from "zod";
 import { getProject, getThread, listProjectSourcesByProjectIds, replaceProjectGitRemoteUrl, setProjectGitRemoteUrlIfMissing } from "@cloudroom/db";
+import { gitSafetyArgs } from "@cloudroom/host-workspace";
 import { tarCommand } from "@cloudroom/process-utils";
 import type { ProjectCopyProgress } from "@cloudroom/domain";
 import type { AppDeps } from "../../types.js";
 import { resolvePrimaryHostId } from "../hosts/primary-host.js";
 import { CloudroomError, UPLOAD_PART, type CloudroomClient } from "./client.js";
-import { macAccessSupported } from "./previews.js";
 import { sandboxThread } from "./sandboxes.js";
 import { redactSecrets } from "./shares.js";
 import { binding, command, saveProjectCopyProgress } from "./store.js";
-import { copyMacGithub } from "./sync.js";
 
 type Deps = Pick<AppDeps, "db" | "hub" | "config">;
 // `key` is the copy target: one folder on a shared VM, or one per thread sandbox.
@@ -25,8 +27,9 @@ type Deps = Pick<AppDeps, "db" | "hub" | "config">;
 // A GitHub project with no folder on the Mac (`localPath` null) is cloned only.
 // Teleport also brings the local branch and uncommitted work.
 /** `noEnv`: the thread's sandbox may not have the project's `.env` files (ADR 0342), so none are sent. `resumed`: a copy
- *  that goes on after a pause or an app restart, while the agent may already be working, so a move's edits go aside (#1970). */
-export type ProjectCopyJob = { threadId: string; workspace: string; key: string; localPath: string | null; repository: string | null; clone: boolean; copyAll: boolean; teleport: boolean; branch?: string; noEnv?: boolean; resumed?: boolean };
+ *  that goes on after a pause or an app restart, while the agent may already be working, so a move's edits go aside (#1970).
+ *  `forkCode`: a fork's or child's code replaces folder files after this copy, so its agent must wait for it (no heartbeat). */
+export type ProjectCopyJob = { threadId: string; workspace: string; key: string; localPath: string | null; repository: string | null; clone: boolean; copyAll: boolean; teleport: boolean; branch?: string; noEnv?: boolean; resumed?: boolean; forkCode?: boolean; explicitRetry?: boolean };
 
 const exec = promisify(execFile);
 // A stalled piece counts as dropped, so the retry sends it again.
@@ -43,6 +46,10 @@ const copying = new Map<string, string>();
 export const FAILURE_NOTE = ".cloudroom/project-copy-failed.txt";
 // Next to the folder: `room-cli files wait` let the agent go ahead, so it may be working in it. The app never removes it (#1970).
 const GAVE_UP = ".cloudroom-files-gave-up";
+// Next to the folder: touched with `copying`, then each minute while this app copies into it, so `room-cli files wait` stops
+// waiting once this computer goes offline, sleeps, or quits, after 4 silent minutes (#2168). Older apps write none.
+const ALIVE = ".cloudroom-files-alive";
+const BEAT = 60_000;
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
 /** The Core workspace and folder a project's Cloud threads use. */
@@ -54,9 +61,15 @@ export function githubRepository(remote: string | null): string | null {
   return repository ? `https://github.com/${repository}` : null;
 }
 
+export function cloudRepository(remote: string | null): string | null {
+  return githubRepository(remote) ?? gitlabRepository(remote);
+}
+
+/** The project's folder here: this computer's own first, since another computer's path can exist here too, then the default. */
 export function localProjectPath(deps: Deps, projectId: string): string | undefined {
+  const host = resolvePrimaryHostId(deps);
   const sources = listProjectSourcesByProjectIds(deps.db, [projectId]).filter((source) => existsSync(source.path));
-  return (sources.find((source) => source.isDefault) ?? sources[0])?.path;
+  return (sources.find((source) => source.hostId === host) ?? sources.find((source) => source.isDefault) ?? sources[0])?.path;
 }
 
 /** Compares remotes across https and ssh forms, case, a trailing slash and `.git`. */
@@ -65,62 +78,64 @@ export function remoteKey(remote: unknown): string | null {
   return remote.trim().toLowerCase().replace(/^[a-z+]+:\/\//, "").replace(/^[^@/]+@/, "").replace(/^([^/:]+):/, "$1/").replace(/\/+$/, "").replace(/\.git$/, "") || null;
 }
 
-/** A project added before it had a GitHub remote picks the remote up here, at its next cloud thread. A folder on this
- *  computer added while it was inside another repo saved that repo's remote: once the folder is a checkout of its own,
- *  its own origin is saved instead, so the copy, template, loops and sync agree (#1850). */
+/** A project's folder on this computer decides its repo (#2548): when the folder's origin changes (a split or moved repo,
+ *  or a folder added inside another repo that became its own checkout, #1850), the new one is saved, so the copy,
+ *  template, loops and sync follow it. A folder without an origin keeps the saved remote; a project without one picks
+ *  the folder's up here. */
 export async function projectRemote(deps: Deps, project: { id: string; gitRemoteUrl: string | null }, path: string | null | undefined): Promise<string | null> {
   if (!path) return project.gitRemoteUrl;
   const saved = project.gitRemoteUrl;
-  if (saved !== null) {
-    // Another computer's folder path can exist here too, as an unrelated checkout.
-    const host = resolvePrimaryHostId(deps);
-    const own = listProjectSourcesByProjectIds(deps.db, [project.id]).some((source) => source.hostId === host && source.path === path);
-    const real = own ? (() => { try { return realpathSync(path); } catch { return null; } })() : null;
-    if (!real || (await git(real, ["rev-parse", "--show-prefix"], 5_000))?.trim() !== "" || remoteKey(await git(dirname(real), ["remote", "get-url", "origin"], 5_000)) !== remoteKey(saved)) return saved;
-    // A folder whose own repo has no origin keeps main's behavior for now.
-    const remote = (await git(real, ["remote", "get-url", "origin"], 5_000))?.trim() || null;
-    if (!remote || remoteKey(remote) === remoteKey(saved)) return saved;
-    // A remote saved meanwhile wins.
-    return replaceProjectGitRemoteUrl(deps.db, deps.hub, project.id, saved, remote) ? remote : getProject(deps.db, project.id)?.gitRemoteUrl ?? null;
+  if (saved !== null && !ownFolders(deps, project.id).includes(path)) return saved;
+  const remote = stripGitUrlCredentials((await git(path, ["remote", "get-url", "origin"], 5_000))?.trim() ?? "") || null;
+  if (saved === null) {
+    if (remote) setProjectGitRemoteUrlIfMissing(deps.db, deps.hub, project.id, remote);
+    return remote;
   }
-  const remote = (await git(path, ["remote", "get-url", "origin"]))?.trim() || null;
-  if (remote) setProjectGitRemoteUrlIfMissing(deps.db, deps.hub, project.id, remote);
+  if (!remote || remoteKey(remote) === remoteKey(saved)) return saved;
+  // A remote saved meanwhile wins.
+  if (!replaceProjectGitRemoteUrl(deps.db, deps.hub, project.id, saved, remote)) return getProject(deps.db, project.id)?.gitRemoteUrl ?? null;
+  movedRepos.add(project.id);
   return remote;
 }
 
-/** Fixes a stale saved remote before a project's sandbox is warmed, so its template clones the right repo (#1850). */
+/** Projects whose repo changed here since a warm-up last told the website, which then moves their template and loops. */
+export const movedRepos = new Set<string>();
+
+/** The project's folders on this computer. Another computer's folder path can exist here too, as an unrelated checkout. */
+export function ownFolders(deps: Deps, projectId: string): string[] {
+  const host = resolvePrimaryHostId(deps);
+  return listProjectSourcesByProjectIds(deps.db, [projectId]).filter((source) => source.hostId === host).map((source) => source.path);
+}
+
+/** Saves the folder's repo before a project's sandbox is warmed, so its template and loops clone it. */
 export async function refreshProjectRemote(deps: Deps, projectId: string): Promise<void> {
   const project = getProject(deps.db, projectId);
   const path = project?.gitRemoteUrl ? localProjectPath(deps, project.id) : undefined;
   if (project && path) await projectRemote(deps, project, path);
 }
 
-/** Small projects not on GitHub are uploaded whole. Counting stops at the limit, so a huge folder answers fast. */
+/** Small projects without a supported remote are uploaded whole. Counting stops at the limit. */
 async function smallProject(root: string): Promise<boolean> {
   return localFiles(root, "all", SMALL_PROJECT).then(() => true, () => false);
 }
 
-/** Tells a new cloud thread where a large project without GitHub lives, since its files stay on the Mac. */
+/** Tells a Cloud thread where to find a large project it could not clone or upload. */
 export async function localProjectNote(deps: Deps, projectId: string): Promise<string | undefined> {
   const project = getProject(deps.db, projectId);
   const path = project ? localProjectPath(deps, project.id) : undefined;
   if (!project || !path) return undefined;
   const remote = await projectRemote(deps, project, path);
-  if (githubRepository(remote) || (await smallProject(path))) return undefined;
-  // A project with another remote (GitLab, Azure) keeps it, so pushing to GitHub wouldn't help; Teleport uploads it.
-  const rest = macAccessSupported
-    ? `The rest is on the user's ${COMPUTER} at \`${path}\`. Pull only what the task needs with \`room-cli mac pull\`.`
-    : remote
-      ? "Cloud agents can't reach the user's Windows computer, so ask the user to start the thread Local and Teleport it to Cloud, which uploads the project."
-      : "Cloud agents can't reach the user's Windows computer, so ask the user to push the project to GitHub, then start a new thread.";
-  return `This project is not on GitHub and too large to copy, so only its \`.env\` files are here. ${rest}`;
+  if (cloudRepository(remote) || (await smallProject(path))) return undefined;
+  const rest = `The rest is on the user's ${COMPUTER} at \`${bashPath(path)}\`. Pull only what the task needs with \`room-cli mac pull\`.`;
+  return `This project has no supported Git remote and is too large to copy, so only its \`.env\` files are here. ${rest}`;
 }
 
-/** What the agent does when a failed copy left the project on the user's computer. Cloud agents can't reach Windows (ADR 0294). */
+/** What the agent does when a failed copy left the project on the user's computer. */
 export const localFilesNote = (path: string) =>
-  macAccessSupported
-    ? `The full project is on the user's ${COMPUTER} at \`${path}\`. Pull only what the task needs with \`room-cli mac pull\`.`
-    : "Cloud agents can't reach the user's Windows computer. Tell the user what failed: pass on any fix the message names, otherwise ask them to start a new thread.";
+  `The full project is on the user's ${COMPUTER} at \`${bashPath(path)}\`. Pull only what the task needs with \`room-cli mac pull\`.`;
+
+/** Windows runs Mac access in Git Bash (#958), which reads C:/Users/me but not C:\Users\me. */
+const bashPath = (path: string) => (process.platform === "win32" ? path.replaceAll("\\", "/") : path);
 
 /** A project copy's target: one folder per thread sandbox, or one shared folder on a VM. */
 export const copyKey = (sandbox: string | null, workspace: string) => sandbox ? `${sandbox}:${workspace}` : workspace;
@@ -163,12 +178,17 @@ export async function planProjectCopyOrThrow(deps: Deps, client: CloudroomClient
   const project = getProject(deps.db, getThread(deps.db, threadId)?.projectId ?? "");
   if (!project) return null;
   if (copying.has(key)) throw new Error(BUSY);
-  const path = localPath ?? localProjectPath(deps, project.id) ?? null;
-  const repository = githubRepository(await projectRemote(deps, project, path));
+  const own = localProjectPath(deps, project.id), path = localPath ?? own ?? null;
+  // The repo comes from the project's folder, not a worktree Teleport passes (#2548).
+  const repository = cloudRepository(await projectRemote(deps, project, own ?? path));
   if (!path && !repository) return null;
   const existing = await client.workspace(workspace, signal);
   // Exit 1 means files are there; any other end of the check (a signal, a missing shell) says nothing about the folder.
-  const check = existing && (await client.runOnVm({ command: `[ -z "$(ls -A -- ${quote(existing.path)} 2>/dev/null | grep -Fvx .cloudroom)" ]`, stdin: "" }, signal)).code;
+  // A folder with no `.git` and only `.cloudroom` / `.env*` files still counts as empty so retrying a failed GitHub clone works.
+  const check = existing && (await client.runOnVm({
+    command: `[ ! -e ${quote(`${existing.path}/.git`)} ] && [ -z "$(find ${quote(existing.path)} -mindepth 1 -not -path ${quote(`${existing.path}/.cloudroom`)} -not -path ${quote(`${existing.path}/.cloudroom/*`)} \\( -type f -o -type l \\) -not -name '.env*' -print -quit 2>/dev/null)" ]`,
+    stdin: "",
+  }, signal)).code;
   if (existing && check !== 0 && check !== 1) throw new CloudroomError(`Could not check the cloud project folder (exit code ${check}).`);
   const empty = !existing || check === 0;
   if (!empty && teleport && !resumed) return null;
@@ -208,7 +228,10 @@ export function reportProjectCopy(deps: Deps, threadId: string, progress: Projec
 export function copyProject(deps: Deps, client: CloudroomClient, job: ProjectCopyJob, done?: (error?: string, partial?: string) => void | Promise<void>, after: Promise<void> = Promise.resolve(), paused?: () => void): void {
   if (copying.has(job.key)) return;
   copying.set(job.key, job.threadId);
+  // From the start, so a slow first message never reads as an offline computer.
+  const beat = (job.clone || job.copyAll || job.teleport) && !job.forkCode ? heartbeat(client, job.workspace) : undefined;
   const report = (progress: ProjectCopyProgress) => {
+    if (progress.phase === "cloning" && gitlabRepository(job.repository)) progress = { ...progress, gitHost: "gitlab" };
     if (!job.clone && !job.copyAll && !job.teleport && progress.phase !== "error") return;
     reportProjectCopy(deps, job.threadId, progress);
   };
@@ -230,14 +253,27 @@ export function copyProject(deps: Deps, client: CloudroomClient, job: ProjectCop
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
       // The files are still on the Mac, so only the agent is told and pulls what it needs. The error card stays for
       // Teleport, whose uncommitted work must arrive, and for projects with no folder on the Mac.
-      const quiet = job.localPath !== null && !job.teleport;
+      // A failed private GitHub clone that didn't upload whole files still surfaces as an error so the timeline can offer one-click login recovery.
+      // Any user-initiated retry also reports its real error instead of flipping quietly to `complete`.
+      const githubLoginFailed = !job.teleport && !gitlabRepository(job.repository) && !message.includes("copied without Git history") && isCloudGithubLoginError(message);
+      const quiet = job.localPath !== null && !job.teleport && !job.explicitRetry && !githubLoginFailed;
       if (!quiet) report({ phase: "error", completed: 0, total: 0, error: message });
       await writeFailureNote(client, job, message).catch(() => {});
       await (quiet ? land(undefined, message) : land(message));
       if (quiet) report({ phase: "complete", completed: 0, total: 0 });
     })
     .catch(() => {})
-    .finally(() => copying.delete(job.key));
+    .finally(() => { clearInterval(beat); copying.delete(job.key); });
+}
+
+/** Touches the copy's heartbeat now and each minute until stopped. A touch that fails waits for the next. A Core that
+ *  can't take it (404 from an older one, 409 when the touch fails) is asked no more, so it logs no error each minute. */
+function heartbeat(client: CloudroomClient, workspace: string): NodeJS.Timeout {
+  const touch = async () => client.alive(workspace, AbortSignal.timeout(BEAT));
+  const timer = setInterval(() => void touch().catch(stop), BEAT).unref();
+  const stop = (error: unknown) => { if (error instanceof CloudroomError && (error.status === 404 || error.status === 409)) clearInterval(timer); };
+  void touch().catch(stop);
+  return timer;
 }
 
 async function run(deps: Deps, client: CloudroomClient, job: ProjectCopyJob, report: (progress: ProjectCopyProgress) => void): Promise<string | undefined> {
@@ -249,9 +285,9 @@ async function run(deps: Deps, client: CloudroomClient, job: ProjectCopyJob, rep
   let cloneError: string | null = null;
   if (job.clone && job.repository) {
     const branch = job.teleport && job.localPath ? (await git(job.localPath, ["rev-parse", "--abbrev-ref", "HEAD"]))?.trim() : job.branch;
-    cloneError = await clone(deps, client, target, job.repository, branch);
+    cloneError = await clone(client, target, job.repository, branch, !job.teleport);
     // A short pause first, since an immediate retry often hits the same GitHub timeout (#555).
-    if (cloneError) cloneError = await new Promise((resolve) => setTimeout(resolve, 10_000)).then(() => clone(deps, client, target, job.repository!, branch));
+    if (cloneError) cloneError = await new Promise((resolve) => setTimeout(resolve, 10_000)).then(() => clone(client, target, job.repository!, branch, !job.teleport));
   }
   const cloned = job.clone && !cloneError;
   // Git for Windows checks text files out with CRLF, so the cloud checkout must ignore line-ending-only changes.
@@ -279,7 +315,7 @@ async function run(deps: Deps, client: CloudroomClient, job: ProjectCopyJob, rep
       await rm(folder, { recursive: true, force: true });
     }
   }
-  if (cloneError) throw new Error(`The GitHub clone failed${scope === "all" && !partial ? ", so your files were copied without Git history" : ""}. ${cloneError}`);
+  if (cloneError) throw new Error(`The ${gitlabRepository(job.repository) ? "GitLab" : "GitHub"} clone failed${scope === "all" && !partial ? ", so your files were copied without Git history" : ""}. ${cloneError}`);
   if (late) throw new Error(late);
   return partial;
 }
@@ -297,14 +333,16 @@ async function writeFailureNote(client: CloudroomClient, job: ProjectCopyJob, me
 
 /** What `room-cli files wait` reads (ADR 0209): `copying`, then `ready` or `failed: REASON`, in a file next to the
  *  project folder (a workspace ID, or a path), so Git never sees it. With `onlyIfCopying`, it changes only a copy still
- *  marked `copying`. Next to the sandbox root (`/code`), only root can write, so it falls back to sudo. */
-export async function writeFilesState(client: CloudroomClient, workspace: string, state: string, onlyIfCopying = false): Promise<void> {
+ *  marked `copying`. Next to the sandbox root (`/code`), only root can write, so it falls back to sudo. With `alive`, a
+ *  heartbeating copy follows, so its silence counts from this write, even if no later beat lands (#2168). */
+export async function writeFilesState(client: CloudroomClient, workspace: string, state: string, onlyIfCopying = false, alive = false): Promise<void> {
   await retry(async () => {
     const target = workspace.startsWith("/") ? workspace : (await client.workspace(workspace))?.path;
     if (!target) return;
     const file = `${target}.cloudroom-files`;
     const write = `state=$(cat) && { printf %s "$state" 2>/dev/null > ${quote(`${file}.tmp`)} && mv -f -- ${quote(`${file}.tmp`)} ${quote(file)} || printf %s "$state" | sudo -n tee ${quote(file)} >/dev/null; }`;
-    await vm(client, onlyIfCopying ? `if [ "$(cat -- ${quote(file)} 2>/dev/null)" = copying ]; then ${write}; fi` : write, Buffer.from(state));
+    const beat = alive ? ` && { touch -- ${quote(`${target}${ALIVE}`)} 2>/dev/null || true; }` : "";
+    await vm(client, onlyIfCopying ? `if [ "$(cat -- ${quote(file)} 2>/dev/null)" = copying ]; then ${write}; fi` : `${write}${beat}`, Buffer.from(state));
   });
 }
 
@@ -327,21 +365,13 @@ export async function retry<T>(attempt: () => Promise<T>): Promise<T> {
 }
 
 async function git(cwd: string, args: string[], timeout = 0): Promise<string | null> {
-  return await exec("git", ["-C", cwd, ...args], { maxBuffer: 256 * 1024 * 1024, windowsHide: true, timeout }).then((result) => result.stdout, () => null);
+  return await exec("git", [...gitSafetyArgs(), "-C", cwd, ...args], { maxBuffer: 256 * 1024 * 1024, windowsHide: true, timeout }).then((result) => result.stdout, () => null);
 }
 
 /** Returns null once the clone is in place, or why it failed. gc.auto=0: auto-packing during `git log -S` in a blobless
  * clone fills the sandbox disk with deleted packs the search still holds open. */
-async function clone(deps: Deps, client: CloudroomClient, target: string, repository: string, branch?: string): Promise<string | null> {
-  const token = (await copyMacGithub(deps))
-    ? await exec("gh", ["auth", "token", "--hostname", "github.com"], {
-        timeout: 15_000,
-        windowsHide: true,
-      }).then(
-        (result) => result.stdout.trim(),
-        () => "",
-      )
-    : "";
+async function clone(client: CloudroomClient, target: string, repository: string, branch?: string, requireBranch = false): Promise<string | null> {
+  const gitlab = Boolean(gitlabRepository(repository));
   const temporary = quote(`${target}.cloudroom-clone`);
   // Holds the clone's shell PID while it runs, so an answer the connection lost can be checked against what really happened.
   // A clone a dropped request left running (#1970) ends before this one replaces its folder.
@@ -355,18 +385,18 @@ async function clone(deps: Deps, client: CloudroomClient, target: string, reposi
       `[ -e ${quote(`${target}/.git`)} ] && [ ! -e ${temporary} ] && exit 0`,
       `echo $$ > "$p"; trap 'rm -f -- "$p"' EXIT`,
       "export GIT_TERMINAL_PROMPT=0",
-      // `gh auth status` asks GitHub's API, so a used-up quota reads as a bad token (#1182). Log in only when gh has no token.
-      token ? "{ gh auth token --hostname github.com || gh auth login --hostname github.com --with-token; gh auth setup-git --hostname github.com; } >/dev/null 2>&1 || true" : "",
       `rm -rf -- ${temporary}`,
-      `git clone --quiet --filter=blob:none -c gc.auto=0 -- ${quote(repository)} ${temporary} || { printf '\\035'; timeout 10 gh api user --jq .login 2>/dev/null; exit 1; }`,
-      branch && branch !== "HEAD" ? `git -C ${temporary} checkout --quiet ${quote(branch)} 2>/dev/null || true` : "",
+      `git clone --quiet --filter=blob:none -c gc.auto=0 -- ${quote(repository)} ${temporary} || { rm -rf -- ${temporary}; printf '\\035'; ${gitlab ? ':' : 'timeout 10 gh api user --jq .login 2>/dev/null'}; exit 1; }`,
+      branch && branch !== "HEAD" ? (gitlab && requireBranch
+        ? `git -C ${temporary} checkout --quiet -B ${quote(branch)} ${quote("refs/remotes/origin/" + branch)} -- || { rm -rf -- ${temporary}; exit 1; }`
+        : `git -C ${temporary} checkout --quiet ${quote(branch)} 2>/dev/null || true`) : "",
       // Merged, never skipping a folder or replacing a file: Teleport may have put a file the chat mentioned (`src/new.ts`) in
       // the folder already, and it wins over the clone's copy. Hard links are fast; a plain copy covers another disk.
       `mkdir -p -- ${quote(target)} && { cp -a -l -n -- ${temporary}/. ${quote(target)}/ 2>/dev/null || cp -a -n -- ${temporary}/. ${quote(target)}/; } || true`,
       `rm -rf -- ${temporary}`,
       `test -e ${quote(`${target}/.git`)} || { echo 'The clone did not reach the project folder.' >&2; exit 1; }`,
     ].join("\n"),
-    stdin: Buffer.from(token).toString("hex"),
+    stdin: "",
     keep: true,
   }, AbortSignal.timeout(CLONE_TIMEOUT)).catch((error: unknown) => {
     if (error instanceof CloudroomError && error.retryable) return error;
@@ -382,12 +412,14 @@ async function clone(deps: Deps, client: CloudroomClient, target: string, reposi
       const { code } = await retry(() => client.runOnVm({ command: check, stdin: "" }));
       if (code === 0) return null;
       if (code !== 3) throw result;
-      if (Date.now() >= deadline) throw new Error(`The GitHub clone did not finish in ${CLONE_TIMEOUT / 60_000} minutes.`);
+      if (Date.now() >= deadline) throw new Error(`The Git clone did not finish in ${CLONE_TIMEOUT / 60_000} minutes.`);
     }
   }
   if (result.code === 0) return null;
   // Redacted before the cut, since the message reaches the failure note, the copy status, and `room-cli files wait` (#1847).
-  const error = redactSecrets(Buffer.from(result.stderr, "hex").toString(), [token]).trim().slice(-300) || `git clone exited with code ${result.code}`;
+  const error = redactSecrets(Buffer.from(result.stderr, "hex").toString(), []).trim().slice(-300) || `git clone exited with code ${result.code}`;
+  if (gitlab && !Buffer.from(result.stdout, "hex").includes(0x1d)) return `Git said: ${error}`;
+  if (gitlab) return `Check access to this project in Settings → Cloud environment → GitLab. Git said: ${error}`;
   const stdout = Buffer.from(result.stdout, "hex");
   const mark = stdout.indexOf(0x1d);
   const login = mark < 0 ? "" : stdout.subarray(mark + 1).toString().trim();
@@ -402,7 +434,7 @@ function cloneHint(error: string, login: string): string {
   if (/Authentication failed|Invalid username or token/i.test(error)) return `GitHub rejected the cloud's GitHub login, which may have expired. Connect or switch the account ${fix}.`;
   if (!/repository .*not found/i.test(error)) return "Check that the project's GitHub remote exists and you can access it.";
   return login
-    ? `Cloud sandboxes use GitHub account @${login}, which can't see this repository, or it doesn't exist. Give @${login} access, or use Switch account ${fix}.`
+    ? `Cloud sandboxes use GitHub account @${login}, which can't see this repository, or it doesn't exist. Give @${login} access (Change repos, if Cloudroom only has specific repos), or use Switch account ${fix}.`
     : `The cloud's GitHub login can't see this repository, or it doesn't exist. Check the account ${fix}.`;
 }
 
@@ -503,7 +535,8 @@ async function packProject(root: string, scope: "all" | "changed" | "env", archi
   }
 }
 
-export async function pack(root: string, files: string[], archive: string): Promise<void> {
+export async function pack(root: string, files: string[], archive: string, platform: NodeJS.Platform = process.platform): Promise<void> {
+  if (platform === "win32") return packInNode(root, files, archive);
   await new Promise<void>((resolve, reject) => {
     let stderr = "";
     const tar = spawn(tarCommand(), ["--no-xattrs", "-czf", archive, "--null", "-T", "-"], { cwd: root, env: { ...process.env, COPYFILE_DISABLE: "1" }, stdio: ["pipe", "ignore", "pipe"], timeout: PACK_TIMEOUT, windowsHide: true });
@@ -511,6 +544,53 @@ export async function pack(root: string, files: string[], archive: string): Prom
     tar.on("error", reject).on("close", (code) => code === 0 ? resolve() : reject(new Error(`Could not pack the project files${tar.killed ? ` within ${PACK_TIMEOUT / 60_000} minutes` : ""}. ${stderr.trim()}`.trim())));
     tar.stdin.end(files.map((path) => `${path}\0`).join(""));
   });
+}
+
+/** Windows' tar.exe reads the file list in the ANSI code page, so it can't find a UTF-8 name like `Financiën.md` and the
+ *  full copy fails (#2224). There, Node writes the archive, with each name in a PAX header. */
+async function packInNode(root: string, files: string[], archive: string): Promise<void> {
+  const pad = (size: number) => Buffer.alloc(-size & 511);
+  async function* blocks() {
+    for (const path of files) {
+      const info = await lstat(join(root, path));
+      const link = info.isSymbolicLink() ? (await readlink(join(root, path))).replaceAll("\\", "/") : "";
+      const body = link ? Buffer.alloc(0) : await readFile(join(root, path));
+      const pax = Buffer.from(paxRecord("path", path) + (link ? paxRecord("linkpath", link) : ""));
+      yield Buffer.concat([tarHeader("PaxHeader", "x", pax.length, 0o644, 0), pax, pad(pax.length)]);
+      yield tarHeader(path, link ? "2" : "0", body.length, info.mode & 0o777, Math.max(0, Math.floor(info.mtimeMs / 1000)));
+      yield body;
+      yield pad(body.length);
+    }
+    yield Buffer.alloc(1024);
+  }
+  const signal = AbortSignal.timeout(PACK_TIMEOUT);
+  await pipeline(Readable.from(blocks()), createGzip(), createWriteStream(archive), { signal }).catch((error: unknown) => {
+    throw new Error(`Could not pack the project files${signal.aborted ? ` within ${PACK_TIMEOUT / 60_000} minutes` : ""}. ${error instanceof Error ? error.message : String(error)}`);
+  });
+}
+
+/** A PAX record starts with its own length, digits included. */
+function paxRecord(key: string, value: string): string {
+  const size = Buffer.byteLength(` ${key}=${value}\n`), length = size + String(size).length;
+  return `${length + (String(length).length > String(size).length ? 1 : 0)} ${key}=${value}\n`;
+}
+
+/** A ustar header, like the VPS app's (docker.ts). The PAX header before it holds the real name. */
+function tarHeader(name: string, type: string, size: number, mode: number, mtime: number): Buffer {
+  const header = Buffer.alloc(512);
+  const field = (value: string, offset: number, length: number) => header.write(value, offset, length, "latin1");
+  const octal = (value: number, offset: number, length: number) => field(`${value.toString(8).padStart(length - 1, "0")}\0`, offset, length);
+  field(name, 0, 100);
+  octal(mode, 100, 8);
+  octal(0, 108, 8);
+  octal(0, 116, 8);
+  octal(size, 124, 12);
+  octal(mtime, 136, 12);
+  field("        ", 148, 8);
+  field(type, 156, 1);
+  field("ustar\u000000", 257, 8);
+  octal(header.reduce((sum, byte) => sum + byte, 0), 148, 7);
+  return header;
 }
 
 /** Unpacks the archive into the project folder, never replacing a file. With `edits` (Teleport's uncommitted edits), it

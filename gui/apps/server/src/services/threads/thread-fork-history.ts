@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   appendStoredThreadEventsInTransaction,
   copyStoredThreadEventsInTransaction,
@@ -118,7 +118,9 @@ export function messageForkPoint(db: AppDeps["db"], source: Thread, sequence: nu
 }
 
 /** Turn-only readers may use a finished turn for its last reply. A progress message
- * followed by more work would silently give the fork more than the user selected. */
+ * followed by more work would silently give the fork more than the user selected.
+ * Trailing reasoning completions (flushed after the reply by older Cloud ACP/Pi turns)
+ * aren't later work, so ignore them. */
 export function checkTurnForkCutoff(
   db: AppDeps["db"], threadId: string, turnId: string, selected: number, completed: number,
 ): void {
@@ -131,6 +133,7 @@ export function checkTurnForkCutoff(
   const later = db.select({ id: events.id }).from(events).where(and(
     inTurn, gt(events.sequence, selected), lt(events.sequence, completed),
     inArray(events.type, ["item/started", "item/completed", "turn/input/accepted", "item/backgroundTask/completed"]),
+    or(ne(events.type, "item/completed"), isNull(events.itemKind), ne(events.itemKind, "reasoning")),
   )).limit(1).get();
   if (later) forkPointUnavailable("This message has no saved fork point. Choose a finished reply.");
 }
@@ -254,6 +257,23 @@ export function resolveThreadForkPoint(
           turnId: lastCompletedTurn.turnId,
         });
   return descriptor === null ? tip : { ...tip, descriptor };
+}
+
+/** A Local source's own session at that point, or null when its harness can't clone it there. The fork then copies
+ *  the chat as text, so every harness can fork (ADR 20261121-141157). Waits for harnesses to register, so a fork right
+ *  after launch doesn't miss a native one. */
+export async function nativeForkPoint(
+  deps: Pick<AppDeps, "db" | "providerRegistry">,
+  args: { sourceSeqEnd: number | undefined; sourceThread: Thread },
+): Promise<ThreadForkPoint | null> {
+  await deps.providerRegistry.whenRegistrationsSettled();
+  if (!deps.providerRegistry.supportsFork(args.sourceThread.providerId)) return null;
+  try {
+    return resolveThreadForkPoint(deps, args);
+  } catch (error) {
+    if (error instanceof ApiError && error.body.code === "fork_source_session_unavailable") return null;
+    throw error;
+  }
 }
 
 /**
@@ -419,6 +439,7 @@ export function recordTextImport(
   deps: Pick<AppDeps, "db">,
   thread: Pick<Thread, "environmentId" | "id">,
   seed: PromptInput[],
+  carried?: true,
 ): void {
   deps.db.transaction(
     (tx) =>
@@ -432,7 +453,7 @@ export function recordTextImport(
           operationId: createEventId(),
           status: "completed",
           message: "Imported as text.",
-          metadata: { seed },
+          metadata: { seed, ...(carried ? { carried } : {}) },
         },
       }),
     { behavior: "immediate" },

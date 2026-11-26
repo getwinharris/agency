@@ -3,17 +3,20 @@ import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import {
   access,
+  constants,
   mkdir,
   mkdtemp,
   open,
+  readdir,
   readFile,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
-import { connect } from "node:net";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { connect, type Socket } from "node:net";
+import { homedir, hostname, tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -40,7 +43,7 @@ function isGnomeWayland() {
   );
 }
 
-function driverEnv(home: string): NodeJS.ProcessEnv {
+export function driverEnv(home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
     HOME: home,
@@ -48,10 +51,76 @@ function driverEnv(home: string): NodeJS.ProcessEnv {
     CUA_DRIVER_RS_UPDATE_CHECK: "false",
   };
   // The driver reads the desktop name to avoid claiming a screen reader on GNOME, which starts Orca.
-  const keys = ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "TMPDIR"];
+  const keys = ["DISPLAY", "WAYLAND_DISPLAY", "CUA_DRIVER_RS_ENABLE_WAYLAND", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "TMPDIR"];
   for (const key of [...keys, "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "DESKTOP_SESSION"])
     if (process.env[key]) env[key] = process.env[key];
   return env;
+}
+
+// HOME is private, so X11 needs XAUTHORITY for its cookie (#2450). But a set XAUTHORITY stops
+// the driver finding the cookie itself, so pass it only if the local X server accepts its cookie.
+export function workingXauthority(display = process.env.DISPLAY, file = process.env.XAUTHORITY, socketDir = "/tmp/.X11-unix") {
+  return new Promise<string | undefined>((resolve) => {
+    let socket: Socket | undefined;
+    let settled = false;
+    const done = (ok: boolean) => {
+      settled = true;
+      clearTimeout(timer);
+      socket?.destroy();
+      resolve(ok ? file : undefined);
+    };
+    const timer = setTimeout(() => done(false), 2_000);
+    const number = /^(?:unix)?:(\d+)(?:\.\d+)?$/.exec(display ?? "")?.[1];
+    void (async () => {
+      const cookie = number && file ? await readCookie(file, number) : undefined;
+      if (!cookie || settled) return done(false);
+      const name = Buffer.from("MIT-MAGIC-COOKIE-1");
+      const setup = Buffer.alloc(12 + 20 + cookie.length + (-cookie.length & 3));
+      setup.write("l");
+      setup.writeUInt16LE(11, 2);
+      setup.writeUInt16LE(name.length, 6);
+      setup.writeUInt16LE(cookie.length, 8);
+      name.copy(setup, 12);
+      cookie.copy(setup, 32);
+      socket = connect(join(socketDir, `X${number}`));
+      socket.once("connect", () => socket?.write(setup));
+      socket.once("data", (reply) => done(reply[0] === 1));
+      for (const event of ["error", "end", "close"]) socket.once(event, () => done(false));
+    })().catch(() => done(false));
+  });
+}
+
+// The cookie the X client would pick, or nothing if the file is not a small, fully valid Xauthority file.
+async function readCookie(file: string, number: string) {
+  if (!(await stat(file)).isFile()) return undefined;
+  const handle = await open(file, constants.O_RDONLY | constants.O_NONBLOCK);
+  let data: Buffer;
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.size > 64 * 1024) return undefined;
+    data = await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+  // Entries: a 2-byte family, then address, display number, auth name and cookie, each length-prefixed.
+  let at = 0;
+  const field = () => {
+    const end = at + 2 + data.readUInt16BE(at);
+    if (end > data.length) throw new RangeError("truncated Xauthority entry");
+    const value = data.subarray(at + 2, end);
+    at = end;
+    return value;
+  };
+  let cookie: Buffer | undefined;
+  while (at < data.length) {
+    const family = data.readUInt16BE(at);
+    at += 2;
+    const [address, entryNumber, name, value] = [field(), field(), field(), field()];
+    const host = family === 0xffff || (family === 256 && address.toString() === hostname());
+    if (!cookie && host && [number, ""].includes(entryNumber.toString()) && name.toString() === "MIT-MAGIC-COOKIE-1")
+      cookie = value;
+  }
+  return cookie;
 }
 
 async function exists(path: string) {
@@ -91,6 +160,17 @@ async function download(url: string, archive: string, signal: AbortSignal, delay
   );
 }
 
+export async function pruneOldVersions(dir: string) {
+  const parent = dirname(dir);
+  const current = basename(dir);
+  const entries = await readdir(parent).catch(() => []);
+  await Promise.all(
+    entries
+      .filter((name) => name !== current && !name.startsWith(".install-"))
+      .map((name) => rm(join(parent, name), { recursive: true, force: true }).catch(() => {})),
+  );
+}
+
 export async function install(dir: string, signal: AbortSignal, delays = [2_000, 5_000, 15_000]) {
   const asset = assetFor(process.platform, process.arch);
   if (!asset) throw new Error(`Computer use is not available on ${process.platform}-${process.arch}`);
@@ -117,6 +197,7 @@ export async function install(dir: string, signal: AbortSignal, delays = [2_000,
     await writeFile(join(stage, "verified.json"), JSON.stringify({ sha256: await sha256(binary) }));
     await rm(dir, { recursive: true, force: true });
     await rename(stage, dir);
+    await pruneOldVersions(dir);
   } finally {
     await rm(stage, { recursive: true, force: true });
   }
@@ -130,7 +211,7 @@ async function osascript(script: string, env?: NodeJS.ProcessEnv) {
   return stdout.trim();
 }
 
-// Cua Driver 0.35.2 finds a launch_app name only as <name>.app in these folders (apps/mod.rs
+// Cua Driver finds a launch_app name only as <name>.app in these folders (apps/mod.rs
 // locate_by_name; its other two are under its private HOME). A bundle_id goes to LaunchServices.
 const APP_ROOTS = [
   "/Applications",
@@ -171,7 +252,7 @@ async function withBundleId(args: Record<string, unknown>) {
   if (app) args.bundle_id = app.key;
 }
 
-// Cua Driver 0.35.2's own cold launch (platform-macos apps/nsworkspace.rs, tools/launch_app.rs):
+// Cua Driver's own cold launch (platform-macos apps/nsworkspace.rs, tools/launch_app.rs):
 // NSWorkspace in the background with an `oapp` event so the app opens its window, then the
 // prior frontmost app gets focus back whenever the new app takes it (registered + 1.5 s).
 function launchScript(app: string, byName: boolean) {
@@ -403,8 +484,9 @@ export function createHostEntry() {
     // broken stderr pipe kept it running forever (with screen capture on).
     const logFile = join(home(), "driver.log");
     const log = await open(logFile, "w");
+    const xauthority = process.platform === "linux" ? await workingXauthority() : undefined;
     const child = spawn(binary(), args, {
-      env: { ...driverEnv(home()), CUA_DRIVER_PARENT_LIVENESS_STDIN: "1" },
+      env: { ...driverEnv(home()), ...(xauthority && { XAUTHORITY: xauthority }), CUA_DRIVER_PARENT_LIVENESS_STDIN: "1" },
       stdio: ["pipe", "ignore", log.fd],
     });
     await log.close();
@@ -483,7 +565,8 @@ export function createHostEntry() {
         const exits = driverExits;
         driverExits = 0;
         const shotsDir = join(tmpdir(), "cloudroom-computer-use", input.shotsKey);
-        return { ...result, stdout: await saveImages(result.stdout, shotsDir), driverExits: exits };
+        const stdout = input.inline ? result.stdout : await saveImages(result.stdout, shotsDir);
+        return { ...result, stdout, driverExits: exits };
       },
       async release({ session }) {
         if (!sessions.delete(session) || !daemon || !socket) return null;

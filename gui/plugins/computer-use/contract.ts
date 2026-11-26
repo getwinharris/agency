@@ -2,6 +2,7 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
 export const APPROVAL_RENDERER_ID = "computer-use-approval";
+export const ACTIVE_CHANGED_CHANNEL = "active-changed";
 
 export const permissionsSchema = z
   .object({
@@ -42,6 +43,9 @@ export const hostContract = defineRpcContract({
         session: z.string().min(1).max(64),
         // Folder name only: each host saves screenshots under its own temp dir (#1411).
         shotsKey: z.string().regex(/^[A-Za-z0-9_-]+$/),
+        // Cloud threads can't read this computer's files: their screenshots stay inline (`*_b64`), and Core saves
+        // them in the sandbox. Sent only when true, so older hosts never see it.
+        inline: z.literal(true).optional(),
       })
       .strict(),
     output: z
@@ -83,6 +87,7 @@ export const approvalPayloadSchema = z
     purpose: z.string().nullable(),
     platform: z.string(),
     permissions: permissionsSchema,
+    foreground: z.boolean().optional(),
   })
   .strict();
 export type ApprovalPayload = z.infer<typeof approvalPayloadSchema>;
@@ -98,7 +103,20 @@ export const settingsSchema = z
     alwaysAllowed: z.array(appSchema),
   })
   .strict();
+export const activeThreadSchema = z
+  .object({
+    threadId: z.string().min(1),
+    appName: z.string().min(1).nullable(),
+  })
+  .strict();
+export const activeStateSchema = z
+  .object({
+    active: z.array(activeThreadSchema),
+  })
+  .strict();
+
 export const rpcContract = defineRpcContract({
+  getActive: { input: z.null(), output: activeStateSchema },
   getSettings: { input: z.null(), output: settingsSchema },
   removeAlwaysAllowed: {
     input: z.object({ key: z.string().min(1) }).strict(),

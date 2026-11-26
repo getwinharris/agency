@@ -35,11 +35,15 @@ export interface AcpAgentDefinition {
   permissionModes?: PluginProviderCapabilities["permissionModes"];
   providerUsage?: boolean;
   providerInstallation?: boolean;
+  /** False hides the Standard/Fast toggle: the agent has no fast mode. */
+  supportsServiceTier?: boolean;
   installer?:
     | { scriptUrl: string; powershellUrl?: string; args?: readonly string[] }
     | { npmPackage: string };
   /** Older versions cannot run the ACP launch; thread start asks for an update. */
   minimumVersion?: string;
+  /** True for user-configured ACP agents not shipped by Cloudroom, so telemetry masks their names. */
+  custom?: boolean;
   nativeRootsResolver?: AcpNativeRootsResolver;
 }
 
@@ -111,6 +115,7 @@ export function customAcpAgentDefinition(
     visibility: "always",
     fork: "none",
     supportsManualCompaction: agent.supportsManualCompaction,
+    ...(shipped === undefined ? { custom: true } : {}),
   };
 }
 

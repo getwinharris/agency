@@ -8,7 +8,7 @@ import { templateDefinitions } from "../src/generated/templates.generated.js";
 
 describe("@cloudroom/templates", () => {
   it("documents project creation machine routing", () => {
-    const guide = renderTemplate("bbGuideProjects", {});
+    const guide = renderTemplate("roomGuideProjects", {});
 
     expect(guide).toContain("room-cli project create --name");
     expect(guide).toContain("--machine <id-or-name>");
@@ -17,7 +17,7 @@ describe("@cloudroom/templates", () => {
   });
 
   it("documents automation updates that keep omitted settings", () => {
-    const guide = renderTemplate("bbGuideAutomations", {});
+    const guide = renderTemplate("roomGuideAutomations", {});
 
     expect(guide).toContain("room-cli loop update <loopId>");
     expect(guide).toContain("and keeps every");
@@ -29,7 +29,7 @@ describe("@cloudroom/templates", () => {
   });
 
   it("documents project-aware thread references", () => {
-    const guide = renderTemplate("bbGuideThreads", {});
+    const guide = renderTemplate("roomGuideThreads", {});
 
     expect(guide).toContain("@thread:thr_abc123");
     expect(guide).toContain("do not construct thread URLs manually");
@@ -70,6 +70,8 @@ describe("@cloudroom/templates", () => {
         "Ask the user a blocking question only when",
       );
       expect(rendered).not.toMatch(/\{\{|\n\n\n/u);
+      // #2257: the "Built with Cloudroom" line goes on new PR and issue descriptions, never on reviews.
+      expect(rendered).toContain("(the description only, never reviews or comments)");
     }
     // Each kind of thread gets only its own lines.
     const local = systemPrompt("local");
@@ -78,6 +80,11 @@ describe("@cloudroom/templates", () => {
     expect(local).not.toMatch(/## Cloud sandboxes|room-cli files wait|--shared-sandbox/u);
     expect(cloud).toContain("## Cloud sandboxes");
     expect(cloud).toContain("room-cli files wait");
+    // #2628: Cloud agents wait for a running setup script before installing.
+    expect(cloud).toContain(
+      "`/var/lib/cloudroom-setup/status` says `running`? Wait up to 10 minutes",
+    );
+    expect(local).not.toContain("cloudroom-setup");
     expect(cloud).not.toMatch(/Local children share|ask before installing/u);
     // #1281: Cloud agents explain that a GH_TOKEN API key overrides the GitHub login.
     expect(cloud).toContain("a Cloud API key may be overriding the GitHub login.");
@@ -89,21 +96,32 @@ describe("@cloudroom/templates", () => {
     // #936: blobless Cloud clones get one batch fetch before history-wide reads.
     expect(cloud).toContain(String.raw`[ -z "$ids" ] || printf '%s\n' "$ids" | GIT_TERMINAL_PROMPT=0 timeout 900 git -c fetch.negotiationAlgorithm=noop fetch -q --no-tags --recurse-submodules=no --no-write-fetch-head origin --stdin`);
     expect(local).not.toContain("negotiationAlgorithm");
+    // #2107: a Git command whose lazy fetch fails aborts only its own rebase, gets its autostash back, then batch fetches and reruns.
+    expect(cloud).toContain(
+      "`git rebase --abort` if that command was a rebase, `for r in MERGE_AUTOSTASH CHECKOUT_AUTOSTASH_HEAD; do git rev-parse -q --verify $r >/dev/null && git stash apply $r && git update-ref -d $r; done; true`, that batch fetch, then that command again.",
+    );
     // #1739: Codex can SIGTERM a plain retained server; Cloud agents start servers with a TTY or detached.
     expect(cloud).toContain("setsid nohup <cmd> > /tmp/<name>.log 2>&1 < /dev/null &");
     expect(local).not.toContain("setsid nohup");
+    // #2165: Cloud /var/tmp can be noexec, so executables go to /tmp.
+    expect(cloud).toContain(
+      "Put generated executables in `/tmp` or the project.",
+    );
+    expect(local).not.toContain("/var/tmp");
+    // #2538: a quiet background wait can stop after 10 minutes (Metal), so agents set a wake instead.
+    expect(cloud).toContain("a quiet wait (polling, `sleep`, a Monitor) can stop after 10 minutes.");
+    expect(cloud).not.toContain("awake for 2 hours, then stop");
   });
 
-  it("offers Mac access and Local computer use only off Windows", () => {
+  it("offers Mac access everywhere and Local computer use only off Windows", () => {
     expect(systemPrompt("cloud")).toContain("room-cli mac pull");
     expect(systemPrompt("local")).toContain("read the `computer-use` skill");
     expect(systemPrompt("local") + systemPrompt("cloud")).not.toMatch(/\bMac\b(?! access)|laptop/u);
-    expect(systemPrompt("local", true) + systemPrompt("cloud", true)).not.toMatch(/room-cli mac (pull|push)|run it on the user's computer/u);
+    // #958: Windows Cloud threads reach the user's computer through Git Bash, like a Mac.
+    expect(systemPrompt("cloud", true)).toContain("room-cli mac pull");
+    expect(systemPrompt("local", true) + systemPrompt("cloud", true)).not.toContain("run it on the user's computer");
     expect(systemPrompt("local", true)).not.toContain("read the `computer-use` skill");
-    expect(systemPrompt("cloud", true)).toContain("Save lasting skills in the repo.");
-    // #1334: Windows Cloud threads ask the user instead of trying `mac run`.
-    expect(systemPrompt("cloud", true)).toContain("Cloud threads can't reach the user's Windows computer.");
-    expect(systemPrompt("local", true) + systemPrompt("cloud")).not.toContain("Windows computer");
+    expect(systemPrompt("local", true) + systemPrompt("cloud", true)).not.toContain("Windows computer");
   });
 
   it("renders child thread needs-attention messages with blocker summaries", () => {

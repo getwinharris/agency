@@ -9,14 +9,14 @@ import type {
   RoomDesktopBrowserState,
 } from "@cloudroom/desktop-contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserFixedPanelTab } from "@/lib/fixed-panel-tabs-state";
+import type { BrowserFixedPanelTab } from "@/components/right-panel/store/tab-model";
 import {
   createRoomDesktopApi,
   createNoopDesktopBrowserApi,
 } from "@/test/room-desktop-test-utils";
 import { POINTER_COARSE_QUERY } from "@cloudroom/shared-ui/hooks/use-pointer-coarse";
-import { BrowserTabDeck, BrowserTabLifecycleObserver } from "./BrowserTabDeck";
-import { resetBrowserViewPersistence } from "./browserViewVisibilityCoordinator";
+import { BrowserTabDeck, BrowserTabLifecycleObserver } from "@/components/right-panel/tabs/browser-tab";
+import { resetBrowserViewPersistence } from "@/components/right-panel/tabs/browser-visibility";
 
 type BrowserCall =
   | { type: "attach"; request: RoomDesktopBrowserAttachRequest }
@@ -118,7 +118,7 @@ function createRecordingBrowserApi(): RecordingBrowserApi {
 }
 
 function installDesktopBrowser(api: RoomDesktopBrowserApi): void {
-  window.bbDesktop = createRoomDesktopApi(desktopInfo, api);
+  window.roomDesktop = createRoomDesktopApi(desktopInfo, api);
 }
 
 function createMatchMedia(
@@ -179,7 +179,7 @@ describe("BrowserTabLifecycleObserver", () => {
     cleanup();
     vi.restoreAllMocks();
     resetBrowserViewPersistence();
-    delete window.bbDesktop;
+    delete window.roomDesktop;
   });
 
   it("destroys a closed browser view exactly once without an active deck", async () => {
@@ -223,7 +223,7 @@ describe("BrowserTabDeck native browser first-show ordering", () => {
     vi.restoreAllMocks();
     resetBrowserViewPersistence();
     window.localStorage.clear();
-    delete window.bbDesktop;
+    delete window.roomDesktop;
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       writable: true,

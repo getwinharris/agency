@@ -1,11 +1,12 @@
 mod children;
-pub use children::{ForkFrom, Spawn};
+pub use children::{ForkFrom, ForkOptions, Spawn};
 mod outbox;
 pub mod teleport;
 pub use outbox::Journal;
 mod accounts;
 pub mod automation;
 mod catalog;
+mod coalesce;
 mod guard;
 pub(crate) mod history;
 pub mod info;
@@ -155,12 +156,18 @@ pub struct Session {
     // Archived by `room-cli thread archive`; `thread list` hides it unless asked.
     #[serde(default)]
     pub archived: bool,
+    // Pinned by `room-cli thread pin` or `thread spawn --pin`; lets late-joining apps pin a shared child once.
+    #[serde(default)]
+    pub pinned: bool,
     // The turn this thread archived itself in: archived, it still reports that one (relay.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive_turn: Option<String>,
     // Turns already reported to the parent in another sandbox (relay.rs).
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub reported: std::collections::BTreeSet<String>,
+    // The reply its parent last got from it, as a key (children.rs `told`, #1395); none after a failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub told_reply: Option<String>,
     // What this parent last heard of each child in its own sandbox, by thread ID (relay.rs).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub child_states: BTreeMap<String, String>,
@@ -442,6 +449,8 @@ pub enum Error {
     Conflict(&'static str),
     /// A 409 whose text names its cause, such as the saved reason a new agent didn't start (#1802).
     Refused(String),
+    /// A 409 for a session whose agent failed to start before any turn ran (`code: "never_started"`).
+    NeverStarted(String),
     /// A refused effort, with the levels the model takes (`invalid_reasoning_effort`).
     Effort(String),
     /// Carries the underlying cause so API clients can see why storage failed.
@@ -453,7 +462,7 @@ impl Error {
         match self {
             Self::NotFound => "session not found".into(),
             Self::Conflict(message) => (*message).into(),
-            Self::Refused(message) => message.clone(),
+            Self::Refused(message) | Self::NeverStarted(message) => message.clone(),
             Self::Effort(message) => format!("invalid reasoning effort: {message}"),
             // A locked journal or a write that found no space: the only way in is `vm run` (#211).
             Self::Storage(detail)
@@ -519,6 +528,8 @@ pub struct Manager {
     codex_models: tokio::sync::Mutex<Option<(Instant, Vec<runtime::Model>)>>,
     claude_models: tokio::sync::Mutex<Option<(Instant, Vec<runtime::Model>)>>,
     cursor_models: tokio::sync::Mutex<Option<(Instant, Vec<runtime::Model>)>>,
+    opencode_models: tokio::sync::Mutex<Option<(Instant, Vec<runtime::Model>)>>,
+    antigravity_models: tokio::sync::Mutex<Option<(Instant, Vec<runtime::Model>)>>,
     codex_auth: runtime::auth::CodexAuth,
     claude_auth: Arc<runtime::claude_auth::ClaudeAuth>,
     claude_login: runtime::claude_login::ClaudeLogin,
@@ -714,6 +725,8 @@ impl Manager {
             codex_models: tokio::sync::Mutex::new(None),
             claude_models: tokio::sync::Mutex::new(None),
             cursor_models: tokio::sync::Mutex::new(None),
+            opencode_models: tokio::sync::Mutex::new(None),
+            antigravity_models: tokio::sync::Mutex::new(None),
             codex_auth: runtime::auth::CodexAuth::default(),
             claude_auth: Arc::new(runtime::claude_auth::ClaudeAuth::default()),
             claude_login: runtime::claude_login::ClaudeLogin::default(),
@@ -1004,6 +1017,9 @@ impl Manager {
 
     /// Account checks shared by new sessions and Teleport's preflight.
     async fn harness_ready(self: &Arc<Self>, kind: runtime::Kind) -> Result<()> {
+        if kind == runtime::Kind::Antigravity && runtime::antigravity::needs_login(&self.config) {
+            return Err(Error::Conflict(runtime::antigravity::SIGN_IN));
+        }
         if kind == runtime::Kind::Claude {
             match self
                 .claude_auth
@@ -1100,6 +1116,7 @@ impl Manager {
             runtime::Kind::Devin => runtime::DEVIN_REASONING_LEVELS.contains(&reasoning),
             runtime::Kind::Droid => runtime::DROID_REASONING_LEVELS.contains(&reasoning),
             runtime::Kind::Kimi => runtime::KIMI_REASONING_LEVELS.contains(&reasoning),
+            runtime::Kind::Antigravity => runtime::antigravity::LEVELS.contains(&reasoning),
             runtime::Kind::OpenClaw => runtime::OPENCLAW_REASONING_LEVELS.contains(&reasoning),
             runtime::Kind::AgentZero => runtime::AGENT_ZERO_REASONING_LEVELS.contains(&reasoning),
         };
@@ -1577,6 +1594,19 @@ impl Manager {
             .collect::<Vec<_>>()
             .join(" ");
         (!why.is_empty()).then(|| why.chars().take(1000).collect())
+    }
+
+    /// Why a session's agent failed to start before any turn ran, without wrapper prefixes.
+    pub(crate) fn failed_start_reason(&self, id: &str) -> Option<String> {
+        let failed = (self.local.lock().unwrap().sessions.get(id)).is_some_and(|s| {
+            s.state == SessionState::Failed && !s.has_dispatched && s.close_request.is_none()
+        });
+        let why = failed.then(|| self.start_failure(id)).flatten()?;
+        Some(
+            why.rsplit_once("Cause: ")
+                .map_or(&why[..], |(_, cause)| cause)
+                .to_owned(),
+        )
     }
 
     /// Hands the website the new session, then closes the old one (#237). The website applies it once, and a retry
@@ -3101,7 +3131,7 @@ impl Manager {
                 let spent = tokens::Tokens::of(&usage, session.harness)?.since(session.tokens);
                 (spent != tokens::Tokens::default()).then(|| Signal::Tokens {
                     harness: session.harness,
-                    model: session.model.clone(),
+                    model: crate::observability::public_model(session.model.as_deref()),
                     child: session.parent_session.is_some(),
                     tokens: spent,
                 })
@@ -3113,7 +3143,34 @@ impl Manager {
         }
     }
 
-    /// Forward native events into the record path, shutting the harness if recording fails.
+    /// Forward one native event into the record path, shutting the harness on the first recording failure.
+    fn emit_native(
+        self: &Arc<Self>,
+        id: &str,
+        handle: &runtime::Handle,
+        failed: &mut bool,
+        event: runtime::Event,
+    ) {
+        // After a failed record, only the harness exit still matters: it settles the turn (core #55).
+        if *failed && !matches!(event, runtime::Event::Exited { .. }) {
+            return;
+        }
+        if self.record_native(id, handle, event).is_err() && !*failed {
+            *failed = true;
+            if let Some(handle) = self
+                .local
+                .lock()
+                .unwrap()
+                .sessions
+                .get(id)
+                .and_then(|s| s.handle.clone())
+            {
+                handle.request_shutdown();
+            }
+        }
+    }
+
+    /// Forward native events into the record path, coalescing streaming deltas before journal fsync.
     fn watch_events(
         self: &Arc<Self>,
         id: String,
@@ -3123,23 +3180,38 @@ impl Manager {
         let manager = self.clone();
         tokio::spawn(async move {
             let mut failed = false;
-            while let Some(event) = events.recv().await {
-                // After a failed record, only the harness exit still matters: it settles the turn (core #55).
-                if failed && !matches!(event, runtime::Event::Exited { .. }) {
+            let mut coalescer = coalesce::DeltaCoalescer::new();
+            loop {
+                let next = match coalescer.deadline() {
+                    Some(deadline) => {
+                        match tokio::time::timeout_at(deadline, events.recv()).await {
+                            Ok(item) => item,
+                            Err(_) => {
+                                if let Some(event) = coalescer.flush() {
+                                    manager.emit_native(&id, &handle, &mut failed, event);
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    None => events.recv().await,
+                };
+                let Some(event) = next else {
+                    if !failed && let Some(event) = coalescer.flush() {
+                        manager.emit_native(&id, &handle, &mut failed, event);
+                    }
+                    break;
+                };
+                if failed {
+                    coalescer.clear();
+                    manager.emit_native(&id, &handle, &mut failed, event);
                     continue;
                 }
-                if manager.record_native(&id, &handle, event).is_err() && !failed {
-                    failed = true;
-                    if let Some(handle) = manager
-                        .local
-                        .lock()
-                        .unwrap()
-                        .sessions
-                        .get(&id)
-                        .and_then(|s| s.handle.clone())
-                    {
-                        handle.request_shutdown();
-                    }
+                for ready in coalescer.push(event) {
+                    manager.emit_native(&id, &handle, &mut failed, ready);
+                }
+                if failed {
+                    coalescer.clear();
                 }
             }
         });
@@ -3489,6 +3561,20 @@ impl Manager {
                     return Ok(());
                 }
                 let current = local.sessions[id].current_request.clone();
+                // A loop run its provider refused moves to the other provider on the website (ADR 20261119-091500).
+                // It is not history.
+                if kind == "refused" {
+                    if let Some(request) = current.filter(|request| tokens::loop_run(request)) {
+                        let report = json!({"action":"refused","request":request,"session":id,"harness":data["harness"]});
+                        let this = self.clone();
+                        tokio::spawn(async move {
+                            if let Some(api) = &this.history.api {
+                                let _ = api.post("automation", &report).await;
+                            }
+                        });
+                    }
+                    return Ok(());
+                }
                 // The running turn's guard; the harness's own continuation turns keep the guard of the turn they follow.
                 let plan_only = current.is_some() && local.sessions[id].guarded_turn;
                 if kind == "usage_limited" && plan_only {

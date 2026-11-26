@@ -2,6 +2,144 @@
 
 Also on [cloudroom.dev/changelog](https://www.cloudroom.dev/changelog).
 
+## 170
+
+Computer Use from anywhere (2026-11-26)
+
+### Changes
+
+- Cloud threads can now use your Mac's Computer Use, with the blue highlight and an approval card for each app.
+- Local agents that an app restart cut off now pick up where they left off.
+- The Get started checklist has clearer steps, including a new "Enable a skill" step.
+- Full Access threads that started in Plan mode no longer ask for permission.
+- Security fixes.
+
+## 169
+
+Full Access stops interrupting (2026-11-26)
+
+### Changes
+
+- Claude Code in Full Access no longer stops to ask about shell commands it can't fully read.
+- A voice message now goes to the thread you recorded it in, even if you switch threads while it transcribes.
+- Teleport moves Antigravity and OpenCode 2 chats to the Cloud again, with their history.
+- The rename dialog, the sidebar resize handle, and images you send got a cleaner look.
+- Security fixes.
+
+## 168
+
+Sign out any connected device (2026-11-25)
+
+### Changes
+
+- Settings → Cloudroom Connect lists every phone and computer connected to your Mac, and you can sign any of them out at once.
+- You get an alert when a new device connects, and you can turn Remote access off for this Mac.
+- When a Cloud thread can't sign in to Codex or clone a private GitHub repo, you can fix the login right in the chat.
+- Antigravity's Cloud sign-in options now sit in its ⋯ menu, and oversized skills no longer stop the others from reaching Cloud threads.
+- Security fixes.
+
+## 167
+
+Subagents nest six levels deep (2026-11-25)
+
+### Changes
+
+- Subagents can now nest up to six levels deep, and a parent waiting on them shows a grey cube instead of a spinner.
+- A subagent that repeats its last reply no longer wakes its parent or clutters its chat.
+- App shortcuts work while the terminal has focus, and Cmd+Shift+C jumps back to the chat.
+- Cloud threads and loops follow your project to its new repo, and Claude Code in Cloud reads a CLAUDE.md that arrives after it starts.
+- Question cards keep their line breaks, /opus and /neon no longer leave text in the chat box, and Teleport keeps your unsent draft.
+- Security fixes.
+
+## 166
+
+Side chats pick their own agent (2026-11-24)
+
+### Changes
+
+- Side chats can use any agent and model: pick one in the side chat, or switch mid-chat.
+- In Local threads, when Claude Code or Codex hits its plan limit, the new Cloudroom Agent plugin keeps you going in one click on frontier open source models.
+- Loop runs show as a clear divider with the loop name and time, instead of looking like your own message.
+- Forking from an agent's reply in Cloud threads works again, and Droid, Agent Zero and OpenClaw now start on their first use in Cloud.
+- Security fixes.
+
+## 165
+
+Cloud agents reach Windows PCs (2026-11-24)
+
+### Changes
+
+- Cloud agents can now run commands and move files on your paired Windows computer.
+- Windows updates now stage in the background for quick restarts, and npm-installed Claude Code signs in cleanly.
+- Back-to-back Claude plan limits in Cloud threads each get a plan-limit card, and restarted Cloud threads no longer report a fake exit status 1.
+- Background command markers are now minimal hairline dividers, Claude plan changes sync to Cloud, and Workflow and Cyber scans keep going past unreadable files.
+- Security fixes.
+
+## 164
+
+Share only the repos you pick (2026-11-23)
+
+### Changes
+
+- Connect GitHub can now share only the repos you pick with cloud agents.
+- Hitting a Claude plan limit in a Cloud thread shows the plan-limit card, not a raw error.
+- Cloud previews of dev servers load right away instead of stalling.
+- Image attachments show small thumbnails in the message box, and privacy mode hides your email.
+- Security fixes.
+
+## 163
+
+Live bubbles for background commands (2026-11-22)
+
+### Changes
+
+- Background commands show as live bubbles in the chat, so you always see why an agent replied on its own.
+- Long threads open and update faster, thanks to a rebuilt chat timeline.
+- Images in Local chats keep showing, even after the original file is deleted.
+- Claude Code sign-in goes straight to login, and Kimi approvals show the real command.
+- Pick Electric lime or Crisp white for the Cloud icon in Appearance.
+- Security fixes.
+
+## 162
+
+GitLab projects in the cloud (2026-11-21)
+
+### Changes
+
+- Cloud threads now work with GitLab.com projects, not just GitHub.
+- Unused worktrees park themselves to free disk, and threads keep running after a worktree move.
+- The app starts faster, and sleeping threads open their history at once.
+- A subagent bar under the thread title shows every child thread at a glance.
+- Signed-out accounts show a one-click Sign in again button right in the chat.
+- Security fixes.
+
+## 161
+
+The Antigravity Update (2026-11-21)
+
+### Changes
+
+- Antigravity is a full agent now: one-click Google sign-in, High thinking by default, and it shows even before you install it.
+- Antigravity runs in Cloud threads too, and its plan and quota show in the usage box and Settings.
+- Fork and Move to worktree work for every agent, not just Claude Code and Codex.
+- Long voice recordings are never lost, on your phone or your computer.
+- Computer use no longer steals focus from the chat input while you type.
+- Archiving a Cloud thread is instant, and Undo works in split panes.
+- Cursor's context meter shows real usage, and large local images open in previews.
+- Security fixes.
+
+## 160
+
+One-click scans on new threads (2026-11-19)
+
+### Changes
+
+- The new-thread screen offers one-click Workflow and Cyber scans of your work.
+- Custom instructions can now apply to just one agent or one model.
+- Included context shows as a collapsible chip in sent messages, and survives edits.
+- The sidebar shows which thread is using an app on your computer.
+- Security fixes.
+
 ## 159
 
 A new Ultra Fast speed (2026-11-19)

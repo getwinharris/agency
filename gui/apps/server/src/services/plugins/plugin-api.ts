@@ -147,8 +147,8 @@ export type {
   PluginThreadEventPayloads,
 } from "@get-bb/plugin-sdk";
 
-class PluginContextStaleError extends Error {
-  constructor(pluginId: string) {
+export class PluginContextStaleError extends Error {
+  constructor(readonly pluginId: string) {
     super(
       `plugin "${pluginId}" used a stale API handle — it was reloaded or disabled; ` +
         `re-entry happens via a fresh factory call`,
@@ -310,10 +310,7 @@ interface PluginHostSignalHandler {
   }) => void | Promise<void>;
 }
 
-type PluginInstructionProvider = (ctx: {
-  threadId: string;
-  projectId: string;
-}) => string | null;
+type PluginInstructionProvider = Parameters<PluginAgents["contributeInstructions"]>[0];
 
 type PluginAgentConfigurationProvider = (
   context: PluginAgentConfigurationContext,

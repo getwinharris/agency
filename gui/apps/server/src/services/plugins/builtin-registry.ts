@@ -9,7 +9,9 @@ export interface BundledPluginDefinition {
   defaultEnabled: boolean;
   alwaysEnabled?: boolean;
   refuseMachineCli?: boolean;
+  refuseMachineCliSubcommands?: readonly string[];
   relayRefusedRpcs?: Readonly<Record<string, "machine" | "all">>;
+  relayRefusedSettings?: Readonly<Record<string, "machine" | "all">>;
 }
 
 export interface BundledPluginRegistration extends BundledPluginDefinition {
@@ -64,12 +66,20 @@ const builtinDefinitions: Omit<BundledPluginDefinition, "autoInstall">[] = [
     name: "connect",
     pluginId: "connect",
     defaultEnabled: true,
+    refuseMachineCliSubcommands: ["sign-out-phones"],
     relayRefusedRpcs: {
       relayCredential: "all",
       revokeMachine: "all",
+      remoteAccess: "all",
       macs: "machine",
+      listSessions: "machine",
+      revokeSession: "machine",
+      signOutPhones: "machine",
       runSetupJob: "machine",
       setupJobStatus: "machine",
+    } as const,
+    relayRefusedSettings: {
+      enabled: "all",
     } as const,
   },
   {
@@ -132,6 +142,12 @@ const builtinDefinitions: Omit<BundledPluginDefinition, "autoInstall">[] = [
     name: "provider-pi",
     pluginId: "provider-pi",
     defaultEnabled: true,
+  },
+  // Off until the user turns it on (David, 2026-11-18, docs/scopes/cloudroom-agent.md).
+  {
+    name: "provider-cloudroom-agent",
+    pluginId: "provider-cloudroom-agent",
+    defaultEnabled: false,
   },
   {
     name: "provider-usage",
@@ -234,6 +250,12 @@ const builtinDefinitions: Omit<BundledPluginDefinition, "autoInstall">[] = [
   {
     name: "workflows",
     pluginId: "workflows",
+    defaultEnabled: false,
+  },
+  // Off while the team uses it internally (docs/scopes/director.md).
+  {
+    name: "director",
+    pluginId: "director",
     defaultEnabled: false,
   },
 ];

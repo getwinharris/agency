@@ -20,9 +20,13 @@ const NODE_ESM_REQUIRE_BANNER = [
 // Git Bash gives a /c/... path, and with MSYS_NO_PATHCONV=1 it hands that to the exe as is,
 // which Node can't load, so pass the Windows form from cygpath when it names this file (#2004).
 // Git's usr/bin/bash.exe started directly has no /usr/bin on PATH, hence the full path too.
+// When Windows won't start Cloudroom.exe (Smart App Control, an IT policy), exec fails with 126,
+// like the CLI's own 126. So on Windows (cygpath found), execfail keeps the shell after a failed
+// exec, and it runs on node instead, as room-cli.cmd does (#1583). "|| exit" stops it reading
+// the JS below as sh when node is missing too.
 export const ROOM_CLI_HASHBANG = [
   "#!/bin/sh",
-  '":" //; f=$(realpath "$0" 2>/dev/null || readlink "$0" || echo "$0"); for c in cygpath /usr/bin/cygpath; do command -v "$c" >/dev/null && w=$("$c" -m "$f" 2>/dev/null) && [ -f "$w" ] && f=$w && break; done; for e in "${f%/Contents/Resources/app.asar.unpacked/*}"/Contents/MacOS/* "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom-nightly "${f%/resources/app.asar.unpacked/*}"/Cloudroom.exe "${f%/resources/app.asar.unpacked/*}/Cloudroom Nightly.exe"; do [ -x "$e" ] && ELECTRON_RUN_AS_NODE=1 exec "$e" "$f" "$@"; done; exec node "$f" "$@"',
+  '":" //; f=$(realpath "$0" 2>/dev/null || readlink "$0" || echo "$0"); for c in cygpath /usr/bin/cygpath; do command -v "$c" >/dev/null && w=$("$c" -m "$f" 2>/dev/null) && [ -f "$w" ] && f=$w && { shopt -s execfail 2>/dev/null; break; }; done; for e in "${f%/Contents/Resources/app.asar.unpacked/*}"/Contents/MacOS/* "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom-nightly "${f%/resources/app.asar.unpacked/*}"/Cloudroom.exe "${f%/resources/app.asar.unpacked/*}/Cloudroom Nightly.exe"; do [ -x "$e" ] && { ELECTRON_RUN_AS_NODE=1 exec "$e" "$f" "$@"; unset ELECTRON_RUN_AS_NODE; echo "room-cli: Windows blocked Cloudroom.exe. Smart App Control or an IT policy can do this. Trying Node.js instead." >&2; }; done; exec node "$f" "$@" || exit',
 ].join("\n");
 
 // The same for cmd.exe and PowerShell, from
@@ -95,7 +99,7 @@ export const bundleTargets = [
       "bridge-worker-entry.ts",
     ),
     label: "provider bridge worker",
-    outfile: resolve(packageRoot, "dist", "bb-provider-bridge-worker.mjs"),
+    outfile: resolve(packageRoot, "dist", "room-provider-bridge-worker.mjs"),
   },
   {
     // Forked child that runs a plugin's `bb.host` entry (plugin-host-manager.ts).
@@ -104,7 +108,7 @@ export const bundleTargets = [
     banner: NODE_ESM_REQUIRE_BANNER,
     entryPoint: resolve(packageRoot, "src", "plugin-host-worker.ts"),
     label: "plugin host worker",
-    outfile: resolve(packageRoot, "dist", "bb-plugin-host-worker.mjs"),
+    outfile: resolve(packageRoot, "dist", "room-plugin-host-worker.mjs"),
   },
   {
     banner: NODE_ESM_REQUIRE_BANNER,
@@ -135,6 +139,6 @@ export const bundleTargets = [
       "parcel-child-entry.ts",
     ),
     label: "parcel watcher child",
-    outfile: resolve(packageRoot, "dist", "bb-parcel-watcher-child.mjs"),
+    outfile: resolve(packageRoot, "dist", "room-parcel-watcher-child.mjs"),
   },
 ];

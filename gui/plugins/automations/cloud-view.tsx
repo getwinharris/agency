@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@cloudroom/shared-ui/dropdown-menu";
 import { Icon } from "@cloudroom/shared-ui/icon";
-import { loopsChanged, useCloudLoginFixed } from "./paused-notice";
+import { loopsChanged, useCloudLoginFixed, usePlanLoopsChanged } from "./paused-notice";
 import type { automationRpcContract } from "./src/rpc.js";
 import type { AutomationAgentSummary } from "./src/rpc-types.js";
 
@@ -30,6 +30,10 @@ export type CloudAutomation = {
   runs: number;
   prompt?: string;
   new_thread?: boolean;
+  /** Runs first; a Jev loop's prints its items. */
+  script?: string | null;
+  /** A Jev loop's action script (docs/scopes/loops.md, Jev loops): its `prompt` is Jev's questions and it runs no agent. */
+  jev_action?: string | null;
   agent?: AutomationAgentSummary | null;
   /** Two or more agents that take turns, in order; `agent` is the first. */
   agents?: AutomationAgentSummary[];
@@ -48,6 +52,9 @@ export type CloudAutomationChanges = {
   /** Two or more agents that take turns, one per run. */
   agents?: { harness: string; model: string; reasoning?: string }[];
   secrets?: string[];
+  /** With `prompt` (Jev's questions) and `jev_action`, saved together for a Jev loop. */
+  script?: string;
+  jev_action?: string;
 };
 export type CloudAutomationActions = {
   onOpen: (a: CloudAutomation) => void;
@@ -96,6 +103,19 @@ export async function replaceWebhookUrl(
   }
 }
 
+const BILLING_URL = /(?: at)?\s*(?:https?:\/\/)?(?:www\.)?cloudroom\.dev\/billing\b/gi;
+
+/** Shows a toast error, turning any website billing URL into a one-click Upgrade action button. */
+export function showLoopError(message: string, onUpgrade: () => void): void {
+  if (!BILLING_URL.test(message)) {
+    toast.error(message);
+    return;
+  }
+  BILLING_URL.lastIndex = 0;
+  const clean = message.replace(BILLING_URL, "").replace(/\s+([.,;:])/g, "$1").trim();
+  toast.error(clean, { action: { label: "Upgrade", onClick: onUpgrade } });
+}
+
 const lastLoaded: {
   rows: CloudAutomation[] | null;
   stopAtLimit: boolean | null;
@@ -137,6 +157,11 @@ export function useCloudAutomations(): {
     void load();
   }, [load]);
   useCloudLoginFixed(() => void load());
+  usePlanLoopsChanged(() => void load());
+  const onUpgrade = useCallback(
+    () => navigate.openUrl("https://www.cloudroom.dev/billing"),
+    [navigate],
+  );
   const act = useCallback(
     async (request: Request, done: string) => {
       try {
@@ -144,11 +169,11 @@ export function useCloudAutomations(): {
         if (request.action !== "run") loopsChanged();
         toast.success(done);
       } catch (error: unknown) {
-        toast.error(error instanceof Error ? error.message : String(error));
+        showLoopError(error instanceof Error ? error.message : String(error), onUpgrade);
       }
       await load();
     },
-    [call, load],
+    [call, load, onUpgrade],
   );
   const actions = useMemo<CloudAutomationActions>(
     () => ({
@@ -175,7 +200,7 @@ export function useCloudAutomations(): {
         try {
           await call({ action: "update", id: a.id, priority });
         } catch (error: unknown) {
-          toast.error(error instanceof Error ? error.message : String(error));
+          showLoopError(error instanceof Error ? error.message : String(error), onUpgrade);
           throw error;
         }
         await load();
@@ -187,12 +212,12 @@ export function useCloudAutomations(): {
           await load();
           return true;
         } catch (error: unknown) {
-          toast.error(error instanceof Error ? error.message : String(error));
+          showLoopError(error instanceof Error ? error.message : String(error), onUpgrade);
           return false;
         }
       },
     }),
-    [act, call, load, navigate],
+    [act, call, load, navigate, onUpgrade],
   );
   return { rows, loaded, actions, reload: load };
 }

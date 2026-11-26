@@ -1,4 +1,4 @@
-import { CLOUD_NATIVE_FORK_PROVIDERS as FORK_HARNESSES, COMPUTER, findLocalPathProjectSourceForHost, PERSONAL_PROJECT_ID, type GitBranchSelection, type PromptInput } from "@cloudroom/domain";
+import { CLOUD_NATIVE_FORK_PROVIDERS as FORK_HARNESSES, COMPUTER, findLocalPathProjectSourceForHost, PERSONAL_PROJECT_ID, stripGitUrlCredentials, type GitBranchSelection, type PromptInput } from "@cloudroom/domain";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, rm } from "node:fs/promises";
@@ -7,12 +7,14 @@ import { promisify } from "node:util";
 import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import { events, findLastCompletedRootStoredTurn, findLastRootStoredTurnStarted, getEnvironment, getThread, listProjectSourcesByProjectIds, listStoredTurnCompletedRowsByTurnIds, type DbConnection, type EnvironmentRow } from "@cloudroom/db";
 import type { Thread, ThreadCreateOrigin } from "@cloudroom/domain";
+import { gitSafetyArgs } from "@cloudroom/host-workspace";
+import { restoreParkedWorktree } from "../environments/environment-engine.js";
 import { gitShell, msysPathToWindows } from "@cloudroom/process-utils";
 import { z } from "zod";
 import type { CreateThreadEnvironmentArgs } from "@cloudroom/server-contract";
 import type { AppDeps } from "../../types.js";
 import { ApiError } from "../../errors.js";
-import { checkTurnForkCutoff, messageForkPoint, resolveThreadForkPoint } from "../threads/thread-fork-history.js";
+import { checkTurnForkCutoff, messageForkPoint, nativeForkPoint, resolveThreadForkPoint } from "../threads/thread-fork-history.js";
 import { getLastExecutionOptions } from "../threads/thread-events.js";
 import { runLiveHostCommand } from "../hosts/live-command.js";
 import { resolvePrimaryHostId } from "../hosts/primary-host.js";
@@ -290,7 +292,11 @@ function localForkSource(deps: Parameters<typeof cloudroom>[0], sourceId: string
   const target = { threadId: sourceId, environmentId: environment.id, workspaceContext: workspaceContextFromPath({ path }) };
   return {
     nativeId,
-    code: async (id) => hostId === resolvePrimaryHostId(deps as AppDeps) ? localCode(path, id) : null,
+    code: async (id) => {
+      if (hostId !== resolvePrimaryHostId(deps as AppDeps)) return null;
+      await restoreParkedWorktree(deps, sourceId, environment.id);
+      return localCode(path, id);
+    },
     files: async (transferId) => {
       const run = (command: { action: "capture" | "read"; sessions?: { threadId: string; nativeId: string; harness: "codex" | "claude-code" }[]; keepImages?: boolean; index?: number; offset?: number }) => runLiveHostCommand(deps as AppDeps, { hostId, timeoutMs: 120_000, command: { type: "thread.teleport", transferId, ...target, ...command } });
       const capture = await run({ action: "capture", keepImages: true, sessions: [{ threadId: sourceId, nativeId, harness: harness === "codex" ? "codex" : "claude-code" }] });
@@ -357,17 +363,14 @@ export async function previewMessageFork(deps: Parameters<typeof cloudroom>[0], 
     }
   }
   async function cutoff(at: number) {
-    const native = await available(async () => {
-      if (source.executionTarget === "cloud") return (await cloudForkPoint(deps, source, at)).end_sequence;
-      const point = resolveThreadForkPoint(deps, { sourceThread: source, sourceSeqEnd: at });
-      return point?.history?.kind === "thread" ? point.history.endSequence : null;
-    });
-    if (native !== null) return { sequence: native };
-    if (source.executionTarget === "local") {
-      const text = await available(() => textForkSequence(db, source, at));
-      if (text !== null) return { sequence: text, textOnly: true };
+    if (source.executionTarget === "cloud" && FORK_HARNESSES.includes(source.providerId)) {
+      const native = await available(async () => (await cloudForkPoint(deps, source, at)).end_sequence);
+      return native === null ? null : { sequence: native };
     }
-    return null;
+    const local = source.executionTarget === "local" ? (await nativeForkPoint(deps, { sourceThread: source, sourceSeqEnd: at }))?.history : null;
+    if (local?.kind === "thread") return { sequence: local.endSequence };
+    const text = await available(() => textForkSequence(db, source, at));
+    return text === null ? null : { sequence: text };
   }
   const point = await cutoff(sequence);
   if (point?.sequence === sequence) return { exact: true, ...point };
@@ -430,7 +433,9 @@ async function parentCode(deps: Parameters<typeof cloudroom>[0], threadId: strin
     if (!source?.sessionId) {
       const environmentId = getThread(deps.db, threadId)?.environmentId;
       const environment = environmentId ? getEnvironment(deps.db, environmentId) : null;
-      return environment?.path && environment.hostId === resolvePrimaryHostId(deps as AppDeps) ? await localCode(environment.path, id) : null;
+      if (!environment?.path || environment.hostId !== resolvePrimaryHostId(deps as AppDeps)) return null;
+      await restoreParkedWorktree(deps, threadId, environment.id);
+      return await localCode(environment.path, id);
     }
     const from = await cloudroom(deps).threadClient(threadId);
     return await sourceCode(from, (await from.sessionWorkspace(source.sessionId)).path, id);
@@ -452,7 +457,7 @@ async function idle(client: CloudroomClient, sessionId: string): Promise<void> {
  *  history (a project not on GitHub) goes as its files instead, without dependencies or build output. The source is untouched. */
 export async function sourceCode(from: CloudroomClient, workspace: string, id: string): Promise<Code | null> {
   return packCode({
-    run: async (script) => (await vm(from, script, AbortSignal.timeout(PIECE_TIMEOUT))).toString(),
+    run: async (script, signal = AbortSignal.timeout(PIECE_TIMEOUT)) => (await vm(from, script, signal)).toString(),
     read: (path) => download(from, path, MAX_PACK_MB, (command) => retry(() => vm(from, command, AbortSignal.timeout(PIECE_TIMEOUT)))).catch((error: unknown) => {
       if (!(error instanceof ApiError) || error.body.code !== "cloud_file_too_large") throw error;
       throw new ApiError(413, "cloud_file_too_large", `The code is over ${MAX_PACK_MB} MB, usually from large untracked files. Commit and push the source thread's branch, then fetch it`);
@@ -461,15 +466,21 @@ export async function sourceCode(from: CloudroomClient, workspace: string, id: s
   }, workspace, id);
 }
 
-/** Runs a script on this computer. Windows uses Git for Windows' shell, which prints MSYS paths such as `/c/Users/…`. */
+/** Runs a script on this computer, every `git` in it with `gitSafetyArgs` (#2189). Windows uses Git for Windows' shell,
+ *  which prints MSYS paths such as `/c/Users/…`. */
 async function localShell(script: string): Promise<string> {
-  if (process.platform !== "win32") return (await exec("sh", ["-c", script], { maxBuffer: 1024 * 1024 })).stdout;
+  const settings = gitSafetyArgs().filter((arg) => arg !== "-c");
+  const git = Object.fromEntries([["GIT_CONFIG_COUNT", String(settings.length)], ...settings.flatMap((setting, index) => {
+    const at = setting.indexOf("=");
+    return [[`GIT_CONFIG_KEY_${index}`, setting.slice(0, at)], [`GIT_CONFIG_VALUE_${index}`, setting.slice(at + 1)]];
+  })]);
+  if (process.platform !== "win32") return (await exec("sh", ["-c", script], { env: { ...process.env, ...git }, maxBuffer: 1024 * 1024 })).stdout;
   const shell = await gitShell();
-  return (await exec(shell.command, ["-c", script], { env: shell.env, maxBuffer: 1024 * 1024, windowsHide: true })).stdout;
+  return (await exec(shell.command, ["-c", script], { env: { ...shell.env, ...git }, maxBuffer: 1024 * 1024, windowsHide: true })).stdout;
 }
 
 async function localCode(workspace: string, id: string): Promise<Code | null> {
-  if (await exec("git", ["-C", workspace, "rev-parse", "-q", "--verify", "HEAD"], { windowsHide: true }).then(() => false, () => true)) return null;
+  if (await exec("git", [...gitSafetyArgs(), "-C", workspace, "rev-parse", "-q", "--verify", "HEAD"], { windowsHide: true }).then(() => false, () => true)) return null;
   const windows = process.platform === "win32";
   return packCode({
     run: localShell,
@@ -487,6 +498,8 @@ export async function prepareLocalForkWorktree(deps: AppDeps, source: Thread, pr
   const base: GitBranchSelection | null = requested.type === "provider" && requested.environmentProviderId === DEFAULT_ENVIRONMENT_PROVIDER_ID.gitWorktree
     ? (requested.inputs as { branch?: GitBranchSelection } | null)?.branch ?? { kind: "default" }
     : requested.type === "host" && requested.workspace.type === "managed-worktree" ? requested.workspace.baseBranch : null;
+  // A fork starts from the source folder's code, so a parked one comes back first.
+  if (base && source.archivedAt === null && source.environmentId) await restoreParkedWorktree(deps, source.id, source.environmentId);
   const folder = source.environmentId ? getEnvironment(deps.db, source.environmentId) : null;
   if (!base || !folder?.path || !folder.hostId || folder.hostId !== resolvePrimaryHostId(deps)) return { environment: requested, note: null };
   const checkout = projectId === PERSONAL_PROJECT_ID ? undefined
@@ -547,6 +560,7 @@ async function forkWorktreeSource(
   if (inherited || path === checkout) return inherited;
   const repo = (dir: string) =>
     exec("git", [
+      ...gitSafetyArgs(),
       "-C",
       dir,
       "rev-parse",
@@ -586,11 +600,17 @@ export async function localForkBranch(workspace: string, checkout: string): Prom
   }
 }
 
-async function packCode(at: { run: (script: string) => Promise<string>; read: (path: string) => Promise<Buffer>; remove: (path: string) => Promise<unknown> }, workspace: string, id: string): Promise<Code | null> {
+async function packCode(at: { run: (script: string, signal?: AbortSignal) => Promise<string>; read: (path: string) => Promise<Buffer>; remove: (path: string) => Promise<unknown> }, workspace: string, id: string): Promise<Code | null> {
   const pack = async (thin: boolean): Promise<Code | null> => {
-    const [path, origin = ""] = (await at.run(codeScript(workspace, id, thin))).trim().split("\n");
+    // A dropped request ends the script's shell, not always its tar, so the script's own cleanup may never run.
+    const output = await at.run(codeScript(workspace, id, thin)).catch(async (error: unknown) => {
+      await at.run(removeTransfer(id), AbortSignal.timeout(CLEANUP_TIMEOUT)).catch(() => {});
+      throw error;
+    });
+    const [path, origin = ""] = output.trim().split("\n");
     if (!path) return null;
-    try { return { data: await at.read(path), origin: origin.trim(), ref: id }; }
+    // The origin goes into the sandbox's command and `.git/config`: never its token (#2190).
+    try { return { data: await at.read(path), origin: stripGitUrlCredentials(origin.trim()), ref: id }; }
     finally { await at.remove(path).catch(() => {}); }
   };
   const code = await pack(true);
@@ -622,9 +642,17 @@ function snapshotScript(ref: string, keep: boolean, skip: readonly string[] = []
   ];
 }
 
+/** How long a failed transfer's cleanup may hold its error, and the parent's next pack, when Core doesn't answer. */
+const CLEANUP_TIMEOUT = 15_000;
+/** Removes one transfer's files: its archive, the archive's file list, or its bundle (and the lock `git bundle` writes first). */
+const removeTransfer = (id: string) => `rm -f ${["tgz", "tgz.list", "bundle", "bundle.lock"].map((end) => `~/.cache/cloudroom/${id}.${end}`).join(" ")}`;
+/** Deletes transfer files a cut-off pack or landing left behind, once a day old, so no running transfer loses one (#2222). */
+const SWEEP = String.raw`find ~/.cache/cloudroom -maxdepth 1 -type f \( -name 'child_*' -o -name 'fork_*' \) \( -name '*.tgz' -o -name '*.tgz.list' -o -name '*.bundle' -o -name '*.bundle.lock' \) -mmin +1440 -delete >/dev/null 2>&1`;
+
 function codeScript(workspace: string, id: string, thin: boolean): string {
   const ref = `refs/cloudroom/${id}`;
   return [
+    SWEEP,
     `cd ${quote(workspace)} 2>/dev/null || exit 0`,
     `if ! git rev-parse -q --verify HEAD >/dev/null 2>&1; then f=~/.cache/cloudroom/${id}.tgz && mkdir -p ~/.cache/cloudroom || exit 1`,
     // Listed first, so a folder find can't read fails the copy instead of leaving files out. A file that changes or
@@ -655,14 +683,16 @@ export async function uploadInParts(client: CloudroomClient, file: string, data:
 }
 
 /** Puts the source's code in the fork's folder once its project copy landed. Returns why it could not, or null. */
-export async function landForkCode(client: CloudroomClient, started: { sessionId: string; transfer: string; code: Promise<Code | Error | null> | null }): Promise<string | null> {
+export async function landForkCode(client: CloudroomClient, started: { sessionId: string; transfer: string; code: Promise<Code | Error | null> | null }, stop?: AbortSignal): Promise<string | null> {
   const code = await started.code;
   if (!code) return "The source thread's code was not copied, since it has no project folder.";
   try {
     if (code instanceof Error) throw code;
-    await applyForkCode(client, (await client.sessionWorkspace(started.sessionId)).path, started.transfer, code);
+    await applyForkCode(client, (await client.sessionWorkspace(started.sessionId)).path, started.transfer, code, stop);
     return null;
   } catch (error) {
+    // A failed upload, or a dropped landing whose shell never reached its `rm`, leaves the archive behind.
+    if (!(code instanceof Error)) await vm(client, removeTransfer(started.transfer), AbortSignal.timeout(CLEANUP_TIMEOUT)).catch(() => {});
     return `The source thread's code could not be copied: ${error instanceof Error ? error.message : String(error)}.`;
   }
 }
@@ -671,7 +701,7 @@ export async function landForkCode(client: CloudroomClient, started: { sessionId
  *  the folder already has changes. A folder with no Git repository gets one. Plain files go on top of a GitHub clone
  *  and delete only symlinks in their way; with no clone they replace the folder's files, so files the source deleted are gone here too;
  *  dependencies, build output and `.cloudroom` stay. */
-async function applyForkCode(client: CloudroomClient, workspace: string, id: string, code: Code): Promise<void> {
+async function applyForkCode(client: CloudroomClient, workspace: string, id: string, code: Code, stop?: AbortSignal): Promise<void> {
   const files = isFiles(code.data);
   const file = `.cache/cloudroom/${id}.${files ? "tgz" : "bundle"}`;
   await uploadInParts(client, file, code.data);
@@ -680,7 +710,8 @@ async function applyForkCode(client: CloudroomClient, workspace: string, id: str
     await vm(client, `mkdir -p ${quote(workspace)} && cd ${quote(workspace)} && python3 -I -c ${quote(PRUNE)} . ~/${file} ${skipped} && tar -xzf ~/${file}; code=$?; rm -f ~/${file}; exit $code`, AbortSignal.timeout(PIECE_TIMEOUT));
     return;
   }
-  const land = () => client.runOnVm({
+  // Past the copy deadline, `files wait` said failed and the agent may have committed: no reset (#2023).
+  const land = () => stop?.aborted ? Promise.reject(new Error("The copy deadline passed, so it was not reset")) : client.runOnVm({
     command: [
       // The child of a project not on GitHub, or whose clone failed, has no repository yet.
       // Never on the default branch, so a push can't reach the user's main; the app renames it to the thread's room/ branch.

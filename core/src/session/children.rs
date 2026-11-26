@@ -139,7 +139,7 @@ impl Manager {
 }
 
 /// Harnesses a child sharing its parent's sandbox may run. Cursor and fx children run in sandboxes of their own.
-const CHILD_HARNESSES: [runtime::Kind; 10] = [
+const CHILD_HARNESSES: [runtime::Kind; 11] = [
     runtime::Kind::Codex,
     runtime::Kind::Claude,
     runtime::Kind::Pi,
@@ -148,6 +148,7 @@ const CHILD_HARNESSES: [runtime::Kind; 10] = [
     runtime::Kind::Devin,
     runtime::Kind::Droid,
     runtime::Kind::Kimi,
+    runtime::Kind::Antigravity,
     runtime::Kind::OpenClaw,
     runtime::Kind::AgentZero,
 ];
@@ -212,6 +213,40 @@ pub(super) fn untold(s: &Session, told: impl Fn(&Receipt) -> bool) -> Vec<(&Rece
     // word is the newest. Ones from an older Core, without `ended`, go first.
     owed.sort_by_key(|(r, _)| r.input["ended"].as_u64().unwrap_or(0));
     owed
+}
+
+/// How a due turn reaches its parent (#1395): `None` when its reply only repeats the one the parent last got, so it is
+/// marked reported, unsent; else the key to remember once it is sent (null for a failure, interruption or empty reply).
+/// A turn a message from its parent started or steered, and an archived or closing child's, always reports.
+pub(super) fn report_key(s: &Session, r: &Receipt) -> Option<Value> {
+    let reply = (s.replies.iter())
+        .find(|(id, _)| *id == r.request_id)
+        .map(|(_, text)| text.split_whitespace().collect::<Vec<_>>().join(" "));
+    let key = reply
+        .filter(|text| r.state == "completed" && r.error.is_none() && !text.is_empty())
+        .map(|text| format!("{:016x}", fnv(&text)));
+    let from_parent = |input: &Value| {
+        input["from_parent"] == true
+            || (input["sender_thread_id"].as_str()).is_some_and(|t| Some(t) == s.parent_thread())
+    };
+    let steered = |x: &Receipt| {
+        x.command == "steer"
+            && x.input["target_request_id"] == r.request_id.as_str()
+            && from_parent(&x.input)
+    };
+    let repeat = key.is_some()
+        && key == s.told_reply
+        && !(s.archived || s.close_request.is_some() || s.state == SessionState::Closed)
+        && !from_parent(&r.input)
+        && !s.receipts.values().any(steered);
+    (!repeat).then(|| json!(key))
+}
+
+/// FNV-1a: a short stable key for a long string.
+fn fnv(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// A child's turns its parent hasn't heard of, if it tells one: in another sandbox through the website, or in this one
@@ -389,6 +424,8 @@ pub struct Spawn {
     pub prompt: String,
     /// `fast` runs the child's turns in the harness's fast tier, where it has one.
     pub service_tier: Option<String>,
+    /// Pin the new shared child once when created (`room-cli thread spawn --shared-sandbox --pin`).
+    pub pin: bool,
 }
 
 /// A side chat's source (ADR 0189): `session`'s conversation, cut before user message `before`
@@ -408,6 +445,15 @@ pub struct ForkFrom {
     pub last_turn_id: Option<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ForkOptions {
+    pub model: Option<String>,
+    pub reasoning: Option<String>,
+    pub provider: Option<String>,
+    pub thread_id: Option<String>,
+    pub project_id: Option<String>,
+}
+
 /// The session a side chat was forked from.
 fn fork_of(session: &Session) -> Option<&str> {
     let start = session.receipts.values().find(|r| r.command == "start")?;
@@ -416,7 +462,11 @@ fn fork_of(session: &Session) -> Option<&str> {
 
 /// Whether `child` was started by `ancestor` or by a thread under it.
 fn under(local: &Local, ancestor: &str, child: &Session) -> bool {
-    let mut parent = child.parent_session.as_deref();
+    below(local, ancestor, child.parent_session.as_deref())
+}
+
+/// Whether a thread whose parent is `parent` is under `ancestor`.
+fn below<'a>(local: &'a Local, ancestor: &str, mut parent: Option<&'a str>) -> bool {
     // Bounded, in case saved history ever holds a parent loop.
     for _ in 0..local.sessions.len() {
         match parent {
@@ -452,15 +502,20 @@ fn continued_from<'a>(local: &'a Local, session: &Session) -> Option<&'a str> {
 /// A side chat may use the child threads of the thread it was forked from, like its own,
 /// and a session the child threads of the sessions it continued once they closed (#1296).
 fn may_use(local: &Local, caller: &str, child: &Session) -> bool {
+    reaches(local, caller, child.parent_session.as_deref())
+}
+
+/// `may_use` for a thread whose parent is `parent`.
+fn reaches(local: &Local, caller: &str, parent: Option<&str>) -> bool {
     let mut caller = Some(caller);
     // Bounded, in case saved history ever holds a loop.
     for _ in 0..=local.sessions.len() {
         let Some(id) = caller else { return false };
         let session = local.sessions.get(id);
-        if under(local, id, child)
+        if below(local, id, parent)
             || session
                 .and_then(fork_of)
-                .is_some_and(|source| under(local, source, child))
+                .is_some_and(|source| below(local, source, parent))
         {
             return true;
         }
@@ -468,6 +523,20 @@ fn may_use(local: &Local, caller: &str, child: &Session) -> bool {
     }
     false
 }
+
+/// A child the caller could use before it was made top-level: the user moved it out, or its archived parent kept it
+/// open (#2271). Its start still names the parent it had.
+fn moved_out(local: &Local, caller: &str, child: &Session) -> bool {
+    child.parent_session.is_none()
+        && child
+            .receipts
+            .values()
+            .filter(|r| r.command == "start")
+            .filter_map(|r| r.input["parent_session"].as_str())
+            .any(|parent| reaches(local, caller, Some(parent)))
+}
+
+pub(super) const MOVED_OUT: &str = "this child was moved to the top level, out of this thread's tree, so this thread can no longer read, tell or stop it";
 
 pub(super) const NOT_IN_TREE: &str = "not in this thread's tree: tell reaches its subagents, its parent (`room-cli thread tell --parent TEXT`) and the threads under its parent";
 
@@ -518,10 +587,7 @@ pub(super) fn fork_history(
 pub(super) fn notice_ids(child: &str, request: &str) -> (String, String) {
     let mut queued = legacy_notice_id(child, request);
     if queued.len() + "_steer".len() > 64 {
-        let hash = queued.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
-            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-        });
-        queued = format!("notice_{hash:016x}");
+        queued = format!("notice_{:016x}", fnv(&queued));
     }
     (format!("{queued}_steer"), queued)
 }
@@ -586,13 +652,14 @@ pub(super) fn status(state: &str, busy: bool) -> &'static str {
     }
 }
 
+/// The latest rename's title, else the start's (#2060).
 fn title(session: &Session) -> Option<String> {
-    session
-        .receipts
-        .values()
-        .find(|r| r.command == "start")
-        .and_then(|r| r.input["title"].as_str())
-        .map(str::to_owned)
+    session.title.clone().or_else(|| {
+        (session.receipts.values())
+            .find(|r| r.command == "start")
+            .and_then(|r| r.input["title"].as_str())
+            .map(str::to_owned)
+    })
 }
 
 pub(super) fn notice(
@@ -716,7 +783,7 @@ impl Manager {
             let kind = spawn.harness.unwrap_or(p.harness);
             if !CHILD_HARNESSES.contains(&kind) {
                 return Err(Error::Conflict(
-                    "Only codex, claude-code, pi, opencode, hermes, devin, droid, kimi, openclaw and agent-zero children can share this sandbox. Omit --shared-sandbox to start it in a sandbox of its own.",
+                    "Only codex, claude-code, pi, opencode, hermes, devin, droid, kimi, antigravity, openclaw and agent-zero children can share this sandbox. Omit --shared-sandbox to start it in a sandbox of its own.",
                 ));
             }
             let same = kind == p.harness;
@@ -772,6 +839,9 @@ impl Manager {
             }
             if let Some(project) = p.project_id() {
                 input["project_id"] = json!(project);
+            }
+            if spawn.pin {
+                input["pin"] = json!(true);
             }
             if let Some(existing) = local.sessions.get(&id) {
                 return Self::retry(existing, &start_id, "start", &input)?
@@ -842,6 +912,9 @@ impl Manager {
                 serde_json::to_value(&receipt).map_err(io::Error::other)?,
                 None,
             )?;
+            if spawn.pin {
+                local.append(&id, "pin", json!({"pinned": true}), None)?;
+            }
             // Its own record kind: apps that predate child threads ignore it instead of failing on it.
             local.append(
                 parent,
@@ -913,20 +986,28 @@ impl Manager {
         (model, provider)
     }
 
-    /// Starts a side chat: a new session on a copy of another session's conversation, in its folder,
-    /// with its harness, model and settings. The source keeps working and is only read.
+    /// Starts a side chat: a new session in another session's folder, inheriting its workspace and sandbox settings.
+    /// A `fresh` side chat copies no conversation and may pick any harness, model, and effort.
     pub async fn fork(
         self: &Arc<Self>,
         request: String,
         harness: Option<runtime::Kind>,
         fork: ForkFrom,
+        options: ForkOptions,
     ) -> Result<(String, Receipt)> {
+        let ForkOptions {
+            model: req_model,
+            reasoning: req_reasoning,
+            provider: req_provider,
+            thread_id: req_thread_id,
+            project_id: req_project_id,
+        } = options;
         let id = format!("cr_{request}");
         let invalid = |v: &Option<String>| {
             v.as_ref()
                 .is_some_and(|v| v.is_empty() || v.len() > 256 || v.chars().any(char::is_control))
         };
-        let (kind, input, model, provider, workspace) = {
+        let (kind, input, model, provider, reasoning, check_execution, workspace) = {
             let local = self.local.lock().unwrap();
             let s = local.sessions.get(&fork.session).ok_or(Error::Conflict(
                 "the side chat's source thread was not found",
@@ -945,11 +1026,48 @@ impl Manager {
                 || invalid(&fork.before)
                 || invalid(&fork.through)
                 || invalid(&fork.last_turn_id)
-                || harness.is_some_and(|kind| kind != s.harness)
+                || (!fork.fresh && harness.is_some_and(|kind| kind != s.harness))
             {
                 return Err(Error::Conflict("invalid side chat request"));
             }
-            let mut input = json!({"harness":s.harness,"fork":fork,"reasoning":s.reasoning});
+            let kind = if fork.fresh {
+                harness.unwrap_or(s.harness)
+            } else {
+                s.harness
+            };
+            let same_harness = kind == s.harness;
+            if req_provider.is_some() && kind != runtime::Kind::Pi {
+                return Err(Error::Conflict("provider selection requires Pi"));
+            }
+            if let Some(thread) = &req_thread_id
+                && !super::relay::thread_id(thread)
+            {
+                return Err(Error::Conflict("invalid thread_id"));
+            }
+            if let Some(project) = &req_project_id {
+                crate::workspace::valid_id(project)
+                    .map_err(|_| Error::Conflict("invalid project_id"))?;
+            }
+            let model = req_model
+                .clone()
+                .or_else(|| same_harness.then(|| s.model.clone()).flatten());
+            let provider = req_provider.clone().or_else(|| {
+                (same_harness && req_model.is_none())
+                    .then(|| s.provider.clone())
+                    .flatten()
+            });
+            let reasoning = req_reasoning.clone().or_else(|| {
+                (same_harness && req_model.is_none())
+                    .then(|| s.reasoning.clone())
+                    .flatten()
+            });
+            let mut input = json!({"harness":kind,"fork":fork,"reasoning":reasoning});
+            if let Some(m) = &req_model {
+                input["model"] = json!(m);
+            }
+            if let Some(p) = &req_provider {
+                input["provider"] = json!(p);
+            }
             if !s.command_guard_enabled() {
                 input["command_guard_enabled"] = json!(false);
             }
@@ -959,7 +1077,10 @@ impl Manager {
             if let Some(system_prompt) = s.system_prompt() {
                 input["system_prompt"] = json!(system_prompt);
             }
-            if let Some(project) = s.project_id() {
+            if let Some(thread) = &req_thread_id {
+                input["thread_id"] = json!(thread);
+            }
+            if let Some(project) = req_project_id.as_deref().or_else(|| s.project_id()) {
                 input["project_id"] = json!(project);
             }
             if let Some(existing) = local.sessions.get(&id) {
@@ -982,11 +1103,15 @@ impl Manager {
                     "the source agent is busy; fork from an earlier message or try again shortly",
                 ));
             }
+            let check_execution =
+                fork.fresh && (!same_harness || req_model.is_some() || req_reasoning.is_some());
             (
-                s.harness,
+                kind,
                 input,
-                s.model.clone(),
-                s.provider.clone(),
+                model,
+                provider,
+                reasoning,
+                check_execution,
                 s.workspace.clone(),
             )
         };
@@ -997,13 +1122,17 @@ impl Manager {
             return Err(Error::Conflict("harness is not configured"));
         }
         self.harness_ready(kind).await?;
+        if check_execution && let Some(reasoning) = reasoning.as_deref() {
+            self.execution_supported(kind, model.as_ref(), reasoning)
+                .await?;
+        }
         let receipt = Receipt {
             request_id: request.clone(),
             command: "start".into(),
             input,
             state: "accepted".into(),
             model: Some(model.unwrap_or_else(|| self.config.harnesses[&kind].model.clone())),
-            provider,
+            provider: provider.or_else(|| self.config.harnesses[&kind].provider.clone()),
             workspace,
             error: None,
         };
@@ -1115,6 +1244,7 @@ impl Manager {
                                 .map(|(_, text)| text.clone()),
                             title(c),
                             p.current_request.clone().filter(|_| steer),
+                            report_key(c, r),
                         )),
                         None if c.close_request.is_some() || c.state == SessionState::Closed => {
                             return;
@@ -1123,7 +1253,17 @@ impl Manager {
                     };
                     (due, held)
                 };
-                if let Some((parent, request, state, error, reply, title, target)) = due {
+                if let Some((parent, request, state, error, reply, title, target, key)) = due {
+                    // A repeat of what the parent last got is marked reported, unsent (#1395).
+                    let Some(key) = key else {
+                        if manager
+                            .note(&child, "parent_report", json!({"request_id":request}))
+                            .is_err()
+                        {
+                            tokio::time::sleep(Duration::from_secs(5)).await;
+                        }
+                        continue;
+                    };
                     let text = notice(&child, title, &state, error, reply);
                     let (steer, queued) = notice_ids(&child, &request);
                     // A turn that just ended, or a harness that cannot steer, falls back to the queue.
@@ -1141,6 +1281,8 @@ impl Manager {
                         .command(&parent, queued, "prompt", json!({"text":text}))
                         .is_ok()
                     {
+                        // Not `request_id`: a steer lost later still falls back to the queue (#1579).
+                        let _ = manager.note(&child, "parent_report", json!({"reply":key}));
                         continue;
                     }
                     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1157,13 +1299,21 @@ impl Manager {
         let local = self.local.lock().unwrap();
         match local.sessions.get(child) {
             Some(c) if may_use(&local, parent, c) => Ok(()),
+            Some(c) if moved_out(&local, parent, c) => Err(Error::Conflict(MOVED_OUT)),
             _ => Err(Error::Conflict("not a child thread of this thread")),
         }
     }
 
     /// `thread tell`'s target: true for a thread under the caller, false for any other it may tell.
     pub(crate) fn tell_target(&self, caller: &str, target: &str) -> Result<bool> {
-        may_tell(&self.local.lock().unwrap(), caller, target).ok_or(Error::Conflict(NOT_IN_TREE))
+        let local = self.local.lock().unwrap();
+        may_tell(&local, caller, target).ok_or_else(|| {
+            let moved = local
+                .sessions
+                .get(target)
+                .is_some_and(|t| moved_out(&local, caller, t));
+            Error::Conflict(if moved { MOVED_OUT } else { NOT_IN_TREE })
+        })
     }
 
     /// Every thread under `id`: its ID, whether it is archived, and whether to keep it open because it, a thread
@@ -1302,6 +1452,71 @@ mod tests {
             item(&local, &local.sessions["cr_sub_kid"])["id"],
             "cr_sub_kid"
         );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// #2060: inspection and child notices name a thread by its latest title, also after a restart, not its start's.
+    #[test]
+    fn a_renamed_thread_shows_its_new_title() {
+        let dir = std::env::temp_dir().join(format!("cloudroom-renamed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut local = Local::open(&dir).unwrap();
+        let start =
+            json!({"request_id":"s","command":"start","state":"completed","input":{"title":"A"}});
+        local.append("cr_kid", "receipt", start, None).unwrap();
+        assert_eq!(title(&local.sessions["cr_kid"]).as_deref(), Some("A"));
+        local
+            .append("cr_kid", "title", json!({"title":"B"}), None)
+            .unwrap();
+        assert_eq!(this_thread(&local, "cr_kid").unwrap()["title"], "B");
+        drop(local);
+        let mut local = Local::open(&dir).unwrap();
+        assert_eq!(title(&local.sessions["cr_kid"]).as_deref(), Some("B"));
+        // A snapshot from before `Session.title` falls back to the start's title, as on main; the snapshot is kept.
+        local.save_snapshot();
+        drop(local);
+        let path = dir.join("snapshot.json");
+        let mut snapshot: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        snapshot["sessions"][0]["session"]
+            .as_object_mut()
+            .unwrap()
+            .remove("title");
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        let local = Local::open(&dir).unwrap();
+        assert_eq!(local.snapshot_at, snapshot["sequence"].as_u64().unwrap());
+        assert_eq!(title(&local.sessions["cr_kid"]).as_deref(), Some("A"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// #2271: a child made top-level says so to the thread that started it and to threads above that one, not to others.
+    #[test]
+    fn a_child_moved_to_the_top_level_is_told_apart_from_a_stranger() {
+        let dir = std::env::temp_dir().join(format!("cloudroom-moved-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut local = Local::open(&dir).unwrap();
+        for (id, input) in [
+            ("top", json!({})),
+            ("p", json!({"parent_session":"top"})),
+            ("kid", json!({"parent_session":"p"})),
+            ("other", json!({})),
+        ] {
+            let start =
+                json!({"request_id":"s","command":"start","state":"completed","input":input});
+            local.append(id, "receipt", start, None).unwrap();
+        }
+        assert!(
+            !moved_out(&local, "p", &local.sessions["kid"]),
+            "still a child"
+        );
+        local.append("kid", "detach", json!({}), None).unwrap();
+        drop(local);
+        let local = Local::open(&dir).unwrap();
+        let kid = &local.sessions["kid"];
+        assert!(!may_use(&local, "p", kid));
+        assert_eq!(may_tell(&local, "p", "kid"), None);
+        for (caller, moved) in [("p", true), ("top", true), ("other", false), ("kid", false)] {
+            assert_eq!(moved_out(&local, caller, kid), moved, "{caller}");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

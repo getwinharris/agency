@@ -7,11 +7,24 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { defaultAppSettings, type PromptInput } from "@cloudroom/domain";
+import {
+  useIsMutating,
+  useMutationState,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  defaultAppSettings,
+  reasoningLevelSchema,
+  reconcileReasoningLevel,
+  type PromptInput,
+  type ReasoningLevel,
+} from "@cloudroom/domain";
 import type {
   SendMessageDelivery,
   ThreadTimelineResponse,
+  UpdateThreadRequest,
 } from "@cloudroom/server-contract";
+import type { ModelReasoningPickerSelection } from "@/components/pickers/ModelReasoningPicker";
 import type {
   AttachmentsConfig,
   HistoryConfig,
@@ -30,6 +43,7 @@ import {
   type PluginComposerHost,
 } from "@/components/plugin/plugin-composer-host";
 import { ThreadPendingInteractionBanner } from "@/components/thread/pending-interactions/ThreadPendingInteractionBanner";
+import { isChatCardPluginInteraction } from "@/lib/plugin-slot-resolvers";
 import {
   QueuedMessagesList,
   type QueuedMessageInlineEditor,
@@ -64,7 +78,27 @@ import {
   useSendThreadMessage,
   useStopThread,
 } from "@/hooks/mutations/thread-runtime-mutations";
-import { useMarkThreadRead, useSaveThreadModel } from "@/hooks/mutations/thread-state-mutations";
+import {
+  useMarkThreadRead,
+  useSaveThreadModel,
+  useUpdateThread,
+} from "@/hooks/mutations/thread-state-mutations";
+import {
+  cloudCanRunHarness,
+  cloudHarness,
+  cloudOpenCodeCatalog,
+  cloudReasoningLevels,
+  cloudServiceTierSupported,
+  cloudUltraFastSupported,
+  partitionCloudOpenCodeModelOptions,
+  useCloudroomConnection,
+  useCloudroomThread,
+  useRetryCloudStart,
+  useSetCloudReasoning,
+} from "@/hooks/queries/cloudroom-queries";
+import { resolveModelReasoningLevel } from "@/hooks/thread-creation-options/model-catalog-selection";
+import { plainError } from "@/lib/fix-prompts";
+import { reasoningLevelLabel } from "@/lib/reasoning-labels";
 import { useThreadReadTracking } from "@/hooks/useThreadReadTracking";
 import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { showMutationErrorToast } from "@/lib/mutation-errors";
@@ -73,6 +107,7 @@ import { appToast } from "@/components/ui/app-toast";
 import {
   buildSideChatSubmitMode,
   canSubmitFollowUpShortcut,
+  promptDraftToInput,
   shouldQueueFollowUpMessage,
 } from "@cloudroom/client-core";
 import { useActiveComposerDraft } from "./useActiveComposerDraft";
@@ -258,9 +293,13 @@ function EmbeddedThreadChatWithComposer({
   const activePendingInteraction = getLatestPendingInteraction(
     pendingInteractionsQuery.data,
   );
+  // Like the main thread: a plugin request (the Secrets form) replaces the composer; only a chat card (a GPU) keeps it.
   const hasComposerBlockingPendingInteraction =
     activePendingInteraction !== null &&
-    activePendingInteraction.payload.kind !== "plugin";
+    !(
+      activePendingInteraction.origin?.kind === "plugin" &&
+      isChatCardPluginInteraction(activePendingInteraction.origin.pluginId)
+    );
   const pendingInteractionsInitialLoading = isPendingInteractionStateUnknown(
     pendingInteractionsQuery.data,
     pendingInteractionsQuery.isFetching,
@@ -277,18 +316,67 @@ function EmbeddedThreadChatWithComposer({
   });
   const { data: queuedMessages = [] } = useThreadQueuedMessages(threadId);
 
+  const threadProviderId = threadQuery.data?.providerId ?? providerId;
+  const displayStatus = threadQuery.data?.runtime.displayStatus ?? "idle";
+  const isCloud = threadQuery.data?.executionTarget === "cloud";
+  const canPickLocalModel = threadQuery.data?.executionTarget === "local";
+  const queryClient = useQueryClient();
+  const cloudState = useCloudroomThread(threadId, isCloud);
+  const cloudConnection = useCloudroomConnection();
+  const setCloudReasoning = useSetCloudReasoning(threadId);
+  const retryCloudStart = useRetryCloudStart(threadId);
+  const { mutate: updateExecution } = useUpdateThread({
+    threadId,
+    errorMessage: "Failed to save thread execution settings.",
+  });
+  const saveReasoning = useUpdateThread({
+    threadId,
+    errorMessage: "Failed to save thread execution settings.",
+    reasoning: true,
+  });
+  const pendingSwitch = useMutationState({
+    filters: {
+      mutationKey: ["thread-update", threadId],
+      exact: true,
+      status: "pending",
+    },
+    select: (mutation) =>
+      mutation.state.variables as UpdateThreadRequest | undefined,
+  })
+    .filter((variables) => typeof variables?.model === "string")
+    .at(-1);
+  const isExecutionUpdatePending =
+    useIsMutating({ mutationKey: ["thread-update", threadId] }) > 0;
+  const cloudReasoning =
+    pendingSwitch?.reasoningLevel ??
+    (setCloudReasoning.isPending ? setCloudReasoning.variables : undefined) ??
+    cloudState.data?.reasoning ??
+    "medium";
+  const cloudModel = pendingSwitch?.model ?? cloudState.data?.model;
+  const cloudSessionId = cloudState.data?.sessionId ?? null;
+
   const executionOptionsQuery = useThreadDefaultExecutionOptions(
     composer.executionDefaultsThreadId,
-    { enabled: true },
+    { enabled: !isCloud },
   );
-  const defaultExecutionOptions = executionOptionsQuery.data;
+  const defaultExecutionOptions =
+    isCloud && cloudState.data
+      ? {
+          providerId: threadProviderId,
+          model: cloudState.data.model,
+          reasoningLevel: cloudState.data.reasoning,
+          permissionMode: "full" as const,
+          serviceTier: cloudState.data.serviceTier,
+        }
+      : executionOptionsQuery.data;
   const threadCreationOptions = useThreadCreationOptions({
+    cloud: isCloud,
     enabled: true,
     scope: "component-local",
     environmentId: composer.executionEnvironmentId,
     environmentHostId: composer.executionEnvironmentHostId,
     resetKey: composer.executionResetKey,
-    initialProviderId: providerId,
+    initialProviderId: threadProviderId,
     initialModel: defaultExecutionOptions?.model,
     initialServiceTier: defaultExecutionOptions?.serviceTier,
     initialReasoningLevel: defaultExecutionOptions?.reasoningLevel,
@@ -297,12 +385,13 @@ function EmbeddedThreadChatWithComposer({
   const {
     executionOptionsRouting,
     selectedProviderId,
+    setProviderModelReasoning,
     providerOptions,
     hasMultipleProviders,
     selectedProviderComposerActions,
     selectedModel,
     setSelectedModel,
-    serviceTier,
+    serviceTier: selectedServiceTier,
     setServiceTier,
     reasoningLevel,
     setReasoningLevel,
@@ -324,26 +413,172 @@ function EmbeddedThreadChatWithComposer({
     isLoadingModels,
   } = threadCreationOptions;
   const { save: saveModel, pendingModel } = useSaveThreadModel(threadId, setSelectedModel);
-  const selectedExecutionModel = pendingModel ?? activeModel?.model ?? selectedModel;
-  const selectedExecutionServiceTier = supportsServiceTier
-    ? serviceTier
-    : undefined;
+  const activeCloudProviderId = pendingSwitch?.providerId ?? threadProviderId;
+  const cloudProviderOptions = useMemo(
+    () => providerOptions.filter((option) => cloudCanRunHarness(option.value)),
+    [providerOptions],
+  );
+  const cloudFollowUpReasoningOptions = useMemo(() => {
+    // Before its first message a side chat has no session, so any effort its agent offers can still be picked.
+    const fixed =
+      Boolean(cloudSessionId) &&
+      activeCloudProviderId.startsWith("acp-") &&
+      !cloudHarness(cloudConnection.data, activeCloudProviderId)?.prompt_reasoning;
+    const levels = fixed
+      ? [cloudReasoning]
+      : cloudReasoningLevels(cloudConnection.data, activeCloudProviderId, cloudModel);
+    return [...new Set([cloudReasoning, ...levels])]
+      .flatMap((level) => {
+        const parsed = reasoningLevelSchema.safeParse(level);
+        return parsed.success
+          ? [{ value: parsed.data, label: reasoningLevelLabel(parsed.data, undefined) }]
+          : [];
+      })
+      .sort(
+        (a, b) =>
+          reasoningLevelSchema.options.indexOf(a.value) -
+          reasoningLevelSchema.options.indexOf(b.value),
+      );
+  }, [activeCloudProviderId, cloudConnection.data, cloudModel, cloudReasoning, cloudSessionId]);
+  const cloudFastSupported =
+    isCloud && cloudServiceTierSupported(cloudConnection.data, activeCloudProviderId);
+  const ultraFast =
+    supportsUltraFast &&
+    (!isCloud || cloudUltraFastSupported(cloudConnection.data, activeCloudProviderId, cloudModel));
+  const serviceTier =
+    selectedServiceTier === "ultrafast" && !ultraFast ? "default" : selectedServiceTier;
+  const cloudOpenCodeModelsRef =
+    isCloud && activeCloudProviderId === "acp-opencode"
+      ? cloudOpenCodeCatalog(cloudConnection.data)
+      : null;
+  const cloudModelPartition = useMemo(() => {
+    const combined = [...modelOptions, ...moreModelOptions];
+    return (
+      partitionCloudOpenCodeModelOptions(combined, cloudOpenCodeModelsRef) ?? {
+        primary: combined,
+        more: [],
+      }
+    );
+  }, [modelOptions, moreModelOptions, cloudOpenCodeModelsRef]);
+  const shortcutHarness =
+    isCloud && cloudState.data?.sessionId
+      ? cloudHarness(cloudConnection.data, threadProviderId)
+      : undefined;
+  const selectedExecutionModel =
+    pendingSwitch?.model ?? pendingModel ?? activeModel?.model ?? selectedModel;
+  const followUpReasoningLevel = isCloud
+    ? cloudReasoning
+    : pendingSwitch?.reasoningLevel ??
+      resolveModelReasoningLevel(
+        activeModel,
+        (saveReasoning.isPending ? saveReasoning.variables?.reasoningLevel : undefined) ??
+          defaultExecutionOptions?.reasoningLevel ??
+          reasoningLevel,
+      );
+  const handleReasoningChange = useCallback(
+    (level: ReasoningLevel) => {
+      if (isCloud) {
+        setCloudReasoning.mutate(level);
+        return;
+      }
+      setReasoningLevel(level);
+      saveReasoning.mutate({
+        id: threadId,
+        reasoningLevel: level,
+        ...(selectedExecutionModel !== defaultExecutionOptions?.model
+          ? { model: selectedExecutionModel }
+          : {}),
+      });
+    },
+    [
+      defaultExecutionOptions?.model,
+      isCloud,
+      saveReasoning,
+      selectedExecutionModel,
+      setCloudReasoning,
+      setReasoningLevel,
+      threadId,
+    ],
+  );
+  // Picking another harness or a Cloud model switches the side chat in place (ADR 0211).
+  const handleSelectModel = useCallback(
+    (
+      selection: { providerId: string; model: string } & Partial<ModelReasoningPickerSelection>,
+    ) => {
+      if (selection.providerId === threadProviderId) {
+        if (!isCloud) {
+          void saveModel(selection.model).catch(() => {});
+          return;
+        }
+        if (selection.model === cloudState.data?.model) return;
+      }
+      const level = selection.reasoningLevel ?? followUpReasoningLevel;
+      const cloudLevels = isCloud
+        ? cloudReasoningLevels(cloudConnection.data, selection.providerId, selection.model)
+        : [];
+      const supported = reasoningLevelSchema.options.filter((option) =>
+        cloudLevels.includes(option),
+      );
+      const next = {
+        ...selection,
+        reasoningLevel:
+          supported.length > 0
+            ? reconcileReasoningLevel(level, supported)
+            : level,
+      };
+      const previous = {
+        providerId: threadProviderId,
+        model: isCloud ? (cloudState.data?.model ?? selectedExecutionModel) : selectedExecutionModel,
+        reasoningLevel: followUpReasoningLevel,
+      };
+      setProviderModelReasoning(next);
+      updateExecution(
+        { id: threadId, ...next },
+        {
+          // Show the new model and effort at once, so a quick send can't carry the old ones.
+          onSuccess: async () => {
+            const queryKey = ["cloudroom-thread", threadId];
+            await queryClient.cancelQueries({ queryKey });
+            queryClient.setQueryData<{ model: string; reasoning: string } | null>(queryKey, (data) =>
+              data && { ...data, model: next.model, reasoning: next.reasoningLevel },
+            );
+            void queryClient.invalidateQueries({ queryKey });
+          },
+          onError: () => setProviderModelReasoning(previous),
+        },
+      );
+    },
+    [
+      cloudConnection.data,
+      cloudState.data?.model,
+      followUpReasoningLevel,
+      isCloud,
+      queryClient,
+      saveModel,
+      selectedExecutionModel,
+      setProviderModelReasoning,
+      threadId,
+      threadProviderId,
+      updateExecution,
+    ],
+  );
+  const selectedExecutionServiceTier = isCloud
+    ? (cloudFastSupported ? serviceTier : undefined)
+    : supportsServiceTier
+      ? serviceTier
+      : undefined;
   const snapshotPermissionMode = defaultExecutionOptions?.permissionMode;
   const effectivePermissionMode =
     composer.permissionPolicy === "snapshot"
       ? snapshotPermissionMode
       : permissionMode;
 
-  const displayStatus = threadQuery.data?.runtime.displayStatus ?? "idle";
-  // A Cloud thread keeps its starting model and full permissions (ADR 0189).
-  const isCloud = threadQuery.data?.executionTarget === "cloud";
-  const canPickLocalModel = threadQuery.data?.executionTarget === "local";
   const executionRequestFields = useMemo(
     () => ({
-      ...(selectedExecutionModel.length > 0
+      ...(selectedExecutionModel.length > 0 || isCloud
         ? {
             ...(isCloud ? {} : { model: selectedExecutionModel }),
-            reasoningLevel,
+            reasoningLevel: followUpReasoningLevel,
             ...(selectedExecutionServiceTier
               ? { serviceTier: selectedExecutionServiceTier }
               : {}),
@@ -355,8 +590,8 @@ function EmbeddedThreadChatWithComposer({
     }),
     [
       effectivePermissionMode,
+      followUpReasoningLevel,
       isCloud,
-      reasoningLevel,
       selectedExecutionModel,
       selectedExecutionServiceTier,
     ],
@@ -421,7 +656,7 @@ function EmbeddedThreadChatWithComposer({
   clearInlineAttachmentErrorRef.current = () => dismissInlineAttachmentFailures();
   const { typeaheadConfig, promptActions } = useComposerTypeahead({
     projectId,
-    providerId,
+    providerId: selectedProviderId,
     environmentId: promptContextEnvironmentId,
     currentThreadId: threadId,
     selectedProviderComposerActions,
@@ -436,9 +671,10 @@ function EmbeddedThreadChatWithComposer({
   }, [stopThread, threadId]);
   const isProvisioning =
     displayStatus === "provisioning" || displayStatus === "starting";
-  const isDefaultExecutionOptionsLoading =
-    executionOptionsQuery.isPlaceholderData ||
-    (defaultExecutionOptions === undefined && executionOptionsQuery.isLoading);
+  const isDefaultExecutionOptionsLoading = isCloud
+    ? cloudState.data === undefined && cloudState.isLoading
+    : executionOptionsQuery.isPlaceholderData ||
+      (defaultExecutionOptions === undefined && executionOptionsQuery.isLoading);
 
   const {
     processingQueuedMessage,
@@ -512,38 +748,37 @@ function EmbeddedThreadChatWithComposer({
     threadId,
     promptDraft.clearIfCurrentMatches,
   );
-  const handleSubmit = useCallback(() => {
-    const submittedDraft = currentPromptDraft;
-    const submittedInput = currentPromptDraftInput;
-    if (runCopyCommand(submittedDraft)) return;
+  // Reads the stored draft, not this render's copy: a voice message can send after the chat closes.
+  // Resolves true once the message is sent or queued.
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    const submittedDraft = promptDraft.getCurrent();
+    const submittedInput = promptDraftToInput(submittedDraft);
+    if (runCopyCommand(submittedDraft)) return false;
     if (submittedInput.length === 0 || isTurnSubmitting) {
-      return;
+      return false;
     }
     promptDraft.clearIfCurrentMatches(submittedDraft);
     dismissBottomAttachmentFailures();
     setIsTurnSubmitting(true);
-    void defaultSendOrQueueInput(submittedInput)
-      .catch((error) => {
-        if (!isMountedRef.current) {
-          return;
-        }
-        promptDraft.restoreIfEmpty(submittedDraft);
-        showMutationErrorToast({
-          error,
-          fallbackMessage: "Failed to send message",
-          lifecycleOperation: shouldQueueFollowUpMessage(displayStatus)
-            ? "queue_message"
-            : "send_message",
-        });
-      })
-      .finally(() => {
-        if (isMountedRef.current) {
-          setIsTurnSubmitting(false);
-        }
+    try {
+      await defaultSendOrQueueInput(submittedInput);
+      return true;
+    } catch (error) {
+      promptDraft.restoreIfEmpty(submittedDraft);
+      showMutationErrorToast({
+        error,
+        fallbackMessage: "Failed to send message",
+        lifecycleOperation: shouldQueueFollowUpMessage(displayStatus)
+          ? "queue_message"
+          : "send_message",
       });
+      return false;
+    } finally {
+      if (isMountedRef.current) {
+        setIsTurnSubmitting(false);
+      }
+    }
   }, [
-    currentPromptDraft,
-    currentPromptDraftInput,
     defaultSendOrQueueInput,
     displayStatus,
     isTurnSubmitting,
@@ -820,6 +1055,10 @@ function EmbeddedThreadChatWithComposer({
       ? "Provisioning thread..."
       : "Reply…";
 
+  const voiceTarget = useMemo(
+    () => ({ draftScope: composer.draftScope, send: handleSubmit }),
+    [composer.draftScope, handleSubmit],
+  );
   const bottomComposerConfig = useMemo<FollowUpComposerProps>(
     () => ({
       history: {
@@ -839,6 +1078,7 @@ function EmbeddedThreadChatWithComposer({
       steerActiveThreadOnEnter,
       submitMode,
       threadRuntimeDisplayStatus: displayStatus,
+      voiceTarget,
     }),
     [
       canSubmitModifierShortcut,
@@ -852,6 +1092,7 @@ function EmbeddedThreadChatWithComposer({
       promptDraft.setTextAndMentions,
       steerActiveThreadOnEnter,
       submitMode,
+      voiceTarget,
     ],
   );
   const inlineComposerConfig = useMemo<FollowUpComposerProps | null>(
@@ -933,26 +1174,34 @@ function EmbeddedThreadChatWithComposer({
     ],
   );
 
-  const bottomExecutionConfig = useMemo<ExecutionControlsProps>(
+  const bottomExecutionConfig = useMemo(
     () => ({
       providerRouting: executionOptionsRouting,
-      lockModelSelection: !canPickLocalModel,
-      disabled: Boolean(pendingModel),
-      selectModel: ({ providerId, model }) => saveModel(model, providerId),
+      disabled: isExecutionUpdatePending || Boolean(pendingModel),
+      onSelectModel: handleSelectModel,
+      selectModel: ({
+        providerId: shortcutProviderId,
+        model,
+      }: {
+        providerId: string;
+        model: string;
+      }) => saveModel(model, shortcutProviderId),
       provider: {
         options: providerOptions,
-        selectedId: selectedProviderId,
-        hasMultiple: hasMultipleProviders && !isCloud,
+        selectedId: pendingSwitch?.providerId ?? selectedProviderId,
+        hasMultiple: hasMultipleProviders,
       },
       model: {
-        active: pendingModel ? { model: pendingModel } : activeModel,
+        active: selectedExecutionModel ? { model: selectedExecutionModel } : null,
         selected: selectedModel,
         options: modelOptions,
         moreOptions: moreModelOptions,
         loadError: modelLoadError,
         isLoading: isLoadingModels,
         loadFailed: modelLoadFailed,
-        onChange: (model) => { void saveModel(model).catch(() => {}); },
+        onChange: (model: string) => {
+          void saveModel(model).catch(() => {});
+        },
       },
       serviceTier: {
         value: serviceTier,
@@ -960,75 +1209,78 @@ function EmbeddedThreadChatWithComposer({
         supported: supportsServiceTier,
         supportByProvider: serviceTierSupportByProvider,
         fastLabel: serviceTierFastLabel,
-        ultraFast: supportsUltraFast,
+        ultraFast,
       },
       reasoning: {
-        value: reasoningLevel,
+        value: followUpReasoningLevel,
         options: reasoningOptions,
-        onChange: setReasoningLevel,
+        onChange: handleReasoningChange,
       },
     }),
     [
-      activeModel,
-      canPickLocalModel,
       executionOptionsRouting,
+      followUpReasoningLevel,
+      handleReasoningChange,
+      handleSelectModel,
       hasMultipleProviders,
-      isCloud,
+      isExecutionUpdatePending,
       isLoadingModels,
       modelLoadFailed,
       modelLoadError,
       modelOptions,
       moreModelOptions,
+      pendingModel,
+      pendingSwitch?.providerId,
       providerOptions,
-      reasoningLevel,
       reasoningOptions,
+      saveModel,
+      selectedExecutionModel,
       selectedModel,
       selectedProviderId,
       serviceTier,
-      serviceTierSupportByProvider,
-      setReasoningLevel,
-      saveModel,
-      pendingModel,
-      setServiceTier,
-      supportsServiceTier,
-      supportsUltraFast,
       serviceTierFastLabel,
-    ],
-  );
-  const inlineExecutionConfig = useMemo<ExecutionControlsProps | null>(
-    () =>
-      inlineEditingQueuedMessage
-        ? {
-            ...bottomExecutionConfig,
-            model: {
-              ...bottomExecutionConfig.model,
-              active: { model: inlineEditingQueuedMessage.model },
-              selected: inlineEditingQueuedMessage.model,
-            },
-            serviceTier: {
-              value: inlineEditingQueuedMessage.serviceTier,
-              onChange: setServiceTier,
-              supported: supportsServiceTier,
-              supportByProvider: serviceTierSupportByProvider,
-              fastLabel: serviceTierFastLabel,
-              ultraFast: supportsUltraFast,
-            },
-            reasoning: {
-              ...bottomExecutionConfig.reasoning,
-              value: inlineEditingQueuedMessage.reasoningLevel,
-            },
-          }
-        : null,
-    [
-      bottomExecutionConfig,
-      inlineEditingQueuedMessage,
       serviceTierSupportByProvider,
       setServiceTier,
       supportsServiceTier,
-      supportsUltraFast,
-      serviceTierFastLabel,
+      ultraFast,
     ],
   );
+  const inlineExecutionConfig = useMemo<ExecutionControlsProps | null>(() => {
+    if (!inlineEditingQueuedMessage) return null;
+    const {
+      onSelectModel: _onSelectModel,
+      selectModel: _selectModel,
+      ...lockedExecution
+    } = bottomExecutionConfig;
+    return {
+      ...lockedExecution,
+      model: {
+        ...bottomExecutionConfig.model,
+        active: { model: inlineEditingQueuedMessage.model },
+        selected: inlineEditingQueuedMessage.model,
+      },
+      serviceTier: {
+        value: inlineEditingQueuedMessage.serviceTier,
+        onChange: setServiceTier,
+        supported: supportsServiceTier,
+        supportByProvider: serviceTierSupportByProvider,
+        fastLabel: serviceTierFastLabel,
+        ultraFast,
+      },
+      reasoning: {
+        ...bottomExecutionConfig.reasoning,
+        value: inlineEditingQueuedMessage.reasoningLevel,
+      },
+    };
+  }, [
+    bottomExecutionConfig,
+    inlineEditingQueuedMessage,
+    serviceTierFastLabel,
+    serviceTierSupportByProvider,
+    setServiceTier,
+    supportsServiceTier,
+    ultraFast,
+  ]);
 
   const bottomPermissionConfig = useMemo<ExecutionPermissionConfig>(
     () =>
@@ -1079,30 +1331,35 @@ function EmbeddedThreadChatWithComposer({
       queuedMessageIndex: inlineEditingQueuedMessage.queuedMessageIndex,
       onDismiss: dismissInlineQueuedMessageEditor,
       content: (
-        <FollowUpPromptBox
-          attachments={inlineAttachmentsConfig}
-          stack={null}
-          composer={inlineComposerConfig}
-          pluginComposerHost={queuedPluginComposerHost}
-          pluginComposerScope={queuedPluginComposerHost?.scope ?? null}
-          textEffects={queuedComposerTextEffects}
-          environmentSummary={null}
-          contextWindowUsage={null}
-          execution={inlineExecutionConfig}
-          executionReadOnly
-          permission={inlinePermissionConfig}
-          permissionReadOnly
-          permissionInToolbar
-          typeahead={typeaheadConfig}
-          promptActions={promptActions}
-          collapseResetKey={`${surfaceKey}:queued-message:${inlineEditingQueuedMessage.queuedMessageId}`}
-          focusEndKey={`${inlineEditingQueuedMessage.editSessionId}:${inlineComposerFocusNonce}`}
-          isPrimaryComposer={false}
-          showScrollToBottomButton={false}
-        />
+        <PromptDraftContextsContext.Provider
+          value={activeComposerDraft.contexts}
+        >
+          <FollowUpPromptBox
+            attachments={inlineAttachmentsConfig}
+            stack={null}
+            composer={inlineComposerConfig}
+            pluginComposerHost={queuedPluginComposerHost}
+            pluginComposerScope={queuedPluginComposerHost?.scope ?? null}
+            textEffects={queuedComposerTextEffects}
+            environmentSummary={null}
+            contextWindowUsage={null}
+            execution={inlineExecutionConfig}
+            executionReadOnly
+            permission={inlinePermissionConfig}
+            permissionReadOnly
+            permissionInToolbar
+            typeahead={typeaheadConfig}
+            promptActions={promptActions}
+            collapseResetKey={`${surfaceKey}:queued-message:${inlineEditingQueuedMessage.queuedMessageId}`}
+            focusEndKey={`${inlineEditingQueuedMessage.editSessionId}:${inlineComposerFocusNonce}`}
+            isPrimaryComposer={false}
+            showScrollToBottomButton={false}
+          />
+        </PromptDraftContextsContext.Provider>
       ),
     };
   }, [
+    activeComposerDraft.contexts,
     dismissInlineQueuedMessageEditor,
     inlineAttachmentsConfig,
     inlineComposerConfig,
@@ -1164,20 +1421,45 @@ function EmbeddedThreadChatWithComposer({
     />
   ) : pendingInteractionsInitialLoading ? (
     <PendingInteractionsQueryBanner state="loading" />
-  ) : activePendingInteraction !== null &&
-    activePendingInteraction.payload.kind !== "plugin" ? (
+  ) : hasComposerBlockingPendingInteraction ? (
     <ThreadPendingInteractionBanner
       interaction={activePendingInteraction}
       threadId={threadId}
     />
   ) : null;
+  const startError = retryCloudStart.error?.message ?? cloudState.data?.error ?? null;
   const footer = (
     <div className={cn("relative", surfaceClassName)}>
       <OverflowFade placement="above" tone={surfaceTone} />
       <div className="px-4 pb-4 pt-2">
+        {isCloud && cloudState.data?.failedStart && (
+          <div role="alert" aria-label="Side chat status" className="mb-2 flex min-w-0 items-center gap-2 rounded-full border border-border bg-background py-1 pl-3 pr-2 text-xs text-muted-foreground">
+            <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-destructive" />
+            <span className="min-w-0 flex-1 truncate text-foreground" title={startError ?? undefined}>
+              {startError ? plainError(startError) : "Side chat didn't start"}
+            </span>
+            <button type="button" className="shrink-0 text-foreground underline underline-offset-2 disabled:opacity-50" disabled={retryCloudStart.isPending} onClick={() => retryCloudStart.mutate()}>
+              Retry
+            </button>
+          </div>
+        )}
         <PromptDraftContextsContext.Provider value={currentPromptDraft.contexts}>
         <FollowUpPromptBox
-          threadProviderId={canPickLocalModel && modelCatalogIsVerified && selectedProviderId === threadQuery.data?.providerId ? selectedProviderId : undefined}
+          threadProviderId={
+            isCloud ||
+            (canPickLocalModel &&
+              modelCatalogIsVerified &&
+              selectedProviderId === threadProviderId)
+              ? threadProviderId
+              : undefined
+          }
+          cloudShortcutModels={
+            isCloud
+              ? shortcutHarness?.idle_set_model
+                ? (shortcutHarness.models?.map(({ model }) => model) ?? [])
+                : []
+              : undefined
+          }
           attachments={bottomAttachmentsConfig}
           stack={queuedMessagesStack}
           pendingInteraction={pendingInteractionBanner}
@@ -1187,7 +1469,41 @@ function EmbeddedThreadChatWithComposer({
           textEffects={bottomComposerTextEffects}
           environmentSummary={composer.environmentSummary}
           contextWindowUsage={contextWindowUsage}
-          execution={bottomExecutionConfig}
+          execution={
+            isCloud
+              ? {
+                  ...bottomExecutionConfig,
+                  provider: {
+                    ...bottomExecutionConfig.provider,
+                    selectedId: activeCloudProviderId,
+                    options: cloudProviderOptions,
+                    hasMultiple: cloudProviderOptions.length > 1,
+                  },
+                  model: {
+                    ...bottomExecutionConfig.model,
+                    active: cloudModel ? { model: cloudModel } : null,
+                    isLoading: !cloudModel,
+                    options: cloudModelPartition.primary,
+                    moreOptions: cloudModelPartition.more,
+                    loadFailed: false,
+                    loadError: null,
+                    onChange: (model: string) =>
+                      handleSelectModel({ providerId: threadProviderId, model }),
+                  },
+                  reasoning: {
+                    ...bottomExecutionConfig.reasoning,
+                    value: cloudReasoning,
+                    options: cloudFollowUpReasoningOptions,
+                    onChange: handleReasoningChange,
+                  },
+                  serviceTier: {
+                    ...bottomExecutionConfig.serviceTier,
+                    value: cloudFastSupported ? serviceTier : "default",
+                    supported: cloudFastSupported,
+                  },
+                }
+              : bottomExecutionConfig
+          }
           permission={
             isCloud
               ? { ...bottomPermissionConfig, value: "full", supported: false }

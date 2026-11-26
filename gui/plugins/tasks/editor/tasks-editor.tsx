@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Editor, isNodeSelection, type ChainedCommands } from "@tiptap/core";
 import { BubbleMenuPlugin } from "@tiptap/extension-bubble-menu";
-import type { IconSvgElement } from "@hugeicons/react";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@cloudroom/shared-ui/hugeicons-icon";
+import { HugeiconsIcon } from "@cloudroom/shared-ui/hugeicons-icon";
 import {
   BubbleChatIcon,
   CheckListIcon,
@@ -28,7 +28,7 @@ function isImeComposing(event: KeyboardEvent): boolean {
   return event.isComposing || event.keyCode === 229;
 }
 
-const STYLE_MARKER = "data-bb-tasks-editor-styles";
+const STYLE_MARKER = "data-room-tasks-editor-styles";
 const EDITOR_CSS = `
 .bb-tasks-editor .tiptap {
   outline: none; width: 100%; font-size: 14px; line-height: 1.65;
@@ -417,13 +417,8 @@ export function TasksEditor({
           editor,
           element: bubbleRef.current,
           updateDelay: 150,
-          tippyOptions: {
-            duration: 120,
-            placement: "top",
-            maxWidth: "none",
-            zIndex: 40,
-            appendTo: () => rootRef.current?.parentElement ?? document.body,
-          },
+          appendTo: () => rootRef.current?.parentElement ?? document.body,
+          options: { placement: "top", offset: 10 },
           shouldShow: ({ editor: bubbleEditor, state, from, to }) => {
             const { selection } = state;
             if (!bubbleEditor.isEditable || selection.empty) return false;
@@ -464,7 +459,7 @@ export function TasksEditor({
     const editor = editorRef.current;
     if (!editor || value === lastMarkdownRef.current) return;
     lastMarkdownRef.current = value;
-    editor.commands.setContent(value, false);
+    editor.commands.setContent(value, { emitUpdate: false });
   }, [value]);
 
   useEffect(() => {
@@ -544,7 +539,7 @@ export function TasksEditor({
           ref={bubbleRef}
           role="toolbar"
           aria-label="Formatting"
-          style={{ visibility: "hidden" }}
+          style={{ visibility: "hidden", position: "absolute", zIndex: 40 }}
           className="flex items-center gap-0.5 rounded-lg border border-border bg-popover p-0.5 text-popover-foreground shadow-md"
         >
           {BUBBLE_ACTIONS.map((action) => (

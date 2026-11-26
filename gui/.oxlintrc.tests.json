@@ -4,17 +4,12 @@
   "categories": {
     "correctness": "off"
   },
-  "jsPlugins": [
-    {
-      "name": "landmines-testing",
-      "specifier": "@interfere/landmines/testing"
-    }
-  ],
+  "jsPlugins": ["./scripts/oxlint-plugin.mjs"],
   "overrides": [
     {
       "files": ["**/*.{test,spec}.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "rules": {
-        "landmines-testing/no-fixed-sleep": [
+        "bb/no-fixed-sleep": [
           "error",
           {
             "allow": {
@@ -59,7 +54,6 @@
               "plugins/environment-git-worktree/host.test.ts": 1,
               "plugins/provider-codex/src/bridge/bridge.archived-rebuild.test.ts": 1,
               "plugins/provider-codex/src/bridge/bridge.zero-work-turn.test.ts": 1,
-              "plugins/provider-pi/src/bridge/bridge.lifecycle.test.ts": 1,
               "plugins/provider-pi/src/bridge/bridge.round2.test.ts": 4,
               "plugins/tasks/editor/editor.test.tsx": 1,
               "plugins/tasks/shell/shell.test.tsx": 3,
@@ -70,7 +64,7 @@
             }
           }
         ],
-        "landmines-testing/no-unsignaled-poll": [
+        "bb/no-unsignaled-poll": [
           "warn",
           {
             "allow": {

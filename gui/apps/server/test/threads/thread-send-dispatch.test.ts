@@ -1,3 +1,4 @@
+import { AgentRuntimeTurnBusyError } from "@cloudroom/agent-runtime";
 import {
   archiveThread,
   createPendingInteraction,
@@ -865,6 +866,39 @@ describe("startup queue waits", () => {
     });
   });
 
+  it("keeps an explicitly sent needs-attention notice out of the stale drop (#2452)", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedProviderThreadFixture({
+        harness,
+        status: "active",
+        value: 2452,
+      });
+      const notice = {
+        input: textInput("child needs help"),
+        parentThreadId: thread.id,
+        systemMessageKind: "child-needs-attention" as const,
+        systemMessageSubject: null,
+      };
+      await queueParentSystemMessage(harness.deps, {
+        ...notice,
+        interactionId: "pint_2452",
+      });
+      const parked = listQueuedThreadMessages(harness.db, thread.id)[0]!;
+      expect(JSON.parse(parked.systemNotice!).interactionId).toBe("pint_2452");
+
+      await sendQueuedMessageNow(harness.deps, {
+        mode: "auto",
+        queuedMessageId: parked.id,
+        threadId: thread.id,
+      });
+      const requeued = listQueuedThreadMessages(harness.db, thread.id);
+      expect(requeued).toHaveLength(1);
+      expect(JSON.parse(requeued[0]!.systemNotice!)).not.toHaveProperty(
+        "interactionId",
+      );
+    });
+  });
+
   it("parks a second notice while the first starts a fresh session (#1584)", async () => {
     await withTestHarness(async (harness) => {
       const { thread } = seedProviderThreadFixture({ harness, value: 1584 });
@@ -889,6 +923,32 @@ describe("startup queue waits", () => {
           JSON.parse(row.waitingOn!),
         ),
       ).toEqual([{ kind: "turn-starting" }]);
+
+      // A start the host refused as competing, before touching the live
+      // turn, leaves that turn running, not the thread failed.
+      const start = await waitForQueuedCommand(
+        harness,
+        (queued) => queued.command.type === "thread.start",
+      );
+      const busy = new AgentRuntimeTurnBusyError(thread.id);
+      await reportQueuedCommandError(harness, start, {
+        errorCode: busy.code,
+        errorMessage: busy.message,
+      });
+      expect(getThread(harness.db, thread.id)?.status).toBe("active");
+      expect(
+        listEvents(harness.db, { threadId: thread.id }).map((e) => e.type),
+      ).not.toContain("system/error");
+      // Its notice waits for that turn too, in its place, instead of being lost.
+      expect(
+        listQueuedThreadMessages(harness.db, thread.id).map((row) => [
+          row.payloadKind,
+          JSON.parse(row.content)[0].text,
+        ]),
+      ).toEqual([
+        ["retry", "child A assigned"],
+        ["inline", "child B assigned"],
+      ]);
     });
   });
 
@@ -1527,6 +1587,87 @@ describe("service tier execution lifecycle", () => {
           options: expect.objectContaining({ serviceTier: "default" }),
         }),
       );
+    });
+  });
+
+  it("reports a queued message the drain already delivered as sent (#1954)", async () => {
+    await withTestHarness(async (harness) => {
+      const { environment, thread } = seedProviderThreadFixture({
+        harness,
+        value: 1954,
+        status: "active",
+      });
+      const other = seedProviderThreadFixture({ harness, value: 1955 });
+      const queued = await createQueuedMessageForThread(harness.deps, {
+        thread,
+        payload: { input: textInput("follow-up") },
+      });
+      applyLoggedThreadLifecycleEvent(harness.deps, {
+        event: { type: "run.succeeded" },
+        threadId: thread.id,
+      });
+      await sendNextQueuedMessageIfPresent(harness.deps, {
+        threadId: thread.id,
+      });
+      const send = (threadId: string) =>
+        harness.app.request(
+          `/api/v1/threads/${threadId}/queued-messages/${queued.id}/send`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ mode: "auto" }),
+          },
+        );
+      // Not accepted by the provider yet: still unknown, as before.
+      expect((await send(thread.id)).status).toBe(404);
+      const [submit] = listQueuedThreadCommands(
+        harness,
+        "turn.submit",
+        thread.id,
+      );
+      if (submit?.type !== "turn.submit") throw new Error("Expected a submit");
+      seedStoredEvent(harness.deps, {
+        data: { clientRequestId: submit.requestId },
+        environmentId: environment.id,
+        providerThreadId: "provider-send-dispatch-1954",
+        scope: turnScope("turn-drained"),
+        sequence: 100,
+        threadId: thread.id,
+        type: "turn/input/accepted",
+      });
+      // A pending question in the delivered turn does not hide the receipt.
+      createPendingInteraction(harness.db, {
+        originKind: "plugin",
+        pluginId: "plugin-1954",
+        rendererId: "renderer-1954",
+        threadId: thread.id,
+        turnId: null,
+        payload: JSON.stringify({ kind: "plugin", title: "Approve" }),
+      });
+      const sent = await send(thread.id);
+      expect(sent.status).toBe(200);
+      expect(await sent.json()).toEqual({ ok: true, delivery: "sent" });
+      // A fork's copied receipt has no provider thread and never counts.
+      const copied = {
+        scope: turnScope("turn-drained"),
+        threadId: other.thread.id,
+      };
+      seedStoredEvent(harness.deps, {
+        ...copied,
+        data: { requestId: submit.requestId, queuedMessageId: queued.id },
+        sequence: 200,
+        type: "client/turn/requested",
+      });
+      seedStoredEvent(harness.deps, {
+        ...copied,
+        data: { clientRequestId: submit.requestId },
+        sequence: 201,
+        type: "turn/input/accepted",
+      });
+      expect((await send(other.thread.id)).status).toBe(404);
+      expect(
+        listQueuedThreadCommands(harness, "turn.submit", thread.id),
+      ).toHaveLength(1);
     });
   });
 

@@ -18,9 +18,11 @@ import {
   getLatestStoredConversationOutlineSequence,
   listQueuedThreadMessages,
   getRootTurnInterruption,
+  getUnfinishedAgentMessageText,
 } from "@cloudroom/db";
 import type { Hono } from "hono";
 import {
+  LEGACY_CHAT_FILE_COPIES_FOLDER,
   DEFAULT_COMPLETED_TURN_DISPLAY,
   PROMPT_HISTORY_ENTRY_LIMIT,
   threadEventTypeSchema,
@@ -59,7 +61,10 @@ import {
   type DaemonFileReadResult,
   serveDaemonFileContent,
 } from "../../services/hosts/daemon-file-response.js";
-import { requireThreadStoragePath } from "../../services/threads/thread-storage.js";
+import {
+  listChatFileCopies,
+  requireThreadStoragePath,
+} from "../../services/threads/thread-storage.js";
 import { toListedThreadQueuedMessages } from "../../services/threads/thread-queued-messages.js";
 import {
   toThreadEventWithMeta,
@@ -287,21 +292,33 @@ async function serveThreadStorageRawFile(
   deps: LoggedWorkSessionDeps,
   threadId: string,
   rawPath: string,
-  ifNoneMatch: string | undefined,
+  headers: {
+    ifNoneMatch?: string;
+    ifRange?: string;
+    range?: string;
+  },
 ): Promise<Response> {
   const filePath = parseSafeRelativeRoutePath(rawPath);
   const target = await requireThreadStorageTarget(deps, { threadId });
+  const isHtml = isHtmlPreviewPath(filePath.relativePath);
 
   return serveDaemonFileContent(
     deps,
     {
       hostId: target.hostId,
-      ...(!isHtmlPreviewPath(filePath.relativePath) ? { ifNoneMatch } : {}),
+      ...(!isHtml ? { ifNoneMatch: headers.ifNoneMatch } : {}),
       path: path.join(target.storagePath, filePath.relativePath),
       rootPath: target.storagePath,
     },
     (result) =>
-      createRawFilePreviewResponse(result, filePath.relativePath, ifNoneMatch),
+      createRawFilePreviewResponse(
+        result,
+        filePath.relativePath,
+        headers.ifNoneMatch,
+      ),
+    isHtml
+      ? undefined
+      : { directLocal: { ifRange: headers.ifRange, range: headers.range } },
   );
 }
 
@@ -309,7 +326,11 @@ async function serveThreadWorktreeRawFile(
   deps: LoggedWorkSessionDeps,
   threadId: string,
   rawPath: string,
-  ifNoneMatch: string | undefined,
+  headers: {
+    ifNoneMatch?: string;
+    ifRange?: string;
+    range?: string;
+  },
 ): Promise<Response> {
   const filePath = parseSafeRelativeRoutePath(rawPath);
   const thread = requirePublicThread(deps.db, threadId);
@@ -317,17 +338,25 @@ async function serveThreadWorktreeRawFile(
     throw new ApiError(409, "invalid_request", "Thread has no environment");
   }
   const environment = requireReadyEnvironment(deps.db, thread.environmentId);
+  const isHtml = isHtmlPreviewPath(filePath.relativePath);
 
   return serveDaemonFileContent(
     deps,
     {
       hostId: environment.hostId,
-      ...(!isHtmlPreviewPath(filePath.relativePath) ? { ifNoneMatch } : {}),
+      ...(!isHtml ? { ifNoneMatch: headers.ifNoneMatch } : {}),
       path: path.join(environment.path, filePath.relativePath),
       rootPath: environment.path,
     },
     (result) =>
-      createRawFilePreviewResponse(result, filePath.relativePath, ifNoneMatch),
+      createRawFilePreviewResponse(
+        result,
+        filePath.relativePath,
+        headers.ifNoneMatch,
+      ),
+    isHtml
+      ? undefined
+      : { directLocal: { ifRange: headers.ifRange, range: headers.range } },
   );
 }
 
@@ -576,8 +605,14 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
 
   get(routes.output, (context) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
+    // A newer reply still being written, which `output` (the last finished one) doesn't include yet (#2451).
+    const partialOutput =
+      thread.status === "active"
+        ? getUnfinishedAgentMessageText(deps.db, thread.id)
+        : null;
     return context.json({
       output: getLastThreadOutput(deps.db, thread.id),
+      ...(partialOutput === null ? {} : { partialOutput }),
       // `thread show` reports why a thread failed (feedback #571, #390), or
       // that an active one may be stalled (#977) or is retrying (#1853).
       error:
@@ -706,7 +741,11 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       deps,
       context.req.param("id"),
       context.req.param("filePath"),
-      context.req.header("if-none-match"),
+      {
+        ifNoneMatch: context.req.header("if-none-match"),
+        ifRange: context.req.header("if-range"),
+        range: context.req.header("range"),
+      },
     ),
   );
 
@@ -727,7 +766,10 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
           limit,
           includeHidden: THREAD_STORAGE_PATH_LIST_INCLUDE_HIDDEN,
           respectGitIgnore: false,
-          excludeNames: [...DEFAULT_PATH_LIST_EXCLUDE_NAMES],
+          excludeNames: [
+            ...DEFAULT_PATH_LIST_EXCLUDE_NAMES,
+            LEGACY_CHAT_FILE_COPIES_FOLDER,
+          ],
         },
       });
       return context.json({
@@ -762,7 +804,11 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       deps,
       context.req.param("id"),
       context.req.param("filePath"),
-      context.req.header("if-none-match"),
+      {
+        ifNoneMatch: context.req.header("if-none-match"),
+        ifRange: context.req.header("if-range"),
+        range: context.req.header("range"),
+      },
     ),
   );
 
@@ -789,7 +835,10 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
           includeDirectories: inclusion.includeDirectories,
           includeHidden: THREAD_STORAGE_PATH_LIST_INCLUDE_HIDDEN,
           respectGitIgnore: false,
-          excludeNames: [...DEFAULT_PATH_LIST_EXCLUDE_NAMES],
+          excludeNames: [
+            ...DEFAULT_PATH_LIST_EXCLUDE_NAMES,
+            LEGACY_CHAT_FILE_COPIES_FOLDER,
+          ],
         },
       });
       return context.json({
@@ -827,6 +876,12 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
         createDaemonFileContentResponse(result, {
           ifNoneMatch: context.req.header("if-none-match"),
         }),
+      {
+        directLocal: {
+          ifRange: context.req.header("if-range"),
+          range: context.req.header("range"),
+        },
+      },
     );
   });
 
@@ -871,18 +926,47 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     const environment = requireEnvironment(deps.db, thread.environmentId);
-
-    return serveDaemonFileContent(
-      deps,
-      {
-        hostId: environment.hostId,
-        ifNoneMatch: context.req.header("if-none-match"),
-        path: query.path,
-      },
-      (result) =>
-        createDaemonFileContentResponse(result, {
+    const serve = (file: { path: string; rootPath?: string }) =>
+      serveDaemonFileContent(
+        deps,
+        {
+          hostId: environment.hostId,
           ifNoneMatch: context.req.header("if-none-match"),
-        }),
-    );
+          ...file,
+        },
+        (result) =>
+          createDaemonFileContentResponse(result, {
+            ifNoneMatch: context.req.header("if-none-match"),
+          }),
+        {
+          directLocal: {
+            ifRange: context.req.header("if-range"),
+            range: context.req.header("range"),
+          },
+        },
+      );
+
+    try {
+      return await serve({ path: query.path });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404) throw error;
+      // The file is gone: show the copy the thread kept when its chat showed it.
+      const copies = await listChatFileCopies(deps, {
+        hostId: environment.hostId,
+        path: query.path,
+        thread,
+      }).catch(() => []);
+      for (const copy of copies) {
+        try {
+          return await serve(copy);
+        } catch (copyError) {
+          // Only a missing copy sends us to the next one; anything else would just repeat.
+          const missing =
+            copyError instanceof ApiError && copyError.status === 404;
+          if (!missing) break;
+        }
+      }
+      throw error;
+    }
   });
 }

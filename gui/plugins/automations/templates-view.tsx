@@ -1,5 +1,5 @@
 import { COMPUTER } from "@cloudroom/domain/computer-name";
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { Icon } from "@cloudroom/shared-ui/icon";
 import { Button } from "@cloudroom/shared-ui/button";
 import { Checkbox } from "@cloudroom/shared-ui/checkbox";
@@ -16,7 +16,7 @@ import type {
 } from "./src/rpc-types.js";
 import type { TemplateUsage } from "./src/usage.js";
 import type { CloudAutomation } from "./cloud-view.js";
-import { formatAutomationTrigger } from "./lib/format-schedule.js";
+import { cronCadence } from "./lib/format-schedule.js";
 import {
   LOOP_TEMPLATES,
   TEMPLATE_CATEGORIES,
@@ -42,9 +42,8 @@ export interface LoopTemplatesState {
     projectIds: string[],
     target: LoopTarget,
   ) => Promise<void>;
-  /** True on the Free plan, null while the plan loads. */
-  locked: boolean | null;
-  onUpgrade: () => void;
+  /** True on the Free plan: defaults templates to Local so scheduled runs don't burn the 10/month Cloud cap. */
+  freePlan?: boolean;
   /** Each template's rough share of the weekly Claude or Codex limit, by template ID. Templates it can't price are missing. */
   usage?: TemplateUsage;
 }
@@ -114,19 +113,22 @@ function TemplateRepoPicker({
   template,
   projects,
   activeIds,
+  freePlan,
   onAdd,
 }: {
   template: LoopTemplate;
   projects: readonly TemplateProject[] | null;
   activeIds: ReadonlySet<string>;
+  freePlan?: boolean;
   onAdd: LoopTemplatesState["onAdd"];
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [target, setTarget] = useState<LoopTarget>(
-    template.localOnly ? "local" : "cloud",
-  );
+  const [pickedTarget, setPickedTarget] = useState<LoopTarget | null>(null);
+  const target: LoopTarget = template.localOnly
+    ? "local"
+    : (pickedTarget ?? (freePlan ? "local" : "cloud"));
   const [pending, setPending] = useState(false);
   const on = activeIds.size > 0;
   const choosable = (projects ?? []).filter((p) => !activeIds.has(p.id));
@@ -159,20 +161,20 @@ function TemplateRepoPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <Button
+        <button
           type="button"
-          variant="outline"
-          size="sm"
           aria-label={`Add ${template.name} to repos`}
           className={cn(
-            "h-7 gap-1 px-2 text-xs",
-            on && "border-primary/40 text-primary hover:text-primary",
+            "flex h-9 min-w-21 cursor-pointer items-center justify-center gap-1.5 border-t border-l px-3 text-sm font-medium transition-colors",
+            on
+              ? "border-primary bg-primary font-semibold text-primary-foreground hover:bg-primary/90"
+              : "border-border bg-foreground/8 text-foreground hover:bg-foreground/14",
           )}
         >
           <Icon name={on ? "Check" : "Plus"} className="size-3.5" aria-hidden />
           {on ? "On" : "Add"}
-          <Icon name="ChevronDown" className="size-3" aria-hidden />
-        </Button>
+          <Icon name="ChevronDown" className="size-3 opacity-75" aria-hidden />
+        </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 border-foreground/10 p-0">
         <div className="relative border-b border-foreground/10">
@@ -264,7 +266,7 @@ function TemplateRepoPicker({
                       : `Runs on Cloudroom's servers, even while this ${COMPUTER} is off`
                     : `Runs on this ${COMPUTER}, only while it is awake`
                 }
-                onClick={() => setTarget(option)}
+                onClick={() => setPickedTarget(option)}
                 className={cn(
                   "flex h-6 cursor-pointer items-center gap-1 rounded-[5px] px-2 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
                   target === option && "bg-foreground/10 text-foreground",
@@ -294,8 +296,133 @@ function TemplateRepoPicker({
               : `Add to ${selected.size} repo${selected.size === 1 ? "" : "s"}`}
           </Button>
         </div>
+        {freePlan && target === "cloud" && !template.localOnly ? (
+          <p className="border-t border-foreground/10 px-3 py-2 text-2xs text-subtle-foreground">
+            Cloud runs count toward your 10 free Cloud threads/month.
+          </p>
+        ) : null}
       </PopoverContent>
     </Popover>
+  );
+}
+
+// What a run does beyond reporting, read from the prompt so it can't drift from it.
+function templateAction(template: LoopTemplate): string | null {
+  if (template.prompt.includes("gh pr create")) return "Opens PR";
+  if (template.prompt.includes("gh pr review")) return "Reviews PRs";
+  return null;
+}
+
+// The infinity on every template card: two round loops joined by two straight strands that cross at (0, 0).
+const LOOP_MARK = (() => {
+  const radius = 27;
+  const reach = 39; // from the crossing to each loop's centre
+  const strand = Math.sqrt(reach ** 2 - radius ** 2);
+  const x = strand ** 2 / reach; // where a strand meets a loop
+  const y = (strand * radius) / reach;
+  const loop = `A${radius} ${radius} 0 1`;
+  return {
+    // Drawn a hair long, so no seam shows where it meets the other strand's loops.
+    under: `M${-x * 1.012} ${y * 1.012} L${x * 1.012} ${-y * 1.012}`,
+    over: `M${x} ${-y} ${loop} 1 ${x} ${y} L${-x} ${-y} ${loop} 0 ${-x} ${y}`,
+    crossing: `M${x * 0.72} ${y * 0.72} L${-x * 0.72} ${-y * 0.72}`,
+  };
+})();
+const mix = (percent: number, other: string) =>
+  `color-mix(in oklab, var(--primary) ${percent}%, ${other})`;
+// Reflections down the tube, top to bottom: black chrome, and the accent color for a template that is on.
+const CHROME = {
+  off: {
+    rim: "#8a8f96",
+    stops: [
+      [0, "#f4f6f8"],
+      [0.1, "#6c7178"],
+      [0.24, "#1a1b1e"],
+      [0.5, "#000"],
+      [0.56, "#3c4046"],
+      [0.74, "#0e0f11"],
+      [0.9, "#8d939a"],
+      [1, "#fff"],
+    ],
+  },
+  on: {
+    rim: mix(80, "white"),
+    stops: [
+      [0, mix(35, "white")],
+      [0.3, "var(--primary)"],
+      [0.5, mix(22, "black")],
+      [0.56, mix(72, "black")],
+      [0.8, mix(70, "white")],
+      [1, "#fff"],
+    ],
+  },
+} as const;
+
+/** A chrome infinity, tilted 30°, in the card's top right corner. Decoration: the card's text says the rest. */
+function LoopMark({ on }: { on: boolean }) {
+  const id = useId();
+  const { rim, stops } = on ? CHROME.on : CHROME.off;
+  // Two bands of the same reflections, the inner one flipped, read as a round tube.
+  const reflections = (key: string, from: number, to: number) => (
+    <linearGradient
+      id={`${id}${key}`}
+      gradientUnits="userSpaceOnUse"
+      gradientTransform="rotate(30)"
+      x1="0"
+      y1={from}
+      x2="0"
+      y2={to}
+      spreadMethod="reflect"
+    >
+      {stops.map(([offset, color]) => (
+        <stop key={offset} offset={offset} style={{ stopColor: color }} />
+      ))}
+    </linearGradient>
+  );
+  const tube = (d: string) => (
+    <>
+      <path d={d} style={{ stroke: rim }} strokeWidth="18.4" />
+      <path d={d} stroke={`url(#${id}a)`} strokeWidth="17" />
+      <path d={d} stroke={`url(#${id}b)`} strokeWidth="9.5" />
+    </>
+  );
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 150 122"
+      fill="none"
+      className="pointer-events-none absolute top-0 right-0 hidden h-[8.47rem] w-[10.42rem] overflow-visible @[19rem]:block"
+    >
+      <defs>
+        {reflections("a", -21.5, 26.8)}
+        {reflections("b", 26.8, -12.5)}
+        <filter id={`${id}s`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.9" />
+        </filter>
+        <filter id={`${id}d`} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4.5" />
+        </filter>
+      </defs>
+      <g transform="translate(71.2 64.7) rotate(-30)">
+        <path
+          d={`${LOOP_MARK.under} ${LOOP_MARK.over}`}
+          stroke="#000"
+          strokeWidth="17"
+          opacity="0.6"
+          filter={`url(#${id}d)`}
+          transform="rotate(30) translate(2.7 4.5) rotate(-30)"
+        />
+        {tube(LOOP_MARK.under)}
+        <path
+          d={LOOP_MARK.crossing}
+          stroke="#000"
+          strokeWidth="21"
+          opacity="0.75"
+          filter={`url(#${id}s)`}
+        />
+        {tube(LOOP_MARK.over)}
+      </g>
+    </svg>
   );
 }
 
@@ -305,6 +432,7 @@ function TemplateCard({
   activeIds,
   projects,
   usage,
+  freePlan,
   renderAgent,
   onAdd,
 }: {
@@ -313,188 +441,116 @@ function TemplateCard({
   activeIds: ReadonlySet<string>;
   projects: readonly TemplateProject[] | null;
   usage: TemplateUsage[string] | undefined;
+  freePlan?: boolean;
   renderAgent: (agent: AutomationAgentSummary) => ReactNode;
   onAdd: LoopTemplatesState["onAdd"];
 }) {
   const on = repos.length > 0;
+  const action = templateAction(template);
+  const dot = (
+    <span aria-hidden className="text-muted-foreground/40">
+      ·
+    </span>
+  );
   return (
-    <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)_auto] content-start items-center gap-x-2.5 rounded-lg border border-border bg-surface-raised p-3.5">
-      <Icon
-        name={template.icon}
-        className={cn(
-          "size-4",
-          on ? "text-primary" : "text-muted-foreground/70",
-        )}
-        aria-hidden
-      />
-      <span className="truncate text-base font-semibold text-foreground">
-        {template.name}
-      </span>
-      <TemplateRepoPicker
-        template={template}
-        projects={projects}
-        activeIds={activeIds}
-        onAdd={onAdd}
-      />
-      <p className="col-span-2 col-start-2 mt-1 text-sm leading-snug text-muted-foreground">
+    // The text keeps clear of the infinity, so nothing ever covers it.
+    <div
+      className={cn(
+        "@container relative flex min-h-[10.3rem] min-w-0 flex-col overflow-hidden border bg-surface-raised",
+        on
+          ? "border-primary bg-linear-[105deg] from-transparent from-35% to-primary/25"
+          : "border-border",
+      )}
+    >
+      <LoopMark on={on} />
+      <div className="relative flex items-start gap-2 pt-3.5 pl-4.5 @[19rem]:pr-22">
+        <Icon
+          name={template.icon}
+          className={cn(
+            "mt-0.5 size-4 shrink-0",
+            on ? "text-primary-text" : "text-muted-foreground",
+          )}
+          aria-hidden
+        />
+        <h3 className="text-lg leading-snug font-semibold text-foreground dark:text-white">
+          {template.name}
+        </h3>
+      </div>
+      <p className="relative mt-1 pr-4 pl-4.5 text-sm leading-snug text-muted-foreground @[19rem]:pr-[11rem]">
         {template.description}
       </p>
-      <span className="col-span-2 col-start-2 mt-3 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/80">
-        {renderAgent({
-          providerId: template.providerId,
-          model: template.model,
-          reasoningLevel: template.reasoningLevel,
-        })}
-      </span>
-      {/* The schedule and what it costs share a line: the schedule drives the usage. */}
-      <span className="col-span-2 col-start-2 mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/80">
-        <span className="shrink-0">
-          {formatAutomationTrigger({
-            triggerType: "schedule",
-            cron: template.cron,
-            timezone: "UTC",
-          }).replace(/^On the hour, every/u, "Every")}
-        </span>
-        {usage ? (
-          <>
-            <span aria-hidden className="text-muted-foreground/40">
-              ·
-            </span>
-            <span
-              className="min-w-0 truncate"
-              title={`A rough share of your weekly ${usage.limit} limit, from what this loop's runs usually use`}
-            >
-              <span className="text-foreground">
-                {shareLabel(usage.percent)}
-              </span>{" "}
-              of weekly limit
-            </span>
-          </>
-        ) : null}
-      </span>
-      {on ? (
-        <span className="col-span-2 col-start-2 mt-2 flex flex-wrap gap-1">
-          {repos.slice(0, 3).map((repo) => (
-            <span
-              key={repo.name}
-              className="inline-flex h-5 items-center gap-1 rounded-[5px] bg-foreground/7 px-1.5 text-[11.5px] text-foreground"
-            >
-              <RepoIcon github={repo.github} />
-              {repo.name}
-            </span>
-          ))}
-          {repos.length > 3 ? (
-            <span className="inline-flex h-5 items-center rounded-[5px] bg-foreground/7 px-1.5 text-[11.5px] text-subtle-foreground">
-              +{repos.length - 3} more
-            </span>
+      <div className="relative mt-auto flex flex-col gap-1.5 pt-2.5 pr-24 pb-3.5 pl-4.5 text-sm text-muted-foreground @[19rem]:pr-[10.5rem]">
+        {/* The schedule and what it costs share a line: the schedule drives the usage. */}
+        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+          <Icon
+            name="Repeat"
+            className={cn("size-3.5 shrink-0", on && "text-primary-text")}
+            aria-hidden
+          />
+          <span
+            className={cn(
+              "font-medium",
+              on ? "text-primary-text" : "text-foreground dark:text-white",
+            )}
+          >
+            {cronCadence(template.cron)}
+          </span>
+          {usage ? (
+            <>
+              {dot}
+              <span
+                title={`A rough share of your weekly ${usage.limit} limit, from what this loop's runs usually use`}
+              >
+                {shareLabel(usage.percent)}/wk
+              </span>
+            </>
+          ) : null}
+          {action ? (
+            <>
+              {dot}
+              <span className="font-medium text-primary-text">{action}</span>
+            </>
           ) : null}
         </span>
-      ) : null}
-    </div>
-  );
-}
-
-const SKELETON_TITLE_WIDTHS = ["w-1/2", "w-2/5", "w-3/5"] as const;
-
-function SkeletonCard({ index }: { index: number }) {
-  return (
-    <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-2.5 rounded-lg border border-border bg-surface-raised p-3.5">
-      <span className="size-4 rounded-[5px] bg-foreground/15" />
-      <span
-        className={cn(
-          "h-3 rounded bg-foreground/20",
-          SKELETON_TITLE_WIDTHS[index % 3],
-        )}
-      />
-      <span className="h-7 w-16 rounded-md border border-border" />
-      <span className="col-span-2 col-start-2 mt-3 flex flex-col gap-2">
-        <span className="h-2 w-11/12 rounded bg-foreground/12" />
-        <span
-          className={cn(
-            "h-2 rounded bg-foreground/12",
-            index % 2 ? "w-1/2" : "w-3/4",
-          )}
-        />
-      </span>
-      <span className="col-span-2 col-start-2 mt-4 flex gap-2">
-        <span className="h-1.5 w-16 rounded bg-foreground/10" />
-        <span className="h-1.5 w-10 rounded bg-foreground/10" />
-        <span className="h-1.5 w-20 rounded bg-foreground/10" />
-      </span>
-    </div>
-  );
-}
-
-function LockedTemplates({
-  checking,
-  onUpgrade,
-}: {
-  checking: boolean;
-  onUpgrade: () => void;
-}) {
-  return (
-    <div className="relative h-[44rem] overflow-hidden">
-      <div
-        aria-hidden
-        className="pointer-events-none select-none opacity-85 blur-[6px] [mask-image:linear-gradient(to_bottom,#000,rgb(0_0_0/0.55)_30%,transparent_62%)]"
-      >
-        {[0, 1, 2].map((group) => (
-          <div key={group}>
-            <div
-              className={cn(
-                "mb-2 flex items-center gap-2.5",
-                group > 0 && "mt-6",
-              )}
-            >
-              <span className="h-2 w-4 rounded bg-foreground/20" />
-              <span className="h-2 w-20 rounded bg-foreground/15" />
-              <span className="h-px flex-1 bg-border" />
-              <span className="h-1.5 w-28 rounded bg-foreground/10" />
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[0, 1, 2].map((card) => (
-                <SkeletonCard key={card} index={group + card} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      {checking ? null : (
-        <div className="absolute inset-x-0 top-60 flex flex-col items-center gap-3.5 px-6 text-center">
-          <Icon name="Zap" className="size-6 text-primary" aria-hidden />
-          <h2 className="text-2xl font-semibold text-foreground">
-            Unlock {LOOP_TEMPLATES.length} loop templates
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Ready-made loops that keep your repos secure, clean, and reviewed.
-          </p>
-          <div className="flex flex-wrap justify-center gap-1.5">
-            {TEMPLATE_CATEGORIES.map((category) => (
+        <span className="flex min-w-0 items-center gap-1.5">
+          {renderAgent({
+            providerId: template.providerId,
+            model: template.model,
+            reasoningLevel: template.reasoningLevel,
+          })}
+        </span>
+        {on ? (
+          <span className="flex flex-wrap gap-1">
+            {repos.slice(0, 3).map((repo) => (
               <span
-                key={category.id}
-                className="inline-flex h-6 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs text-muted-foreground"
+                key={repo.name}
+                className="inline-flex h-5 items-center gap-1 border border-primary/50 bg-primary/10 px-1.5 text-xs text-primary-text"
               >
-                {category.label}
-                <span className="text-subtle-foreground">
-                  {
-                    LOOP_TEMPLATES.filter((t) => t.category === category.id)
-                      .length
-                  }
-                </span>
+                <Icon
+                  name={repo.github ? "GithubLogo" : "Laptop"}
+                  className="size-3 shrink-0"
+                  aria-hidden
+                />
+                {repo.name}
               </span>
             ))}
-          </div>
-          <Button
-            type="button"
-            className="mt-1 h-9 gap-1.5 px-4"
-            onClick={onUpgrade}
-          >
-            Upgrade to Pro
-            <span className="font-normal opacity-70">$50/mo</span>
-            <Icon name="ArrowRight" aria-hidden />
-          </Button>
-        </div>
-      )}
+            {repos.length > 3 ? (
+              <span className="inline-flex h-5 items-center bg-foreground/7 px-1.5 text-xs text-subtle-foreground">
+                +{repos.length - 3} more
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+      </div>
+      <div className="absolute right-0 bottom-0">
+        <TemplateRepoPicker
+          template={template}
+          projects={projects}
+          activeIds={activeIds}
+          freePlan={freePlan}
+          onAdd={onAdd}
+        />
+      </div>
     </div>
   );
 }
@@ -590,13 +646,6 @@ export function LoopTemplatesView({
   const shown = LOOP_TEMPLATES.filter(
     (t) => category === "all" || t.category === category,
   );
-  if (templates.locked !== false)
-    return (
-      <LockedTemplates
-        checking={templates.locked === null}
-        onUpgrade={templates.onUpgrade}
-      />
-    );
 
   return (
     <div className="grid grid-cols-[10rem_minmax(0,1fr)] items-start gap-7">
@@ -618,7 +667,7 @@ export function LoopTemplatesView({
           })),
         ]}
       />
-      <div className="-mt-6 min-w-0">
+      <div className="@container -mt-6 min-w-0">
         {TEMPLATE_PRIORITIES.map((priority) => {
           const group = shown.filter((t) => t.priority === priority.level);
           if (group.length === 0) return null;
@@ -631,7 +680,7 @@ export function LoopTemplatesView({
                 hint={priority.hint}
                 className={LOOP_PRIORITY_STYLE[priority.level].text}
               />
-              <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-2">
                 {group.map((template) => {
                   const active =
                     running.get(template.name) ?? new Map<string, string>();
@@ -648,6 +697,7 @@ export function LoopTemplatesView({
                       activeIds={new Set(active.keys())}
                       projects={templates.projects}
                       usage={templates.usage?.[template.id]}
+                      freePlan={templates.freePlan}
                       renderAgent={renderAgent}
                       onAdd={templates.onAdd}
                     />

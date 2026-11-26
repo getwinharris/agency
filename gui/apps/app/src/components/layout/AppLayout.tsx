@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { atom, useAtom, useAtomValue, useStore } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { Link, matchPath, useLocation, useNavigate } from "react-router-dom";
+import { Link, matchPath, useLocation, useNavigate } from "react-router";
 import type { ProjectResponse } from "@cloudroom/server-contract";
 import { Icon } from "@cloudroom/shared-ui/icon";
 import { TooltipProvider } from "@cloudroom/shared-ui/tooltip";
@@ -128,6 +128,8 @@ import {
   useMobileVisualViewportHeight,
 } from "./useMobileVisualViewportHeight";
 import { wsManager } from "@/lib/ws";
+import { isPhoneRelay } from "@/cloud/cloud-mode";
+import { appToast } from "@/components/ui/app-toast";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
 import { findPaneByThread } from "@/lib/split-layout";
 import { applyThreadOpenToLayout } from "@/views/thread-detail/splitThreadNavigation";
@@ -185,17 +187,23 @@ type SidebarOpenChangeHandler = (open: boolean) => void;
 // Opening or closing the sidebar re-centers the page in the free space. The
 // layout snaps once (animating it re-wrapped every chat on every frame), then
 // the page slides from its old center to the new one, in step with the card.
+let sidebarSlide: Animation | undefined;
+
 function slideWithSidebar(main: HTMLElement | null, change: () => void) {
+  // Mid-slide this is where the page looks right now, so a quick second toggle starts from there.
   const before = main?.getBoundingClientRect();
+  sidebarSlide?.cancel();
   change();
   if (!main || !before || getMediaQuerySnapshot(REDUCED_MOTION_QUERY)) return;
   const after = main.getBoundingClientRect();
   const dx = before.left + before.width / 2 - (after.left + after.width / 2);
   if (Math.abs(dx) < 1) return;
-  main.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
-    duration: 220,
-    easing: "cubic-bezier(0.32,0.72,0,1)",
-  });
+  sidebarSlide = main.animate(
+    [{ translate: `${dx}px 0` }, { translate: "0 0" }],
+    { duration: 220, easing: "cubic-bezier(0.32,0.72,0,1)" },
+  );
+  // The in-app browser is a native view placed from the page's on-screen spot: place it again where the page stops.
+  sidebarSlide.onfinish = dispatchBrowserViewBoundsSync;
 }
 
 function SidebarStateBridge({
@@ -526,6 +534,37 @@ export function AppLayout({ children }: AppLayoutProps) {
         void navigate(route, alreadyOpen ? { replace: true } : undefined);
       }),
     [isCompactViewport, navigate, store],
+  );
+  // Alert the local desktop when a new phone or other computer connects over Cloudroom Connect.
+  useEffect(
+    () =>
+      wsManager.onPluginSignal((signal) => {
+        if (
+          signal.pluginId !== "connect" ||
+          signal.channel !== "session-connected" ||
+          isPhoneRelay()
+        ) {
+          return;
+        }
+        const payload = signal.payload as { label?: unknown } | null;
+        const label =
+          typeof payload?.label === "string" && payload.label.trim().length > 0
+            ? payload.label.trim()
+            : "A remote device";
+        const body = `${label} connected via Cloudroom Connect. Review or sign out in Settings → Cloudroom Connect.`;
+        appToast.message("New remote connection", { description: body });
+        // Electron's main process delivers native OS alerts even with no local window open; only use web Notification in browser mode.
+        if (
+          getRoomDesktopInfo() === null &&
+          typeof Notification !== "undefined" &&
+          Notification.permission === "granted"
+        ) {
+          try {
+            new Notification("New remote connection", { body });
+          } catch {}
+        }
+      }),
+    [],
   );
   useAppCommandHandler("thread.new", () => {
     if (projectId !== undefined) {
@@ -866,7 +905,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                 <div
                   ref={contentShellRef}
                   data-testid="app-layout-content-shell"
-                  className="relative flex h-full min-h-0 min-w-0 w-full flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[var(--bb-safe-area-bottom,env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)]"
+                  className="relative flex h-full min-h-0 min-w-0 w-full flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[var(--room-safe-area-bottom,env(safe-area-inset-bottom))] pl-[env(safe-area-inset-left)]"
                 >
                   {showHeader ? (
                     <AppHeader

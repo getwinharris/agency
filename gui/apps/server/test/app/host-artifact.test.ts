@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { extract, list } from "tar";
+import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createRoomAppArtifactService,
@@ -34,7 +34,6 @@ const packageJson = {
     "@parcel/watcher": "2.5.6",
     "fs-native-extensions": "1.5.0",
     "node-pty": "1.2.0-beta.15",
-    pino: "9.6.0",
     "pino-roll": "4.0.0",
   },
   bin: {
@@ -61,9 +60,9 @@ async function writeHostPackage(root: string, readme: string): Promise<void> {
   await writeFile(join(root, "README.md"), readme);
   for (const fileName of [
     "room-cli",
-    "bb-parcel-watcher-child.mjs",
-    "bb-plugin-host-worker.mjs",
-    "bb-provider-bridge-worker.mjs",
+    "room-parcel-watcher-child.mjs",
+    "room-plugin-host-worker.mjs",
+    "room-provider-bridge-worker.mjs",
     "daemon-bundle.mjs",
   ]) {
     await writeFile(join(root, "host-daemon/dist", fileName), fileName);
@@ -106,18 +105,38 @@ afterEach(async () => {
   );
 });
 
+// Each packed path's mode, read from the tar headers: a pax `path` record names
+// long and UTF-8 paths. `tar -tv` would print those per locale.
 async function packedEntries(
   hostPackageRoot: string,
 ): Promise<Record<string, string>> {
-  const file = join(dirname(hostPackageRoot), "packed.tgz");
-  await writeFile(file, await packHostPackage(hostPackageRoot));
+  const bytes = await packHostPackage(hostPackageRoot);
+  await writeFile(join(dirname(hostPackageRoot), "packed.tgz"), bytes);
+  const tar = gunzipSync(bytes);
   const entries: Record<string, string> = {};
-  await list({
-    file,
-    onReadEntry: (entry) => {
-      entries[entry.path] = (entry.mode ?? 0).toString(8);
-    },
-  });
+  let paxPath: string | undefined;
+  for (let offset = 0; offset < tar.length && tar[offset] !== 0;) {
+    const field = (start: number, length: number) =>
+      tar
+        .toString("utf8", offset + start, offset + start + length)
+        .replace(/\0.*/su, "");
+    let sum = 8 * 0x20;
+    for (let i = 0; i < 512; i++) {
+      if (i < 148 || i >= 156) sum += tar[offset + i]!;
+    }
+    expect(parseInt(field(148, 8), 8)).toBe(sum);
+    const size = parseInt(field(124, 12), 8);
+    if (field(156, 1) === "x") {
+      const pax = tar.toString("utf8", offset + 512, offset + 512 + size);
+      paxPath = /^\d+ path=(.*)$/mu.exec(pax)?.[1];
+    } else {
+      const prefix = field(345, 155);
+      const path = paxPath ?? (prefix ? `${prefix}/` : "") + field(0, 100);
+      entries[path] = parseInt(field(100, 8), 8).toString(8);
+      paxPath = undefined;
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
   return entries;
 }
 
@@ -139,9 +158,9 @@ describe("packHostPackage", () => {
       "package/README.md": "644",
       "package/dist/bb-app.js": "755",
       "package/dist/room-cli.js": "755",
-      "package/host-daemon/dist/bb-parcel-watcher-child.mjs": "644",
-      "package/host-daemon/dist/bb-plugin-host-worker.mjs": "644",
-      "package/host-daemon/dist/bb-provider-bridge-worker.mjs": "644",
+      "package/host-daemon/dist/room-parcel-watcher-child.mjs": "644",
+      "package/host-daemon/dist/room-plugin-host-worker.mjs": "644",
+      "package/host-daemon/dist/room-provider-bridge-worker.mjs": "644",
       "package/host-daemon/dist/daemon-bundle.mjs": "644",
       "package/host-daemon/dist/room-cli": "755",
       "package/host-daemon/dist/room-cli-chunks/chunk-TEST.js": "644",
@@ -192,10 +211,12 @@ describe("packHostPackage", () => {
     const entries = await packedEntries(hostPackageRoot);
     const extracted = join(dirname(hostPackageRoot), "extracted");
     await mkdir(extracted);
-    await extract({
-      cwd: extracted,
-      file: join(dirname(hostPackageRoot), "packed.tgz"),
-    });
+    await execFileAsync("tar", [
+      "-xzf",
+      join(dirname(hostPackageRoot), "packed.tgz"),
+      "-C",
+      extracted,
+    ]);
     for (const file of files) {
       expect(entries[`package/${file}`]).toBe("644");
       expect(await readFile(join(extracted, "package", file), "utf8")).toBe(
@@ -228,9 +249,9 @@ describe("bb-app artifact service (desktop packaging)", () => {
           "package/dist/room-cli.js",
           "package/host-daemon/dist/room-cli",
           "package/host-daemon/dist/room-cli-chunks/chunk-TEST.js",
-          "package/host-daemon/dist/bb-parcel-watcher-child.mjs",
-          "package/host-daemon/dist/bb-plugin-host-worker.mjs",
-          "package/host-daemon/dist/bb-provider-bridge-worker.mjs",
+          "package/host-daemon/dist/room-parcel-watcher-child.mjs",
+          "package/host-daemon/dist/room-plugin-host-worker.mjs",
+          "package/host-daemon/dist/room-provider-bridge-worker.mjs",
           "package/host-daemon/dist/daemon-bundle.mjs",
         ]),
       );
@@ -345,7 +366,6 @@ describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
         "@parcel/watcher",
         "fs-native-extensions",
         "node-pty",
-        "pino",
         "pino-roll",
       ]);
       expect(artifact.digest).toMatch(/^[a-f0-9]{64}$/u);

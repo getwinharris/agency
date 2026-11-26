@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@cloudroom/shared-ui/lib/utils";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router";
 import { isSettingsRoutePath } from "@/hooks/useAppSettingsRouteMemory";
 import { Icon } from "@cloudroom/shared-ui/icon";
 import { Input } from "@cloudroom/shared-ui/input";
@@ -15,7 +15,7 @@ import {
   SectionSidebarIcon,
   SectionSidebarRow,
 } from "@/components/sidebar/SectionSidebar";
-import { InviteSidebarRow } from "@/components/InviteOffer";
+import { useCloudroomAccount } from "@/hooks/queries/cloudroom-queries";
 import { useCloseMobileSidebar } from "@/components/ui/sidebar.js";
 import { SettingsAccountMenu } from "./SettingsAccountMenu";
 import { useSettingsNavState } from "./settings-nav";
@@ -47,18 +47,16 @@ interface SettingsSidebarProps {
 type SettingsSidebarNavigation = Pick<
   SettingsNavState,
   "activePluginId" | "activeSection" | "pluginEntries" | "sections"
->;
+> & { deepapiShown?: boolean };
 
 interface SettingsSidebarContentProps extends SettingsSidebarProps {
   account?: ReactNode;
-  invite?: ReactNode;
   navigation: SettingsSidebarNavigation;
   testIdPrefix?: string;
 }
 
 export function SettingsSidebarContent({
   account,
-  invite,
   onResizeMouseDown,
   isResizing,
   appRoutePath,
@@ -233,7 +231,6 @@ export function SettingsSidebarContent({
               <SectionSidebarIcon name={group.icon} />
             </SectionSidebarRow>
           ))}
-          {invite}
         </div>
       )}
     </SectionSidebar>
@@ -247,15 +244,16 @@ export function SettingsSidebar({
   mobileHosted,
 }: SettingsSidebarProps) {
   const navigation = useSettingsNavState();
+  // Same rule as DeepapiSettingsSection, so search never lists a section the page hides.
+  const deepapiShown = useCloudroomAccount().data?.deepapi?.enabled !== undefined;
 
   return (
     <SettingsSidebarContent
       account={<SettingsAccountMenu />}
-      invite={<InviteSidebarRow />}
       appRoutePath={appRoutePath}
       isResizing={isResizing}
       mobileHosted={mobileHosted}
-      navigation={navigation}
+      navigation={{ ...navigation, deepapiShown }}
       onResizeMouseDown={onResizeMouseDown}
     />
   );

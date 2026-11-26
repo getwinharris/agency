@@ -1,7 +1,7 @@
 import { COMPUTER_TITLE } from "@cloudroom/domain";
 import { useEffect } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { pluginSettingsViewQueryOptions } from "@/hooks/queries/plugin-settings-queries";
 import { APP_COMMAND_GROUPS } from "@/lib/app-command-metadata";
 import { fetchWithAppSurface } from "@/lib/app-surface";
@@ -37,6 +37,8 @@ interface SettingsSearchState {
   activeSection: SettingsSectionId | null;
   pluginEntries: readonly PluginSettingsEntry[];
   sections: readonly SettingsNavSection[];
+  /** False when the DeepAPI section hides itself (see DeepapiSettingsSection). */
+  deepapiShown?: boolean;
 }
 
 const entries = (
@@ -49,6 +51,11 @@ const entries = (
       ? { page, heading, label: item }
       : { page, heading, label: item[0], keywords: item[1] },
   );
+
+const DEEPAPI_SEARCH_ENTRIES = entries("general", "DeepAPI", [
+  ["DeepAPI", "web search research scrape agents"],
+  ["Pay with Cloud Credits", "deepapi cloud credits charge cost"],
+]);
 
 const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   ...entries("general", "Threads & editing", [
@@ -81,10 +88,7 @@ const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     ["Confidence", "wrong project hint nudge sensitivity percent"],
   ]),
   ...entries("general", "Smart search", [["Smart search", "cmd k jev find thread search"]]),
-  ...entries("general", "DeepAPI", [
-    ["DeepAPI", "web search research scrape agents"],
-    ["Pay with Cloud Credits", "deepapi cloud credits charge cost"],
-  ]),
+  ...DEEPAPI_SEARCH_ENTRIES,
   ...entries("general", "Voice Input", [
     ["Voice Input", "dictation speech talk"],
     ["Microphone", "mic audio dictation voice"],
@@ -122,11 +126,12 @@ const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     ["Show Cloudroom name", "logo brand wordmark title top bar video"],
     ["Palette", "colors custom theme"],
     ["Favicon color", "icon dock tab"],
+    ["Cloud icon", "electric lime crisp white monochrome color sidebar composer"],
     ["Fade inactive splits", "dim split panes"],
     ["Sidebar footer", "buttons reorder"],
     ["Question cards", "agent questions ask"],
     ["Wallpaper", "background image photo picture gif"],
-    ["Always show one-click prompts", "starter prompts new thread security pills"],
+    ["Always show one-click scans", "workflow cyber scan new thread loops"],
   ]),
   ...entries("keyboard", undefined, [
     ["Keyboard shortcuts", "hotkeys keybindings keys"],
@@ -173,7 +178,7 @@ const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     ["Cloudroom account", "sign in login email account sign out"],
     ["Plan & billing", "billing plan subscription invoices upgrade pro ultra payment cloud credits buy packs"],
     ["Connected", "github claude code codex logins connected"],
-    ["Invite friends", "invite friend referral share $400 credits"],
+    ["Partner program", "refer referral affiliate partner 40% earn commission link invite friend share"],
     ["Or connect your own Core", "self-hosted core url api token server"],
   ]),
   ...entries("analytics", undefined, [
@@ -347,6 +352,7 @@ function buildDocuments(
   for (const entry of [...SETTINGS_SEARCH_ENTRIES, ...pluginEntries]) {
     const page = pages.get(entry.page);
     if (!page) continue;
+    if (state.deepapiShown === false && DEEPAPI_SEARCH_ENTRIES.includes(entry)) continue;
     const path = [page.group, page.label, entry.heading]
       .filter((part, index, all): part is string =>
         part !== undefined && part !== entry.label && all.indexOf(part) === index,

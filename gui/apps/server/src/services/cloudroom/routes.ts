@@ -3,6 +3,7 @@ import type { Hono, MiddlewareHandler } from "hono";
 import type { AppDeps } from "../../types.js";
 import type { PluginService } from "../plugins/plugin-service.js";
 import { ApiError } from "../../errors.js";
+import { assertHumanClick } from "../../human-click.js";
 import { getThread, getThreadSectionById } from "@cloudroom/db";
 import { z } from "zod";
 import { threadGoalSetRequestSchema, updateThreadRequestSchema } from "@cloudroom/server-contract";
@@ -18,7 +19,7 @@ import { binding, command, teleportBlocked, teleportProgress } from "./store.js"
 import { browserRequestProblem } from "../../browser-request-guard.js";
 import { cancelClaudeToken, claudePlan, connectClaude, isClaudeApiKey, withClaudeTokenRun } from "./claude-token.js";
 import { startClaudeVersionSync } from "./harness-versions.js";
-import { macSignedInAgents } from "./mac-agents.js";
+import { macInstalledAgents, macSignedInAgents } from "./mac-agents.js";
 import { disconnectAgent, restoreAgent } from "./agent-logins.js";
 import { autoDeleteDaysSchema, readAutoDelete, saveAutoDelete, startAutoDeleteSync } from "./auto-delete.js";
 import { importRoomThreads } from "./bb-import.js";
@@ -46,21 +47,27 @@ import { connectAccount, registerConnect } from "./connect-relay.js";
 import { getGateAuthKind } from "../../request-context.js";
 import { noteActiveMinute, timeInApp } from "./time-in-app.js";
 import { starPrompt, starRepo } from "./star-prompt.js";
-import { cardsLeft, popupState, recordChecklistHide, recordCorner, recordPopup } from "./popups.js";
-import { activation } from "./activation.js";
-import { disconnectGithub, githubAccount, githubAuth } from "./github-login.js";
-import { addGithubRepo, githubBranches, macRepoSuggestions, repoSuggestions } from "./repo-suggestions.js";
+import { callTicket, cardsLeft, popupState, recordChecklistHide, recordCorner, recordPopup } from "./popups.js";
+import { activation, noteSkillDone } from "./activation.js";
+import { copyMacGithub, disconnectGithub, githubAccount, githubAuth } from "./github-login.js";
+import { addGitlabRepo, addGithubRepo, projectBranches, macRepoSuggestions, repoSuggestions } from "./repo-suggestions.js";
 import { projectSuggestion } from "./project-nudge.js";
 import { promptSuggestion, promptSuggestionEvent } from "../threads/prompt-suggestion.js";
 import { skillSuggestion, skillSuggestionEvent } from "../threads/skill-suggestion.js";
 import { readUiPreferences } from "../system/ui-preferences.js";
 import { readWrapped } from "../system/wrapped.js";
 import { forgetCloudAccountSwitch, noteCloudAccountSwitch } from "./account-switches.js";
-import { ACTIVATION_STEPS, CLOUD_CHOICE_ACTIONS, CLOUD_CHOICE_REASONS, CORNER_ANSWERS, CORNER_CARDS, POPUP_DETAILS, POPUPS, SETUP_ACTIONS, SETUP_AGENTS, SETUP_DETAILS, SETUP_STEPS, SHARE_CLICKS, STARTER_PROMPTS, UPGRADE_PROMPTS, WRAPPED_ACTIONS } from "../system/telemetry.js";
+import { ACTIVATION_STEPS, CLOUD_CHOICE_ACTIONS, CLOUD_CHOICE_REASONS, CORNER_ANSWERS, CORNER_CARDS, POPUP_DETAILS, POPUPS, SETUP_ACTIONS, SETUP_AGENTS, SETUP_DETAILS, SETUP_STEPS, SHARE_CLICKS, UPGRADE_PROMPTS, WRAPPED_ACTIONS } from "../system/telemetry.js";
 
 const SAFE_SETTINGS_SEARCH = /^(?=.{2,40}$)\p{L}+(?: \p{L}+){0,3}$/u;
 // A Cloud loop run's request (auto_<loop>_<due>), the website's name for the run that starts its thread.
 const CLOUD_RUN = /^auto_[a-f0-9]{32}_[0-9]{1,16}$/;
+
+function gitlabRouteError(error: unknown): never {
+  if (!(error instanceof CloudroomError)) throw error;
+  const status = error.status ?? 503;
+  throw new ApiError(status as ConstructorParameters<typeof ApiError>[0], error.code ?? "gitlab_request", error.message);
+}
 
 export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: PluginService): void {
   cloudroom(deps).teleportRecovery = () => teleports(deps).recover();
@@ -76,7 +83,7 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     unarchive: (thread) => { const restored = unarchiveThreadKeepingOpenParent(deps, thread.id, true); if (restored) emitPluginThreadUnarchived(restored); },
     remove: (thread) => deleteThreadOnMac(deps, thread),
   };
-  cloudroom(deps).childTurnEnded = (child, turnStatus) => void queueChildThreadTurnNotificationBestEffort(deps, { childThread: child, parentThreadId: child.parentThreadId, turnStatus });
+  cloudroom(deps).childTurnEnded = (child, turnStatus, failureReason, turnId) => void queueChildThreadTurnNotificationBestEffort(deps, { childThread: child, parentThreadId: child.parentThreadId, turnStatus, failureReason, ...(turnId ? { turnId } : {}) });
   startClaudeVersionSync(deps, () => cloudroom(deps).teleportClient());
   startAutoDeleteSync(deps);
   const localOnly: MiddlewareHandler = async (context, next) => {
@@ -125,14 +132,25 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     cloudroom(deps).sync.changed(tunnel);
     return context.json(null, 202);
   });
+  // The relay's signal that a new phone or other Mac just signed in over Connect. The relay strips this header from visitors.
+  app.post("/api/v1/cloudroom/connect/session-connected", async context => {
+    if (context.req.header("x-cloudroom-relay") !== "session-connected") return context.json({ message: "Not found" }, 404);
+    const input = z.object({
+      label: z.string().trim().min(1).max(64),
+      kind: z.enum(["phone", "mac"]),
+      at: z.number().int().positive(),
+    }).strict().safeParse(await context.req.json().catch(() => null));
+    if (!input.success) return context.json({ message: "Invalid event" }, 400);
+    deps.hub.notifyPluginSignal("connect", "session-connected", input.data);
+    return context.json(null, 202);
+  });
   // The Archive dialog asks before it stops working children (#237, App 8): their real state, read once.
   app.get("/api/v1/cloudroom/threads/:id/running", async context => {
     const thread = getThread(deps.db, context.req.param("id"));
     if (!thread) return context.json({ message: "Thread not found" }, 404);
     const cloud = listThreadWithDescendants(deps, thread).filter((item) => item.executionTarget === "cloud" && !item.archivedAt && !item.deletedAt);
-    // A few seconds at most: past that the dialog uses what it has, as when the read fails.
-    const limit = new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 5_000).unref());
-    return context.json({ running: await Promise.race([cloudroom(deps).runningInCloud(cloud.map((item) => item.id)), limit]) });
+    const signal = AbortSignal.any([context.req.raw.signal, AbortSignal.timeout(5_000)]);
+    return context.json({ running: await cloudroom(deps).runningInCloud(cloud.map(item => item.id), signal) });
   });
   app.get("/api/v1/cloudroom/connect", async context => context.json(await connectAccount(deps)));
   app.post("/api/v1/cloudroom/connect", async context => {
@@ -194,14 +212,14 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     await cloudroom(deps).noteActivity();
     return context.json({ ok: true });
   });
+  app.post("/api/v1/cloudroom/account/refresh-usage", async (context) => {
+    z.object({}).strict().parse(await context.req.json());
+    await cloudroom(deps).sandboxes.refreshUsageNow();
+    return context.json({ ok: true });
+  });
   app.get("/api/v1/cloudroom/activation", async (context) => context.json(await activation(deps, plugins)));
   app.post("/api/v1/cloudroom/activation", async (context) => {
     const body = await context.req.json().catch(() => null);
-    const starter = z.object({ starter: z.enum(STARTER_PROMPTS) }).strict().safeParse(body);
-    if (starter.success) {
-      deps.telemetry.capture({ name: "starter_prompt", properties: starter.data });
-      return context.json({ ok: true });
-    }
     const parsed = z.object({ step: z.enum(ACTIVATION_STEPS), action: z.enum(["clicked", "hidden"]).default("clicked") }).strict().safeParse(body);
     if (!parsed.success) throw new ApiError(400, "invalid_activation_step", "Invalid checklist step.");
     deps.telemetry.capture({ name: "activation_step", properties: parsed.data });
@@ -241,6 +259,8 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
       .strict().parse(await context.req.json());
     return context.json({ ok: await recordCorner(deps, input.card, input.key, input.event, input.variant) });
   });
+  // The call ticket at the top right (docs/scopes/calls.md#the-ticket-in-the-app): null when the account is owed none.
+  app.get("/api/v1/cloudroom/call-ticket", async (context) => context.json({ ticket: await callTicket(deps) }));
   app.get("/api/v1/cloudroom/star-prompt", async (context) => context.json(await starPrompt(deps)));
   app.post("/api/v1/cloudroom/star-prompt", async (context) => {
     z.object({}).strict().parse(await context.req.json());
@@ -322,16 +342,12 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     return context.json({ ok: true });
   });
   app.post("/api/v1/cloudroom/bug-reports", async (context) => {
-    const input = z.object({ message: z.string().trim().min(1).max(4000), threadId: z.string().min(1).max(200).optional() }).strict().parse(await context.req.json());
-    return context.json(await reportBug(deps, input));
+    const parsed = z.object({ message: z.string().trim().min(1).max(4000), threadId: z.string().min(1).max(200).optional() }).strict().safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) throw new ApiError(400, "invalid_request", "Feedback must be 1 to 4,000 characters. Send a longer report as several messages.");
+    return context.json(await reportBug(deps, parsed.data));
   });
-  app.get("/api/v1/cloudroom/account/invites", async (context) => context.json(await cloudroom(deps).sandboxes.invites("list")));
   app.get("/api/v1/cloudroom/account/usage-wave", async (context) => context.json({ wave: await cloudroom(deps).sandboxes.usageWave() }));
   app.get("/api/v1/cloudroom/threads/:id/credits", async (context) => context.json(await threadCredits(deps, context.req.param("id"))));
-  app.post("/api/v1/cloudroom/account/invites", async (context) => {
-    z.object({}).strict().parse(await context.req.json());
-    return context.json(await cloudroom(deps).sandboxes.invites("create"));
-  });
   app.post("/api/v1/cloudroom/account/more-usage", async (context) => {
     z.object({}).strict().parse(await context.req.json());
     return context.json(await cloudroom(deps).sandboxes.requestMoreUsage().catch((error: unknown) => {
@@ -340,7 +356,10 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
   });
   app.post("/api/v1/cloudroom/account/mac-access", async (context) => {
     const input = z.union([z.object({ level: z.enum(macAccessLevels) }).strict(), z.object({ enabled: z.boolean() }).strict()]).parse(await context.req.json());
-    await setMacAccess(deps, "level" in input ? input.level : input.enabled ? "full" : "off");
+    const level = "level" in input ? input.level : input.enabled ? "full" : "off";
+    // Lowering Mac access is always fine. Raising it needs a click in the app or on a signed-in phone (ADR 0260).
+    if (macAccessLevels.indexOf(level) > macAccessLevels.indexOf(await macAccess(deps) ?? "off")) assertHumanClick(context);
+    await setMacAccess(deps, level);
     cloudroom(deps).applyMacAccess();
     return context.json({ ok: true });
   });
@@ -447,6 +466,14 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     else if (body.thread && body.argv[0] === "stop") void service.gpuApprovals.recheck(body.thread);
     return context.json(reply);
   });
+  // Cloudroom Agent (docs/scopes/cloudroom-agent.md): its plugin asks for a token that can only buy inference, signed
+  // in as this account. The account's own sign-in never leaves this server.
+  app.post("/api/v1/cloudroom/account/inference", async (context) => {
+    return context.json(await cloudroom(deps).sandboxes.inference().catch((error: unknown) => {
+      const status = error instanceof CloudroomError ? error.status : null;
+      throw new ApiError(status === 401 || status === 403 ? status : 503, "cloud_inference", error instanceof Error ? error.message : String(error));
+    }) as Record<string, unknown>);
+  });
   // Import from this Mac: the list shows names only, and values go straight to the website.
   app.get("/api/v1/cloudroom/account/environment/mac", async (context) => context.json({ names: Object.keys(await macVariables()).sort() }));
   app.post("/api/v1/cloudroom/account/environment/mac", async (context) => {
@@ -480,6 +507,7 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
         choice.auto = input.auto;
       } else for (const name of input.names) choice.chosen[name] = input.cloud;
       await setCloudSkills(deps, choice);
+      if ("cloud" in input && input.cloud) void noteSkillDone(deps).catch(() => {});
       void cloudroom(deps).sandboxes.copyMacConfig(skillInCloud(choice), true).catch((error: unknown) => deps.logger.warn({ error }, "Skills could not be copied to cloud sandboxes"));
     });
     skillChange = change.catch(() => {});
@@ -529,6 +557,7 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
   app.post("/api/v1/cloudroom/account/copy-logins", async (context) => {
     const input = z.object({ enabled: z.boolean() }).strict().parse(await context.req.json());
     await setCopyLogins(deps, input.enabled);
+    if (input.enabled) cloudroom(deps).resetSignInCopy();
     return context.json({ ok: true });
   });
   // Settings → General → DeepAPI: whether DeepAPI is paid from the account's Cloud Credits (ADR 20261115-235507).
@@ -583,6 +612,22 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     });
   }
   app.get("/api/v1/cloudroom/account/cursor", async context => context.json(await cloudroom(deps).cursorAuth()));
+  app.post("/api/v1/cloudroom/account/antigravity", async context => {
+    const problem = browserRequestProblem(context, deps, { requireJsonForMutation: true });
+    if (problem) return context.json({ message: "Use the local Cloudroom app." }, problem.status);
+    const ticket = z.string().min(1).max(4096), requestId = z.string().uuid();
+    const input = z.discriminatedUnion("action", [
+      z.object({ action: z.literal("status") }).strict(),
+      z.object({ action: z.literal("refresh") }).strict(),
+      z.object({ action: z.literal("disconnect") }).strict(),
+      z.object({ action: z.literal("begin"), requestId }).strict(),
+      z.object({ action: z.literal("complete"), ticket, code: z.string().min(1).max(4096) }).strict(),
+      z.object({ action: z.literal("cancel"), ticket }).strict(),
+      z.object({ action: z.literal("key"), requestId, apiKey: z.string().min(1).max(4096) }).strict(),
+    ]).safeParse(await context.req.json().catch(() => null));
+    if (!input.success) throw new ApiError(400, "invalid_antigravity_auth", "Invalid Antigravity sign-in request.");
+    return context.json(await cloudroom(deps).antigravityLogin(input.data));
+  });
   for (const action of ["login", "cancel", "key"] as const) {
     app.post(`/api/v1/cloudroom/account/cursor/${action}`, async context => {
       const schema = z.object({ requestId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), ...(action === "key" ? { apiKey: z.string().min(1).max(4096).regex(/^[!-~]+$/) } : {}) }).strict();
@@ -646,9 +691,17 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     return context.json(macCodexStatus(startMacCodexLogin(deps)));
   });
   app.get("/api/v1/cloudroom/mac/codex-login", context => context.json(macCodexStatus(macCodexLogin())));
-  app.get("/api/v1/cloudroom/mac/agents", async context => context.json({ agents: await macSignedInAgents() }));
+  app.get("/api/v1/cloudroom/mac/agents", async context => context.json({ agents: await macSignedInAgents(), installed: macInstalledAgents() }));
   app.post("/api/v1/cloudroom/mac/logins", async context => { await cloudroom(deps).copyLoginsNow(); return context.json({ ok: true }); });
   app.get("/api/v1/cloudroom/account/github", async context => context.json(await githubAuth(deps)));
+  app.post("/api/v1/cloudroom/account/github/mac", async context => {
+    const problem = browserRequestProblem(context, deps, { requireJsonForMutation: true });
+    if (problem) return context.json({ message: "Use the local Cloudroom app." }, problem.status);
+    const body = await context.req.json().catch(() => null);
+    const parsed = z.object({ expectedLogin: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/).nullish() }).strict().safeParse(body);
+    if (!parsed.success) throw new ApiError(400, "invalid_github_mac", "Invalid GitHub request.");
+    return context.json(await copyMacGithub(deps, parsed.data.expectedLogin));
+  });
   app.get("/api/v1/cloudroom/account/github/account", async context => context.json(await githubAccount(deps)));
   app.post("/api/v1/cloudroom/account/github/disconnect", async context => { await disconnectGithub(deps); return context.json({ ok: true }); });
   const agentId = (context: { req: { param: (name: string) => string | undefined } }) => z.string().min(1).max(100).parse(context.req.param("providerId"));
@@ -707,9 +760,22 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     const { query } = z.object({ query: z.string().trim().min(1).max(500) }).strict().parse(await context.req.json());
     return context.json({ threads: await deepSearch(deps, query, context.req.raw.signal) });
   });
-  app.get("/api/v1/cloudroom/account/github-branches", async context => {
+  // Existing desktop SDKs call github-branches.
+  for (const path of ["github-branches", "project-branches"]) app.get("/api/v1/cloudroom/account/"+path, async context => {
     const projectId = z.string().min(1).parse(context.req.query("project"));
-    return context.json(await githubBranches(projectId, deps));
+    return context.json(await projectBranches(projectId, deps).catch(gitlabRouteError));
+  });
+  app.post("/api/v1/cloudroom/account/gitlab", async context => {
+    const input = z.object({action:z.enum(["status","start","cancel","disconnect"])}).strict().parse(await context.req.json());
+    return context.json(await cloudroom(deps).sandboxes.gitlabConnection(input.action).catch(gitlabRouteError));
+  });
+  app.post("/api/v1/cloudroom/account/gitlab/check", async context => {
+    const {repo}=z.object({repo:z.string().max(1024)}).strict().parse(await context.req.json());
+    return context.json(await cloudroom(deps).sandboxes.gitlabCheck(repo).catch(gitlabRouteError));
+  });
+  app.post("/api/v1/cloudroom/account/repo-suggestions/gitlab", async context => {
+    const {repo}=z.object({repo:z.string().max(1024)}).strict().parse(await context.req.json());
+    return context.json(await addGitlabRepo(deps, repo).catch(gitlabRouteError));
   });
   app.post("/api/v1/cloudroom/account/repo-suggestions/github", async context => {
     const input = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/) }).strict().parse(await context.req.json());
@@ -717,7 +783,8 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
   });
   for (const action of ["login", "cancel"] as const) {
     app.post(`/api/v1/cloudroom/account/github/${action}`, async context => {
-      const input = z.object({ requestId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/) }).strict().parse(await context.req.json());
+      // `repos` stays accepted for older clients, though login always uses the GitHub App now.
+      const input = z.object({ requestId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), repos: z.boolean().optional() }).strict().parse(await context.req.json());
       return context.json(await githubAuth(deps, action, input.requestId));
     });
   }
@@ -739,6 +806,11 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     const thread = getThread(deps.db, id);
     if (!status || !thread) return context.json(null);
     return context.json(status);
+  });
+  app.get("/api/v1/cloudroom/threads/:id/delivery/:requestId", async (context) => {
+    const { id, requestId } = context.req.param();
+    context.header("Cache-Control", "no-store");
+    return context.json(await cloudroom(deps).messageDelivery(id, requestId));
   });
   app.get("/api/v1/cloudroom/threads/:id/workspace", async (context) => context.json(await cloudroom(deps).threadWorkspace(context.req.param("id"), context.req.raw.signal)));
   app.post("/api/v1/cloudroom/threads/:id/retry-start", async (context) => {
@@ -765,8 +837,8 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     return context.json({ ok: true });
   });
   app.post("/api/v1/cloudroom/threads/:id/retry-copy", async (context) => {
-    await cloudroom(deps).retryCopy(context.req.param("id"));
-    return context.json({ ok: true });
+    const result = await cloudroom(deps).retryCopy(context.req.param("id"));
+    return context.json({ ok: true, ...result });
   });
   app.post("/api/v1/cloudroom/threads/:id/wake", async (context) => {
     const { reason } = await context.req.json<{ reason?: unknown }>().catch(() => ({ reason: undefined }));
@@ -801,7 +873,8 @@ export function installCloudroomRoutes(app: Hono, deps: AppDeps, plugins: Plugin
     if (context.req.method === "PATCH" && path === "") {
       const body = await context.req.json<unknown>();
       // A model or harness change switches the thread in place (ADR 0211); a new parent is saved to the website first.
-      if (body && typeof body === "object" && !Array.isArray(body) && Object.keys(body).every((key) => ["title", "reasoningLevel", "model", "providerId", "parentThreadId", "sectionId", "resend", "idleSessionOnly"].includes(key))) {
+      // Visibility, like the section, is sidebar state on this computer only (#2210).
+      if (body && typeof body === "object" && !Array.isArray(body) && Object.keys(body).every((key) => ["title", "reasoningLevel", "model", "providerId", "parentThreadId", "sectionId", "visibility", "resend", "idleSessionOnly"].includes(key))) {
         const parentId = (body as { parentThreadId?: unknown }).parentThreadId;
         if (parentId === undefined || parentId === thread.parentThreadId || thread.deletedAt || (parentId !== null && typeof parentId !== "string") || !updateThreadRequestSchema.safeParse(body).success) return next();
         if (["model", "providerId", "reasoningLevel"].some((key) => key in body)) return context.json({ message: "Change a Cloud thread's parent on its own, then change its model.", code: "cloudroom_parent_alone" }, 400);

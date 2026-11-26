@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { commandGuardBlockReason } from "@get-bb/plugin-sdk/internal/command-guard";
-import { cloudroomCommands, cloudroomThreads, deleteThreadEventSuffixInTransaction, events, threads, threadConversationOutlines, threadSearchSegments, getThread, type DbConnection, type DbQueryConnection, type DbTransaction, type AppendStoredThreadEventArgs } from "@cloudroom/db";
-import { and, desc, eq } from "drizzle-orm";
+import { cloudroomCommands, cloudroomThreads, deleteThreadEventSuffixInTransaction, events, listOpenBackgroundTaskItemRowsForThread, threads, threadConversationOutlines, threadSearchSegments, getThread, type DbConnection, type DbQueryConnection, type DbTransaction, type AppendStoredThreadEventArgs } from "@cloudroom/db";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { appendThreadEventsInTransaction, appendThreadProvisioningEventInTransaction } from "../threads/thread-events.js";
 import { markCustomInstructionsLost } from "../threads/custom-instructions.js";
 import { CORE_PLAN_LIMIT, LIMIT_RESUME } from "../system/plan-limit-telemetry.js";
-import { LEGACY_CODEX_GOAL_EXTENSION_KIND, THREAD_ACCOUNT_SWITCH_OPERATION, cloudDeltaEvent, cloudItemEvent, codexItemEvent, isStreamDeltaEvent, joinStreamDeltas, reasoningLevelSchema, serviceTierSchema, threadEventSchema, threadScope, turnScope, encodeClientTurnRequestIdNumber, type ProvisioningTranscriptEntry, type SystemThreadProvisioningStatus, type ThreadEvent, type ThreadEventTurnStatus } from "@cloudroom/domain";
+import { LEGACY_CODEX_GOAL_EXTENSION_KIND, CLOUD_AGENT_GONE_STATES, THREAD_ACCOUNT_SWITCH_OPERATION, cloudBackgroundCommandEnd, cloudBackgroundCommandEvent, cloudDeltaEvent, cloudItemEvent, codexItemEvent, isStreamDeltaEvent, joinStreamDeltas, reasoningLevelSchema, serviceTierSchema, threadEventSchema, threadScope, turnScope, encodeClientTurnRequestIdNumber, type ProvisioningTranscriptEntry, type SystemThreadProvisioningStatus, type ThreadEvent, type ThreadEventTurnStatus, type CloudBackgroundCommand } from "@cloudroom/domain";
 import { z } from "zod";
 import { cloudAccountSwitch } from "./account-switches.js";
 import { CloudroomError, type SessionRecord } from "./client.js";
@@ -15,10 +15,10 @@ import { binding, command, coreFailure, queuedPrompts, saveBinding, saveCommandS
 const object = z.record(z.string(), z.unknown());
 const nativeFrame = z.object({ method: z.string(), params: object.optional() });
 // GUI provider ID → cloud core harness ID.
-export const CLOUD_HARNESSES = { codex: "codex", pi: "pi", "claude-code": "claude-code", "acp-cursor": "cursor", "acp-fx": "fx", "acp-opencode": "opencode", "acp-hermes-agent": "hermes", "acp-devin": "devin", "acp-droid": "droid", "acp-kimi": "kimi", "acp-openclaw": "openclaw", "acp-agent-zero": "agent-zero" } as const;
+export const CLOUD_HARNESSES = { codex: "codex", pi: "pi", "claude-code": "claude-code", "acp-cursor": "cursor", "acp-fx": "fx", "acp-opencode": "opencode", "acp-hermes-agent": "hermes", "acp-devin": "devin", "acp-droid": "droid", "acp-kimi": "kimi", "acp-antigravity": "antigravity", "acp-openclaw": "openclaw", "acp-agent-zero": "agent-zero" } as const;
 export type CloudProvider = keyof typeof CLOUD_HARNESSES;
 export const isCloudProvider = (id: string | undefined): id is CloudProvider => id !== undefined && Object.hasOwn(CLOUD_HARNESSES, id);
-export const HARNESS_NAMES: Record<CloudProvider, string> = { codex: "Codex", pi: "Pi", "claude-code": "Claude Code", "acp-cursor": "Cursor", "acp-fx": "fx", "acp-opencode": "opencode", "acp-hermes-agent": "Hermes Agent", "acp-devin": "Devin", "acp-droid": "Droid", "acp-kimi": "Kimi Code", "acp-openclaw": "OpenClaw", "acp-agent-zero": "Agent Zero" };
+export const HARNESS_NAMES: Record<CloudProvider, string> = { codex: "Codex", pi: "Pi", "claude-code": "Claude Code", "acp-cursor": "Cursor", "acp-fx": "fx", "acp-opencode": "opencode", "acp-hermes-agent": "Hermes Agent", "acp-devin": "Devin", "acp-droid": "Droid", "acp-kimi": "Kimi Code", "acp-antigravity": "Antigravity", "acp-openclaw": "OpenClaw", "acp-agent-zero": "Agent Zero" };
 export const isAcpProvider = (id: string | undefined): id is Extract<CloudProvider, `acp-${string}`> => isCloudProvider(id) && id.startsWith("acp-");
 const FINISHED = ["completed", "failed", "interrupted", "unknown", "unknown_after_restart"];
 /** A message that failed or was cancelled may never have reached the agent. If it carried the custom instructions, the next one must. */
@@ -174,9 +174,10 @@ export function projectFollowUp(tx: DbTransaction, threadId: string, id: string)
   const saved = binding(tx, threadId);
   const request = command(tx, id);
   const status = getThread(tx, threadId)?.status;
-  if (!saved?.sessionId || saved.queuePaused || request?.command !== "prompt" || (status !== "idle" && status !== "error") || queuedPrompts(tx, threadId).length) return false;
+  const lazySideChat = Boolean(saved && !saved.sessionId && command(tx, `first_${threadId}`)?.command === "side_chat");
+  if (!saved || (!saved.sessionId && !lazySideChat) || saved.queuePaused || request?.command !== "prompt" || (status !== "idle" && status !== "error") || queuedPrompts(tx, threadId).length) return false;
   saveBinding(tx, threadId, { turnId: id, error: null });
-  saveStatus(tx, threadId, "active");
+  saveStatus(tx, threadId, lazySideChat ? "starting" : "active");
   appendPrompt(tx, saved, request);
   return true;
 }
@@ -334,7 +335,11 @@ export function projectRecords(
       if ((harness === "pi" || isAcpProvider(harness) || harness === "claude-code") && (receipt.command === "auto" || (previous && receipt.command === "prompt")) && FINISHED.includes(receipt.state) && saved.nativeId && turnStarted(tx, threadId, receipt.request_id)) {
         emit({ threadId, providerThreadId: saved.nativeId, scope: turnScope(receipt.request_id), type: "turn/completed", status: turnStatus(receipt.state) });
       }
-      const lastError = () => tx.select({ data: events.data }).from(events).where(and(eq(events.threadId, threadId), eq(events.type, "system/error"))).orderBy(desc(events.sequence)).limit(1).get();
+      // Only this turn's error counts: the same plan limit on the next turn is a new card, not a repeat.
+      const lastError = () => {
+        const turn = tx.select({ sequence: events.sequence }).from(events).where(and(eq(events.threadId, threadId), eq(events.type, "turn/started"))).orderBy(desc(events.sequence)).limit(1).get()?.sequence ?? -1;
+        return tx.select({ data: events.data }).from(events).where(and(eq(events.threadId, threadId), eq(events.type, "system/error"), gt(events.sequence, turn))).orderBy(desc(events.sequence)).limit(1).get();
+      };
       const error = receipt.error ? codexErrorFields(receipt.error, codexOutage) : null;
       if (["failed", "unknown", "unknown_after_restart"].includes(receipt.state) && error && !projected.some((event) => event.type === "system/error" && event.message === error.message) && !sameError(JSON.parse(lastError()?.data ?? "{}"), error.message)) {
         emit({ type: "system/error", scope: threadScope(), threadId, ...error });
@@ -471,6 +476,24 @@ export function projectRecords(
         emit({ ...base, type: "thread/compacted" });
       }
     }
+    // Claude's background commands live outside turns: one often ends between turns and starts the next by itself.
+    const openCommand = (id: string): CloudBackgroundCommand | null => {
+      const row = tx.select({ type: events.type, data: events.data, createdAt: events.createdAt }).from(events)
+        .where(and(eq(events.threadId, threadId), eq(events.itemId, id))).orderBy(desc(events.sequence)).limit(1).get();
+      return row?.type === "item/backgroundTask/progress" ? { description: String(JSON.parse(row.data).item?.description ?? ""), startedAt: row.createdAt } : null;
+    };
+    const commandBase = saved.nativeId ? { threadId, providerThreadId: saved.nativeId, scope: threadScope() } : null;
+    if (harness === "claude-code" && data.type === "system" && record.native && commandBase) {
+      const event = cloudBackgroundCommandEvent(object.parse(JSON.parse(record.native)), commandBase, openCommand, record.timestamp_ms ?? null);
+      if (event) emit(event);
+    }
+    // The agent's process is gone, and its commands with it: Claude never reports how they ended.
+    if (record.kind === "state" && commandBase && CLOUD_AGENT_GONE_STATES.includes(String(data.state))) {
+      for (const open of listOpenBackgroundTaskItemRowsForThread(tx, { threadId })) {
+        const command = openCommand(open.itemId);
+        if (command) emit(cloudBackgroundCommandEnd(commandBase, open.itemId, command, "stopped", record.timestamp_ms ?? null));
+      }
+    }
     const recordTurn = typeof data.request_id === "string" ? data.request_id : saved.turnId;
     if (harness === "pi" && record.native && record.kind !== "native_record" && saved.nativeId && recordTurn && turnStarted(tx, threadId, recordTurn)) {
       const frame = object.parse(JSON.parse(record.native));
@@ -494,9 +517,9 @@ export function projectRecords(
         const id = latestMessage();
         if (!id) throw new CloudroomError("Pi message completion has no recorded message start");
         const message = object.parse(frame.message);
-        emit({ ...base, type: "item/completed", item: { type: "agentMessage", id, text: contentText(message) } });
         const thinking = Array.isArray(message.content) ? message.content.map(part => object.parse(part)).filter(part => part.type === "thinking" && typeof part.thinking === "string").map(part => part.thinking) : [];
         if (thinking.length) emit({ ...base, type: "item/completed", item: { type: "reasoning", id: `${id}:thinking`, summary: [], content: thinking } });
+        emit({ ...base, type: "item/completed", item: { type: "agentMessage", id, text: contentText(message) } });
         if (typeof message.errorMessage === "string") emit({ type: "system/error", scope: threadScope(), threadId, message: message.errorMessage });
       } else if (frame.customType === "cloudroom_subagent" || (frame.type === "custom" && frame.customType === "cloudroom_subagent")) {
         let payload: { id?: string; state?: string; result?: string } = {};

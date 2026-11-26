@@ -9,7 +9,7 @@ import {
   useNavigate,
   useLocation,
   matchPath,
-} from "react-router-dom";
+} from "react-router";
 import "@cloudroom/shared-ui/icon-extended";
 import {
   builtInThemes,
@@ -56,6 +56,10 @@ import {
 import { useHostDaemon, useLocalHostDaemonAccess } from "@/hooks/useHostDaemon";
 import { useAppThemePreview } from "@/hooks/useAppThemePreview";
 import { useBrandMark } from "@/hooks/useBrandMark";
+import {
+  useCloudIconStyle,
+  type CloudIconStyle,
+} from "@/hooks/useCloudIconStyle";
 import { useCorners, type Corners } from "@/hooks/useCorners";
 import {
   ProviderTurnDisplaySection,
@@ -67,7 +71,7 @@ import { SidebarThreadListSetting } from "@/components/settings/SidebarThreadLis
 import { SidebarFooterSettings } from "@/components/settings/SidebarFooterSettings";
 import { SidebarNavigationSetting } from "@/components/settings/SidebarNavigationSetting";
 import { SplitDimmingSetting } from "@/components/settings/SplitDimmingSetting";
-import { StarterPromptsSetting } from "@/components/ActivationChecklist";
+import { OneClickScansSetting } from "@/components/ActivationChecklist";
 import { HarnessIconsSetting } from "@/components/settings/HarnessIconsSetting";
 import { useSettingsNavState } from "@/components/settings/settings-nav";
 import { useRevealSettingsTarget } from "@/components/settings/settings-search";
@@ -99,7 +103,6 @@ import { KeyboardSettingsSection } from "@/components/settings/KeyboardSettingsS
 import { BrowserSettingsSection } from "@/components/settings/BrowserSettingsSection";
 import { AdvancedMachineSettings, MachinesSettingsSection } from "@/components/settings/MachinesSettingsSection";
 import { CloudroomAccountSettings } from "@/components/settings/CloudroomAccountSettings";
-import { InviteSettingsCard } from "@/components/InviteOffer";
 import { ProjectsSettingsSection } from "@/components/settings/ProjectsSettingsSection";
 import { ArchivedThreadsSettingsSection } from "@/components/settings/ArchivedThreadsSettingsSection";
 import { ImportChatsSettingsSection } from "@/components/settings/ImportChats";
@@ -220,10 +223,13 @@ interface GeneralSettingsSectionProps {
 interface PrivacySettingsSectionProps {
   onStreamerModeChange: (enabled: boolean) => void;
   streamerMode: boolean;
+  telemetryAllowed?: boolean;
   telemetryEnabled: boolean;
   onTelemetryEnabledChange: (enabled: boolean) => void;
   bugReportsEnabled: boolean;
   onBugReportsEnabledChange: (enabled: boolean) => void;
+  macCommandReviewEnabled?: boolean;
+  onMacCommandReviewEnabledChange?: (enabled: boolean) => void;
   disabled: boolean;
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
@@ -439,6 +445,86 @@ function CornersSetting() {
                 className={cn(
                   "ml-auto",
                   corners !== option.value && "opacity-0",
+                  COARSE_POINTER_ICON_SIZE_CLASS,
+                )}
+              />
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SettingsWithControl>
+  );
+}
+
+const CLOUD_ICON_OPTIONS: ReadonlyArray<{
+  iconClassName: string;
+  label: string;
+  value: CloudIconStyle;
+}> = [
+  {
+    iconClassName: "text-primary [&_path]:stroke-[1.9]",
+    label: "Electric lime",
+    value: "electric-lime",
+  },
+  {
+    iconClassName: "text-neutral-950 dark:text-white [&_path]:stroke-[2]",
+    label: "Crisp white",
+    value: "crisp-white",
+  },
+];
+
+function CloudIconSetting() {
+  const [cloudIcon, setCloudIcon] = useCloudIconStyle();
+  const active =
+    CLOUD_ICON_OPTIONS.find((option) => option.value === cloudIcon) ??
+    CLOUD_ICON_OPTIONS[0]!;
+  return (
+    <SettingsWithControl
+      label="Cloud icon"
+      description="Color of the Cloud icon in the composer and sidebar."
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className={SETTINGS_DROPDOWN_TRIGGER_CLASS}
+            aria-label="Cloud icon"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <Icon
+                name="Cloud"
+                className={cn("size-3.5 shrink-0", active.iconClassName)}
+                aria-hidden
+              />
+              <span className="min-w-0 truncate">{active.label}</span>
+            </span>
+            <Icon
+              name="ChevronDown"
+              className="size-3.5 text-muted-foreground"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className={SETTINGS_DROPDOWN_CONTENT_CLASS}
+        >
+          {CLOUD_ICON_OPTIONS.map((option) => (
+            <DropdownMenuItem
+              key={option.value}
+              onSelect={() => setCloudIcon(option.value)}
+            >
+              <Icon
+                name="Cloud"
+                className={cn("size-3.5 shrink-0", option.iconClassName)}
+                aria-hidden
+              />
+              {option.label}
+              <Icon
+                name="Check"
+                className={cn(
+                  "ml-auto",
+                  cloudIcon !== option.value && "opacity-0",
                   COARSE_POINTER_ICON_SIZE_CLASS,
                 )}
               />
@@ -918,6 +1004,7 @@ export function AppearanceSettingsSection({
           faviconColor={faviconColor}
           onFaviconColorChange={onFaviconColorChange}
         />
+        <CloudIconSetting />
         <SplitDimmingSetting />
         <SidebarFooterSettings />
         <SettingsWithControl
@@ -931,7 +1018,7 @@ export function AppearanceSettingsSection({
             aria-label="Question cards"
           />
         </SettingsWithControl>
-        <StarterPromptsSetting />
+        <OneClickScansSetting />
         <PluginSettingsSections pluginId="wallpaper" />
       </div>
     </SettingsSection>
@@ -1086,10 +1173,13 @@ export function PrivacySettingsSection({
   onEnabledChange,
   streamerMode,
   onStreamerModeChange,
+  telemetryAllowed = true,
   telemetryEnabled,
   onTelemetryEnabledChange,
   bugReportsEnabled,
   onBugReportsEnabledChange,
+  macCommandReviewEnabled = true,
+  onMacCommandReviewEnabledChange,
 }: PrivacySettingsSectionProps) {
   return (
     <SettingsSection title="Privacy & diagnostics">
@@ -1108,11 +1198,15 @@ export function PrivacySettingsSection({
 
         <SettingsWithControl
           label="Share usage data and setup errors"
-          description="Send app starts, thread and message counts, plugin installs, and short letters-only settings searches that find nothing to help improve Cloudroom. Failed agent connects and installs are saved with your account so we can fix them. Turning this off takes effect immediately for this server. Details: cloudroom.dev/privacy."
+          description={
+            telemetryAllowed
+              ? "Send app starts, thread, message, and skill counts, reply times, Local token totals, active days and minutes, plugin installs, scrubbed turn errors and crash logs, setup summaries, and short letters-only settings searches that find nothing. Failures are saved with your account. Never your prompts, code, or other tools' auth files. Custom models are masked. Takes effect immediately, or opt out via CLOUDROOM_TELEMETRY=false or DO_NOT_TRACK=1. Details: cloudroom.dev/privacy."
+              : "Turned off by environment variable (CLOUDROOM_TELEMETRY, BB_TELEMETRY, or DO_NOT_TRACK). No usage data or setup errors are sent from this server. Details: cloudroom.dev/privacy."
+          }
         >
           <Switch
-            checked={telemetryEnabled}
-            disabled={disabled}
+            checked={telemetryAllowed && telemetryEnabled}
+            disabled={disabled || !telemetryAllowed}
             onCheckedChange={onTelemetryEnabledChange}
             aria-label="Share usage data and setup errors"
           />
@@ -1127,6 +1221,18 @@ export function PrivacySettingsSection({
             disabled={disabled}
             onCheckedChange={onBugReportsEnabledChange}
             aria-label="Send agent feedback"
+          />
+        </SettingsWithControl>
+
+        <SettingsWithControl
+          label="Review cloud commands on this computer"
+          description="Check cloud agents' local commands and scripts for risky patterns using AI, after removing common secrets. Flagged commands are saved for security review. Takes effect on the next command."
+        >
+          <Switch
+            checked={macCommandReviewEnabled}
+            disabled={disabled || !onMacCommandReviewEnabledChange}
+            onCheckedChange={(next) => onMacCommandReviewEnabledChange?.(next)}
+            aria-label="Review cloud commands on this computer"
           />
         </SettingsWithControl>
 
@@ -1477,7 +1583,6 @@ export function SettingsView() {
   } else {
     content = (
       <>
-        <InviteSettingsCard />
         <GeneralSettingsSection
           desktopBrowserAvailable={desktopBrowserAvailable}
           generalSettingsDisabled={
@@ -1516,6 +1621,7 @@ export function SettingsView() {
         <DeepapiSettingsSection />
         <VoiceInputSettingsSection />
         <PrivacySettingsSection
+          telemetryAllowed={systemConfigQuery.data?.telemetryAllowed !== false}
           telemetryEnabled={generalSettings.telemetryEnabled}
           onTelemetryEnabledChange={(enabled) =>
             updateGeneralSettingsMutation.mutate({
@@ -1528,6 +1634,13 @@ export function SettingsView() {
             updateGeneralSettingsMutation.mutate({
               ...generalSettings,
               bugReportsEnabled: enabled,
+            })
+          }
+          macCommandReviewEnabled={generalSettings.macCommandReviewEnabled}
+          onMacCommandReviewEnabledChange={(enabled) =>
+            updateGeneralSettingsMutation.mutate({
+              ...generalSettings,
+              macCommandReviewEnabled: enabled,
             })
           }
           streamerMode={generalSettings.streamerMode}

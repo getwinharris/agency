@@ -9,6 +9,7 @@ import { pipeline } from "node:stream";
 import { createZstdDecompress } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { isNotNull } from "drizzle-orm";
+import { gitSafetyArgs } from "@cloudroom/host-workspace";
 import { events, findOrCreateProjectByLocalPathSource, getThread, listProjectSourcesByProjectIds, listPublicProjects, type StoredEventRow } from "@cloudroom/db";
 import { ApiError } from "../../errors.js";
 import type { AppDeps } from "../../types.js";
@@ -236,7 +237,7 @@ async function claudeTurns(path: string): Promise<Turn[]> {
     if (typeof line.message.model === "string" && !line.message.model.startsWith("<")) model = line.message.model;
     const last = turns.at(-1);
     if (last?.replies.length === 0) last.model = model;
-    const text = line.message.content.filter((block: Line) => block.type === "text").map((block: Line) => block.text).join("\n").trim();
+    const text = line.message.content.filter((block: Line) => block?.type === "text").map((block: Line) => block.text).join("\n").trim();
     if (text) turns.at(-1)?.replies.push({ at, text });
   }
   return turns;
@@ -298,11 +299,29 @@ async function lastMessageAt(path: string, isMessage: (line: Line) => boolean): 
   return (await stat(path)).mtimeMs;
 }
 
+// Scan complete pairs once. A regex retries from every opening tag when the closing tag is missing.
+function withoutSystemReminders(text: string): string {
+  const open = "<system-reminder>", close = "</system-reminder>";
+  const parts: string[] = [];
+  let at = 0;
+  while (at < text.length) {
+    const start = text.indexOf(open, at);
+    if (start < 0) break;
+    const end = text.indexOf(close, start + open.length);
+    if (end < 0) break;
+    parts.push(text.slice(at, start));
+    at = end + close.length;
+  }
+  parts.push(text.slice(at));
+  return parts.join("");
+}
+
+// An approved plan opens its "clear context" session as an auto-continuation; Claude Code counts it as the user's turn.
 function claudeUserText(line: Line): string | null {
-  if (line.type !== "user" || line.isMeta || line.isCompactSummary || (line.origin?.kind && line.origin.kind !== "human")) return null;
+  if (line.type !== "user" || line.isMeta || line.isCompactSummary || (line.origin?.kind && !["human", "auto-continuation"].includes(line.origin.kind))) return null;
   const content = line.message?.content;
-  const raw = typeof content === "string" ? content : Array.isArray(content) ? content.filter((block: Line) => block.type === "text").map((block: Line) => block.text).join("\n") : "";
-  const text = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "").trim();
+  const raw = typeof content === "string" ? content : Array.isArray(content) ? content.filter((block: Line) => block?.type === "text").map((block: Line) => block.text).join("\n") : "";
+  const text = withoutSystemReminders(raw).trim();
   return text && !/^<(command-|local-command)/.test(text) ? text : null;
 }
 
@@ -348,7 +367,7 @@ async function createImportedThread(deps: AppDeps, hostId: string, session: Foun
 // project. An existing project for a subfolder of that repo still wins for chats inside it.
 async function projectFolder(deps: AppDeps, hostId: string, session: Found): Promise<string> {
   const start = session.project ?? session.cwd;
-  const lines = await execFileAsync("git", ["-C", start, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], { timeout: 10_000, windowsHide: true })
+  const lines = await execFileAsync("git", [...gitSafetyArgs(), "-C", start, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], { timeout: 10_000, windowsHide: true })
     .then(({ stdout }) => stdout.trim().split("\n").map((line) => normalize(line.trim())), () => []);
   const [common, top] = lines;
   const repo = lines.length === 2 && isAbsolute(common!) && isAbsolute(top!) ? (basename(common!) === ".git" ? dirname(common!) : top!) : start;

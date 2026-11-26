@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun check",
     "prepare:bundled": "bb-plugin-build prepare-bundled"
   },
   "dependencies": {
@@ -47,12 +47,11 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
-    "better-sqlite3": "12.10.0",
+    "better-sqlite3": "13.0.3",
     "jsdom": "^29.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-7": "npm:typescript@^7.0.2",
     "vitest": "^4.1.1"
   }
 }

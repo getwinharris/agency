@@ -480,6 +480,11 @@ fn read_relative(request: &Value) -> Result<Value> {
         .fold(PathBuf::from(root), |path, segment| path.join(segment));
     let path = readable(&path, relative, Some(root))?;
     let info = stat_file(&path, relative)?;
+    #[cfg(unix)]
+    if std::os::unix::fs::FileTypeExt::is_fifo(&info.file_type()) {
+        // Reading a FIFO blocks until a writer appears.
+        return refuse("invalid_path", "Path is a FIFO, not a file");
+    }
     let contents = fs::read(&path).map_err(|error| match error.kind() {
         io::ErrorKind::NotFound => missing(relative),
         _ => denied_or(error),
@@ -1046,7 +1051,7 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 /// Like Node's `Buffer.from(text, "base64")`: either alphabet, padding optional, other characters skipped.
-fn unbase64(text: &str) -> Vec<u8> {
+pub(crate) fn unbase64(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() / 4 * 3);
     let (mut bits, mut count) = (0u32, 0);
     for byte in text.bytes() {

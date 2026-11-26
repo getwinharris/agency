@@ -191,12 +191,21 @@ type FakePermissionRequestHandler = (
   webContents: unknown,
   permission: string,
   callback: (granted: boolean) => void,
+  details?: FakeFileDetails,
 ) => void;
 
 type FakePermissionCheckHandler = (
   webContents: unknown,
   permission: string,
+  origin?: string,
+  details?: FakeFileDetails,
 ) => boolean;
+
+interface FakeFileDetails {
+  fileAccessType?: "readable" | "writable";
+  filePath?: string;
+  requestingUrl?: string;
+}
 
 interface FakeWindowOpenDetails {
   disposition: "foreground-tab" | "new-window";
@@ -723,6 +732,13 @@ const electronMock = vi.hoisted(() => {
 
   class FakeSession {
     public readonly willDownloadListeners: FakeSessionListener[] = [];
+    public restrictedListener:
+      | ((
+          event: unknown,
+          details: unknown,
+          callback: (action: string) => void,
+        ) => void)
+      | null = null;
     public permissionCheckHandler: FakePermissionCheckHandler | null = null;
     public permissionRequestHandler: FakePermissionRequestHandler | null = null;
     public clears = 0;
@@ -732,8 +748,12 @@ const electronMock = vi.hoisted(() => {
     async clearStorageData(): Promise<void> {
       this.clears += 1;
     }
-    on(eventName: "will-download", listener: FakeSessionListener): void {
-      this.willDownloadListeners.push(listener);
+    on(eventName: string, listener: never): void {
+      if (eventName === "file-system-access-restricted") {
+        this.restrictedListener = listener;
+      } else {
+        this.willDownloadListeners.push(listener);
+      }
     }
 
     setPermissionCheckHandler(handler: FakePermissionCheckHandler): void {
@@ -1868,6 +1888,9 @@ describe("DesktopBrowserViewManager", () => {
     expect(automated.options.webPreferences.partition).not.toBe(
       personal.options.webPreferences.partition,
     );
+    expect(automated.options.webPreferences.partition).toMatch(
+      /^persist:room-browser-auto-[0-9a-f]{16}$/,
+    );
     expect(requireFakeView(2).options.webPreferences.partition).toBe(
       automated.options.webPreferences.partition,
     );
@@ -1943,7 +1966,10 @@ describe("DesktopBrowserViewManager", () => {
       generation: same.generation,
     });
     expect(electronMock.fakeSessions.map((s) => s.clears)).toEqual([0, 2, 0]);
-    const root = await mkdtemp(join(tmpdir(), "bb-partitions-"));
+    const root = await mkdtemp(join(tmpdir(), "room-partitions-"));
+    await mkdir(join(root, "Partitions", "room-browser-auto-old"), {
+      recursive: true,
+    });
     await mkdir(join(root, "Partitions", "bb-browser-automation-old"), {
       recursive: true,
     });
@@ -3218,17 +3244,17 @@ describe("DesktopBrowserViewManager", () => {
     });
     const view = requireFakeView(0);
     expect(hostWindow.webContents.sentChannels).not.toContain(
-      "bb-desktop:browser:focused",
+      "room-desktop:browser:focused",
     );
 
     manager.focus({ hostWindow, tabId: "browser:a" });
     expect(hostWindow.webContents.sentChannels).not.toContain(
-      "bb-desktop:browser:focused",
+      "room-desktop:browser:focused",
     );
 
     view.webContents.emitFocus();
     expect(hostWindow.webContents.sentChannels).toContain(
-      "bb-desktop:browser:focused",
+      "room-desktop:browser:focused",
     );
     expect(hostWindow.webContents.sentPayloads.at(-1)).toEqual({
       tabId: "browser:a",
@@ -3589,7 +3615,7 @@ describe("DesktopBrowserViewManager", () => {
     expect(reloadingView.visible).toBe(true);
   });
 
-  it("allows clipboard-sanitized-write but denies clipboard-read and device permissions", () => {
+  it("allows clipboard-sanitized-write and reading folders picked this run, denies the rest", () => {
     expect(isAllowedBrowserPermission("clipboard-sanitized-write")).toBe(true);
     expect(isAllowedBrowserPermission("clipboard-read")).toBe(false);
     expect(isAllowedBrowserPermission("media")).toBe(false);
@@ -3638,5 +3664,35 @@ describe("DesktopBrowserViewManager", () => {
       requestGrants.push(granted);
     });
     expect(requestGrants).toEqual([true, false, false]);
+
+    // #2367: a folder is readable only after a fresh pick this run, on that origin.
+    const site = "https://example.com/";
+    const read = { fileAccessType: "readable", filePath: "/picked" } as const;
+    const write = { ...read, fileAccessType: "writable" } as const;
+    expect(checkHandler(null, "fileSystem", site, read)).toBe(false);
+    for (const details of [read, write]) {
+      requestHandler(
+        null,
+        "fileSystem",
+        (granted) => requestGrants.push(granted),
+        { ...details, requestingUrl: `${site}app` },
+      );
+    }
+    expect(requestGrants.slice(3)).toEqual([true, false]);
+    expect(checkHandler(null, "fileSystem", site, read)).toBe(true);
+    const inside = { ...read, filePath: "/picked/sub" };
+    expect(checkHandler(null, "fileSystem", site, inside)).toBe(true);
+    const sibling = { ...read, filePath: "/picked-other" };
+    expect(checkHandler(null, "fileSystem", site, sibling)).toBe(false);
+    const other = "https://other.example/";
+    expect(checkHandler(null, "fileSystem", other, read)).toBe(false);
+    expect(checkHandler(null, "fileSystem", site, write)).toBe(false);
+
+    // Chromium-blocked folders are denied instead of leaving the picker hanging.
+    const restrictedActions: string[] = [];
+    fakeSession.restrictedListener?.(null, {}, (action) =>
+      restrictedActions.push(action),
+    );
+    expect(restrictedActions).toEqual(["deny"]);
   });
 });

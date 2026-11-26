@@ -24,7 +24,9 @@ export function PluginProviderModelPicker({
   value,
   onChange,
   routing,
+  cloud,
   allowProviderChange = true,
+  extraChoice,
   align = "start",
   disabled,
   className,
@@ -35,6 +37,7 @@ export function PluginProviderModelPicker({
   );
   const controlledKey = `${resolvedRouting.key}\0${selectionKey(value)}`;
   const controller = useThreadCreationOptions({
+    cloud,
     scope: "component-local",
     initialProviderId: value.providerId,
     initialModel: value.model,
@@ -164,6 +167,7 @@ export function PluginProviderModelPicker({
       showUltraFast={controller.supportsUltraFast}
       serviceTierSupportByProvider={controller.serviceTierSupportByProvider}
       commandShortcutsEnabled={false}
+      extraChoice={allowProviderChange ? extraChoice : undefined}
       align={align}
       disabled={disabled}
       className={className}

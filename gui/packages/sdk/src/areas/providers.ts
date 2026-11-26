@@ -25,11 +25,15 @@ export type ProviderInstallableArgs = ProviderHostRoutingArgs & {
 };
 export type ProviderModelsArgs = ProviderHostRoutingArgs & {
   providerId?: string;
+  /** Lists the models a new thread in this project gets (#1236). */
+  projectId?: string;
   signal?: AbortSignal;
 };
 
 export type ProviderRestartModelDiscoveryArgs = ProviderHostRoutingArgs & {
   providerId: string;
+  /** Restarts the list a new thread in this project gets (#1236). */
+  projectId?: string;
   signal?: AbortSignal;
 };
 
@@ -87,6 +91,7 @@ export function createProvidersArea(args: CreateSdkAreaArgs): ProvidersArea {
               providerId: input.providerId,
               hostId: input.hostId,
               environmentId: input.environmentId,
+              projectId: input.projectId,
             },
           },
           ...signalRequestArgs(input.signal),

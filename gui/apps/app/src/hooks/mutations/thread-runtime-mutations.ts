@@ -9,6 +9,7 @@ import type {
 } from "@cloudroom/server-contract";
 import type { AppCreateThreadRequest } from "@cloudroom/client-core";
 import { BbHttpError, sdk } from "@/lib/sdk";
+import { recoverRemoteCloudSend } from "@/cloud/remote-cloud-send";
 import { retryTransient } from "@/lib/retry-transient";
 import { wsManager } from "@/lib/ws";
 import type { QueuedMessageReorderRequest } from "@/lib/queued-message-reorder";
@@ -131,7 +132,7 @@ export function useCreateThread() {
         () =>
           sdk.threads.spawn({
             ...request,
-            origin: request.origin ?? "app",
+            origin: "app",
             originKind: request.originKind ?? null,
             startedOnBehalfOf: request.startedOnBehalfOf ?? null,
           }),
@@ -171,6 +172,7 @@ export function useSendThreadMessage() {
     mutationFn: async ({
       id,
       requestId,
+      recoverCloudDelivery,
       input,
       model,
       serviceTier,
@@ -183,7 +185,7 @@ export function useSendThreadMessage() {
       executionInputSources,
     }: SendThreadMessageMutationRequest) => {
       await waitForThreadExecutionSave(queryClient, id);
-      return await sdk.threads.send({
+      const send = () => sdk.threads.send({
         threadId: id,
         ...(requestId ? { requestId } : {}),
         input,
@@ -196,7 +198,10 @@ export function useSendThreadMessage() {
         executionInputSources,
         mode,
         ...(senderThreadId !== undefined ? { senderThreadId } : {}),
+        // Only the message boxes send through here; scripts and agents can still be held as repeats (#264).
+        fromComposer: true,
       });
+      return recoverCloudDelivery && requestId ? recoverRemoteCloudSend(id, requestId, send) : send();
     },
     onMutate: async (variables): Promise<SendThreadMessageTransaction> =>
       beginSendThreadMessageTransaction({
@@ -275,6 +280,7 @@ export function useCreateThreadQueuedMessage() {
         executionInputSources,
         ...(senderThreadId !== undefined ? { senderThreadId } : {}),
         ...(hardQueue === true ? { hardQueue } : {}),
+        fromComposer: true,
       });
     },
     onMutate: async (variables): Promise<CreateQueuedMessageTransaction> =>

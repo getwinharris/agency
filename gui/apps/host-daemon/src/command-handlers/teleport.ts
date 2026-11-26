@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import {
   chmod,
@@ -15,9 +14,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import { backup, DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
-import { promisify } from "node:util";
 import {
   basename,
   dirname,
@@ -29,6 +27,7 @@ import {
 } from "node:path";
 import { HOST_ARTIFACT_MAX_BYTES } from "@cloudroom/host-daemon-contract";
 import { runGit } from "@cloudroom/host-workspace";
+import { execPortableFile, findCliExecutable } from "@cloudroom/process-utils";
 import { userExecutableProcessOptions } from "../user-executable-env.js";
 import { requireResolvedWorkspaceForCommand } from "../workspace-resolution.js";
 import type {
@@ -62,7 +61,6 @@ type Source = {
   symlink?: boolean;
 };
 type Capture = { nativeId: string; files: Source[]; omitted: string[] };
-const execFileAsync = promisify(execFile);
 const signature = (s: Awaited<ReturnType<typeof stat>>) =>
   `${s.dev}:${s.ino}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
 
@@ -201,11 +199,24 @@ async function runCapture(
     const session = command.sessions?.[0];
     if (session?.harness !== "opencode" || !command.file)
       throw new Error("Unsupported Teleport import");
-    await runOpenCode(
-      ["import", command.file],
-      await realpath(command.workspaceContext.workspacePath),
-      options,
-    );
+    const cwd = await realpath(command.workspaceContext.workspacePath);
+    const imported = await runOpenCode("import", command.file, cwd, options);
+    // OpenCode 2 keeps a chat it already has instead of adding its new
+    // messages. Only a copy with the same messages, as a retried move leaves,
+    // counts as imported; resuming an older one would lose turns.
+    if (imported.stderr.includes("Session already exists")) {
+      const messages = (text: string) => {
+        const list = (JSON.parse(text) as OpenCodeExport).messages;
+        return Array.isArray(list) ? JSON.stringify(list) : undefined;
+      };
+      const local = messages(
+        (await runOpenCode("export", session.nativeId, cwd, options)).stdout,
+      );
+      if (!local || local !== messages(await readFile(command.file, "utf8")))
+        throw new Error(
+          `OpenCode already has an older copy of this chat and can't update it, so the thread stays in Cloud. To move it, delete that copy with \`opencode session delete ${session.nativeId}\`, then try again.`,
+        );
+    }
     return { nativeId: session.nativeId };
   }
   if (command.action === "read") {
@@ -273,7 +284,18 @@ async function runCapture(
       return null;
     },
   );
-  if (existing) return publicCapture(JSON.parse(existing) as Capture);
+  if (existing) {
+    const cached = JSON.parse(existing) as Capture;
+    // Older hosts saved Antigravity captures without the GUI history, which the
+    // server rejects before reading any file; recapture them on retry.
+    if (
+      command.extraText === undefined ||
+      cached.files.some((file) => file.path === "gui-history.json")
+    )
+      return publicCapture(cached);
+    await rm(root, { recursive: true, force: true });
+    await mkdir(root, { recursive: true, mode: 0o700 });
+  }
   const entry = await requireResolvedWorkspaceForCommand({
     environmentId: command.environmentId,
     targetThreadId: command.threadId,
@@ -315,6 +337,28 @@ async function runCapture(
       .map((session) => session.nativeId),
   );
   for (const session of sessions) {
+    if (session.harness === "antigravity") {
+      if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(session.nativeId)) throw new Error("Invalid Antigravity conversation ID");
+      const name = session.nativeId + ".db";
+      const source = join(homedir(), ".gemini", "antigravity-cli", "conversations", name);
+      const info = await lstat(source).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; return null; });
+      if (!info && session.optional && session.threadId !== command.threadId) {
+        capture.omitted.push(session.threadId + " has no saved Antigravity conversation");
+        continue;
+      }
+      if (!info?.isFile() || info.size > HOST_ARTIFACT_MAX_BYTES) throw new Error("Antigravity conversation unavailable or too large");
+      const frozen = join(root, session.threadId + ".db");
+      const db = new DatabaseSync(source, { readOnly: true });
+      try {
+        db.exec("PRAGMA trusted_schema=OFF");
+        if (!db.prepare("SELECT 1 FROM trajectory_meta WHERE cascade_id=? LIMIT 1").get(session.nativeId)) throw new Error("Antigravity conversation identity mismatch");
+        await backup(db, frozen);
+      } finally { db.close(); }
+      const parent = session.threadId === command.threadId;
+      if (parent) capture.nativeId = session.nativeId;
+      await add(source, parent ? name : session.threadId + "/" + name, parent ? "native" : "context", frozen);
+      continue;
+    }
     const opencode = session.harness === "opencode";
     const source = opencode
       ? await exportOpenCode(session.nativeId, root, workspace, options)
@@ -390,60 +434,16 @@ async function runCapture(
         base = JSON.parse(data.subarray(0, data.indexOf(10)).toString("utf8"))
           .payload?.history_base;
       }
-    let imageIndex = 0;
-    function separateImages(value: unknown): unknown {
-      if (Array.isArray(value)) return value.map(separateImages);
-      if (!value || typeof value !== "object") return value;
-      const item = value as Record<string, unknown>;
-      const url = typeof item.image_url === "string" ? item.image_url : null;
-      const base64 = item.source as Record<string, unknown> | undefined;
-      const embedded =
-        item.type === "image" && typeof item.data === "string"
-          ? { data: item.data, mime: String(item.mimeType ?? "image/png") }
-          : item.type === "image" &&
-              base64?.type === "base64" &&
-              typeof base64.data === "string"
-            ? {
-                data: base64.data,
-                mime: String(base64.media_type ?? "image/png"),
-              }
-            : item.type === "input_image" && url?.startsWith("data:")
-              ? {
-                  data: url.slice(url.indexOf(",") + 1),
-                  mime: url.slice(5, url.indexOf(";")),
-                }
-              : null;
-      if (embedded) {
-        const extension =
-          (
-            {
-              "image/jpeg": "jpg",
-              "image/jpg": "jpg",
-              "image/png": "png",
-              "image/webp": "webp",
-              "image/gif": "gif",
-            } as Record<string, string>
-          )[embedded.mime] ?? "bin";
-        const name = `${session.threadId}-image-${imageIndex++}.${extension}`;
-        const file = join(root, name);
-        images.push({ file, name, data: Buffer.from(embedded.data, "base64") });
-        return {
-          type: item.type === "input_image" ? "input_text" : "text",
-          text: `[Teleport attachment pending: ${name}. It is uploading separately; do not assume it has arrived.]`,
-        };
-      }
-      return Object.fromEntries(
-        Object.entries(item).map(([key, child]) => [
-          key,
-          separateImages(child),
-        ]),
-      );
-    }
-    const images: { file: string; name: string; data: Buffer }[] = [];
+    const { separateImages, images } = imageSeparator(root, session.threadId);
     const frozen = join(root, `${session.threadId}.jsonl`);
-    for (const message of exported?.messages ?? [])
-      for (const part of message.parts ?? [])
+    for (const message of exported?.messages ?? []) {
+      collectText(message.text, texts);
+      for (const part of [
+        ...(message.parts ?? []),
+        ...(message.content ?? []),
+      ])
         if (part.type === "text") collectText(part.text, texts);
+    }
     const text = cursor
       ? await cursorSnapshot(dirname(source), session.nativeId, root)
       : exported
@@ -499,25 +499,6 @@ async function runCapture(
       session.threadId === command.threadId ? "native" : "context",
       frozen,
     );
-    if (
-      session.threadId === command.threadId &&
-      command.extraText !== undefined
-    ) {
-      const history = join(root, "gui-history.json");
-      const separated = separateImages(JSON.parse(command.extraText)) as {
-        queued?: unknown;
-        threads?: {
-          events?: { type?: string; data?: { input?: unknown } }[];
-        }[];
-      };
-      collectText(separated.queued, texts);
-      for (const thread of separated.threads ?? [])
-        for (const event of thread.events ?? [])
-          if (event.type === "client/turn/requested")
-            collectText(event.data?.input, texts);
-      await writeSnapshot(history, JSON.stringify(separated) + "\n");
-      await add(history, "gui-history.json", "context", history);
-    }
     for (const image of images) {
       await writeSnapshot(image.file, image.data);
       await add(image.file, image.name, "attachment", image.file);
@@ -525,6 +506,28 @@ async function runCapture(
   }
   if (!capture.nativeId)
     throw new Error("Parent conversation was not captured");
+  // Every harness needs the GUI history: the server won't finish the move without it.
+  if (command.extraText !== undefined) {
+    const { separateImages, images } = imageSeparator(root, "gui-history");
+    const history = join(root, "gui-history.json");
+    const separated = separateImages(JSON.parse(command.extraText)) as {
+      queued?: unknown;
+      threads?: {
+        events?: { type?: string; data?: { input?: unknown } }[];
+      }[];
+    };
+    collectText(separated.queued, texts);
+    for (const thread of separated.threads ?? [])
+      for (const event of thread.events ?? [])
+        if (event.type === "client/turn/requested")
+          collectText(event.data?.input, texts);
+    await writeSnapshot(history, JSON.stringify(separated) + "\n");
+    await add(history, "gui-history.json", "context", history);
+    for (const image of images) {
+      await writeSnapshot(image.file, image.data);
+      await add(image.file, image.name, "attachment", image.file);
+    }
+  }
   // Pi discovers these instructions at startup; they are not in its transcript.
   if (sessions.some((session) => session.harness === "pi")) {
     const ancestors: string[] = [];
@@ -663,28 +666,47 @@ function spoken(harness: string, record: Record<string, any>): unknown {
     : undefined;
 }
 
+type OpenCodePart = { type?: string; text?: unknown };
+/** OpenCode 1 keeps a message's text in `parts`; OpenCode 2 in `text` and `content`. */
 type OpenCodeExport = {
   info?: { id?: unknown };
-  messages?: { parts?: { type?: string; text?: unknown }[] }[];
+  messages?: {
+    parts?: OpenCodePart[];
+    text?: unknown;
+    content?: OpenCodePart[];
+  }[];
 };
 
 async function runOpenCode(
-  args: string[],
+  action: "export" | "import",
+  arg: string,
   cwd: string,
   options: CommandDispatchOptions,
-): Promise<string> {
-  const { stdout } = await execFileAsync("opencode", args, {
-    cwd,
-    env: {
-      ...process.env,
-      ...options.runtimeManager.getShellEnv(),
-      OPENCODE_DISABLE_AUTOUPDATE: "1",
-    },
-    maxBuffer: HOST_ARTIFACT_MAX_BYTES,
-    timeout: 60_000,
-    windowsHide: true,
-  });
-  return stdout;
+): Promise<{ stdout: string; stderr: string }> {
+  const env = {
+    ...process.env,
+    ...options.runtimeManager.getShellEnv(),
+    OPENCODE_DISABLE_AUTOUPDATE: "1",
+  };
+  // Found the way agent startup finds it: OpenCode's installer folder is often
+  // off PATH, and Windows runs its .exe or .cmd (#2277).
+  const run = (args: string[]) =>
+    execPortableFile(findCliExecutable("opencode", env) ?? "opencode", args, {
+      cwd,
+      env,
+      maxBuffer: HOST_ARTIFACT_MAX_BYTES,
+      timeoutMs: 60_000,
+    });
+  // OpenCode 2 moved export and import under `session` (#2686); `--standalone`
+  // runs them on a private server that exits with them, not on a background
+  // service left running. An unreadable version runs OpenCode 1's.
+  const version = await run(["--version"]).then(
+    (out) => out.stdout,
+    () => "",
+  );
+  return Number(/(\d+)\.\d+\.\d+/.exec(version)?.[1] ?? 1) < 2
+    ? run([action, arg])
+    : run(["session", action, "--standalone", arg]);
 }
 
 async function exportOpenCode(
@@ -693,7 +715,12 @@ async function exportOpenCode(
   workspace: string,
   options: CommandDispatchOptions,
 ): Promise<string> {
-  const exported = await runOpenCode(["export", nativeId], workspace, options);
+  const { stdout: exported } = await runOpenCode(
+    "export",
+    nativeId,
+    workspace,
+    options,
+  );
   JSON.parse(exported);
   const path = join(root, `${nativeId}.json`);
   await rm(path, { force: true });
@@ -800,6 +827,58 @@ async function writeSnapshot(path: string, value: string | Buffer) {
   }
   await syncPath(path);
   await syncPath(dirname(path));
+}
+
+// Moves embedded images out of a transcript into separate attachment files.
+function imageSeparator(root: string, prefix: string) {
+  const images: { file: string; name: string; data: Buffer }[] = [];
+  let imageIndex = 0;
+  function separateImages(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(separateImages);
+    if (!value || typeof value !== "object") return value;
+    const item = value as Record<string, unknown>;
+    const url = typeof item.image_url === "string" ? item.image_url : null;
+    const base64 = item.source as Record<string, unknown> | undefined;
+    const embedded =
+      item.type === "image" && typeof item.data === "string"
+        ? { data: item.data, mime: String(item.mimeType ?? "image/png") }
+        : item.type === "image" &&
+            base64?.type === "base64" &&
+            typeof base64.data === "string"
+          ? {
+              data: base64.data,
+              mime: String(base64.media_type ?? "image/png"),
+            }
+          : item.type === "input_image" && url?.startsWith("data:")
+            ? {
+                data: url.slice(url.indexOf(",") + 1),
+                mime: url.slice(5, url.indexOf(";")),
+              }
+            : null;
+    if (embedded) {
+      const extension =
+        (
+          {
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+          } as Record<string, string>
+        )[embedded.mime] ?? "bin";
+      const name = `${prefix}-image-${imageIndex++}.${extension}`;
+      const file = join(root, name);
+      images.push({ file, name, data: Buffer.from(embedded.data, "base64") });
+      return {
+        type: item.type === "input_image" ? "input_text" : "text",
+        text: `[Teleport attachment pending: ${name}. It is uploading separately; do not assume it has arrived.]`,
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(item).map(([key, child]) => [key, separateImages(child)]),
+    );
+  }
+  return { separateImages, images };
 }
 
 function publicCapture(capture: Capture) {

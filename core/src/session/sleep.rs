@@ -267,6 +267,11 @@ impl Manager {
         if super::relay::start_pending(&local) {
             return json!({"drained":false,"reason":"child_start_pending"});
         }
+        // A command waiting on the user's Mac keeps the sandbox awake, also one started from a terminal (feedback 0024).
+        // Checked first: a Mac command is often also an agent's background job, and this is the reason that matters.
+        if self.mac.waiting() > 0 {
+            return json!({"drained":false,"reason":"mac_command"});
+        }
         // ADR 0031: background jobs keep the sandbox awake. The website stops it two hours after the last activity.
         if local.agent_counts().background > 0 {
             return json!({"drained":false,"reason":"background_jobs"});
@@ -311,6 +316,13 @@ impl Manager {
         };
         let out = async { while pending() && changed.changed().await.is_ok() {} };
         let _ = tokio::time::timeout(wait, out).await;
+    }
+
+    /// Runs `start` unless the sandbox is draining, under the drain's lock, so a drain that begins later sees what it
+    /// started: a Mac command's count (mac/mod.rs).
+    pub(crate) fn unless_draining<T>(&self, start: impl FnOnce() -> T) -> Option<T> {
+        let local = self.local.lock().unwrap();
+        (!local.draining).then(start)
     }
 
     /// RepoSync (workspace/repo_sync.rs) checks every few seconds and when a turn ends. A check counts as running from
@@ -521,9 +533,8 @@ fn repo_targets(local: &Local) -> Vec<crate::workspace::repo_sync::Target> {
             }),
         }
     }
-    for entry in std::fs::read_dir("/repos").into_iter().flatten().flatten() {
-        let path = entry.path();
-        if path.is_dir() && !targets.iter().any(|t| t.path == path) {
+    for path in crate::workspace::files::repo_checkouts(std::path::Path::new("/repos")) {
+        if !targets.iter().any(|t| t.path == path) {
             targets.push(Target {
                 path,
                 tell: any_tell.clone(),

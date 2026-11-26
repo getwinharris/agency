@@ -11,6 +11,7 @@ import {
   getAutomationForProject,
   getAutomationRun,
   listWebhookAttempts,
+  countWaitingWakes,
   isAutomationSpawnedThread,
   listAllAutomations,
   listAutomationRuns,
@@ -30,6 +31,7 @@ import {
   type AutomationRunRow,
   type Db,
 } from "./data.js";
+import { waitsForSignIn } from "../lib/paused.js";
 import { createAutomationId } from "./ids.js";
 import {
   providerRoutingForEnvironment,
@@ -173,13 +175,28 @@ function computeNextRunAt(
   });
 }
 
+const MAX_WAITING_WAKES = 5;
+
+/** A thread a loop started can't make loops, or its runs could start threads without end. A wake is the exception:
+ *  a one-time re-prompt of that same thread starts no thread. A few at a time, so a run can't flood itself. */
 function assertNotRecursiveCreation(
   db: Db,
-  createdByThreadId: string | undefined,
+  payload: Pick<
+    ResolvedCreateAutomationInput,
+    "createdByThreadId" | "trigger" | "execution"
+  >,
 ): void {
-  if (createdByThreadId === undefined) return;
-  if (isAutomationSpawnedThread(db, createdByThreadId)) {
-    throw new Error("Loop-spawned threads cannot create loops");
+  const threadId = payload.createdByThreadId;
+  if (threadId === undefined || !isAutomationSpawnedThread(db, threadId)) return;
+  const wake =
+    payload.trigger.triggerType === "once" &&
+    payload.execution.mode === "agent" &&
+    payload.execution.targetThreadId === threadId;
+  if (!wake) throw new Error("Loop-spawned threads cannot create loops");
+  if (countWaitingWakes(db, threadId) >= MAX_WAITING_WAKES) {
+    throw new Error(
+      `This thread already has ${MAX_WAITING_WAKES} wakes waiting. Wait for one to fire, or delete one with room-cli loop delete.`,
+    );
   }
 }
 
@@ -725,7 +742,7 @@ export function createAutomationService(args: {
       assertLoopWorkspace(project, payload.execution);
       const now = Date.now();
       validateTrigger(payload.trigger, now);
-      assertNotRecursiveCreation(db, payload.createdByThreadId);
+      assertNotRecursiveCreation(db, payload);
       await checkLoopAgents(bb, payload.execution);
       if (payload.execution.mode === "agent") {
         await resolvePermissionMode(
@@ -996,9 +1013,10 @@ export function createAutomationService(args: {
         enabled: false,
         nextRunAt: null,
         // Paused by hand, a loop its failures paused stays off: it no longer tries again on its own.
-        // An archive-paused one no longer resumes when its thread is unarchived.
+        // An archive-paused one no longer resumes when its thread is unarchived, nor one waiting for sign-in at a login.
         ...(current.lastError === THREAD_ARCHIVED_ERROR ||
-        current.lastError?.endsWith("consecutive failures)")
+        current.lastError?.endsWith("consecutive failures)") ||
+        waitsForSignIn(current.lastError)
           ? { lastError: null }
           : {}),
       });

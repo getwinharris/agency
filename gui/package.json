@@ -30,7 +30,6 @@
     "reset:dev": "node --import tsx scripts/set-env.mjs NODE_ENV=development pnpm run --silent scripts:prepare && node --import tsx scripts/set-env.mjs NODE_ENV=development node packages/scripts/dist/commands/reset-data.js",
     "reset:all": "node --import tsx scripts/set-env.mjs NODE_ENV=production pnpm run --silent scripts:prepare && node --import tsx scripts/set-env.mjs NODE_ENV=production node packages/scripts/dist/commands/reset-data.js --all",
     "clean": "turbo run clean",
-    "codemod:remove-typescript-comments": "node scripts/remove-typescript-comments.mjs",
     "format": "oxfmt .",
     "format:check": "oxfmt . --check",
     "storybook": "turbo run storybook --filter=@cloudroom/app",
@@ -50,16 +49,13 @@
     "drizzle-studio:prod": "node --import tsx scripts/set-env.mjs NODE_ENV=production pnpm --filter @cloudroom/db db:studio"
   },
   "devDependencies": {
-    "@interfere/landmines": "0.0.0",
     "dotenv-cli": "^11.0.0",
     "esbuild": "^0.28.0",
     "oxfmt": "^0.64.0",
     "oxlint": "^1.81.0",
-    "rimraf": "^6.1.0",
     "tsx": "^4.23.1",
     "turbo": "^2.10.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-7": "npm:typescript@^7.0.2",
     "vitest": "^4.1.1"
   },
   "packageManager": "pnpm@10.34.9",
@@ -82,14 +78,15 @@
       "@modelcontextprotocol/sdk": "^1.32.1",
       "undici@>=7.0.0 <7.29.1": "^7.30.1",
       "undici@>=8.0.0 <8.10.2": "^8.10.2",
-      "app-builder-lib@26.15.7>electron-builder-squirrel-windows": "-"
+      "app-builder-lib@26.15.7>electron-builder-squirrel-windows": "-",
+      "docx-preview@0.4.1>jszip": "-",
+      "pptx-preview@1.0.7>jszip": "-"
     },
     "patchedDependencies": {
       "oniguruma-to-es@4.3.4": "patches/oniguruma-to-es@4.3.4.patch",
       "@pierre/diffs@1.2.9": "patches/@pierre__diffs@1.2.9.patch",
       "sonner@1.7.4": "patches/sonner@1.7.4.patch",
-      "app-builder-lib@26.15.7": "patches/app-builder-lib@26.15.7.patch",
-      "fzf@0.5.2": "patches/fzf@0.5.2.patch"
+      "app-builder-lib@26.15.7": "patches/app-builder-lib@26.15.7.patch"
     }
   }
 }

@@ -69,21 +69,31 @@ export interface ParentSystemMessageTaxonomy {
   systemMessageSubject: SystemMessageSubject | null;
   /** Kept with the notice wherever it queues, for its late-delivery line (#1208). */
   childReport?: QueuedMessageSystemNotice["childReport"];
+  /** Kept the same way, so a queued notice can be dropped once it settles. */
+  interactionId?: string;
   /**
    * Set only for a notice a full disk refused: checked right before each
    * write, and the notice is never queued, so its retry stays in memory (#1542).
    */
   stillCurrent?: () => boolean;
+  /**
+   * Checked right before each write like `stillCurrent`, but the notice may
+   * still queue: a queued child report is checked again at delivery (#2255).
+   */
+  stillAccurate?: () => boolean;
 }
 
-/** Nothing was sent or queued: the retried notice went stale or would queue. */
+/** Nothing was sent or queued: the notice went stale, or a retry would queue. */
 export class UnsentParentSystemMessageError extends Error {}
 
 function throwIfStale(
-  args: Pick<ParentSystemMessageTaxonomy, "stillCurrent">,
+  args: Pick<ParentSystemMessageTaxonomy, "stillAccurate" | "stillCurrent">,
   queues = false,
 ) {
-  if (args.stillCurrent && (queues || !args.stillCurrent()))
+  if (
+    (args.stillCurrent && (queues || !args.stillCurrent())) ||
+    (!queues && args.stillAccurate && !args.stillAccurate())
+  )
     throw new UnsentParentSystemMessageError();
 }
 
@@ -204,7 +214,7 @@ function splitRenderedParentSystemSlot(
   };
 }
 
-function buildParentSystemInputFromSegments(
+export function buildParentSystemInputFromSegments(
   args: BuildParentSystemInputFromSegmentsArgs,
 ): PromptInput[] {
   let text = "";
@@ -319,6 +329,7 @@ async function queueActiveParentSystemMessage(
           kind: args.systemMessageKind,
           subject: args.systemMessageSubject,
           childReport: args.childReport,
+          interactionId: args.interactionId,
         },
       },
       threadId: args.thread.id,
@@ -558,7 +569,9 @@ export async function queueParentSystemMessage(
       const delivered = await deliverParentSystemMessage(deps, {
         childReport: args.childReport,
         input: args.input,
+        interactionId: args.interactionId,
         parentThread,
+        stillAccurate: args.stillAccurate,
         stillCurrent: args.stillCurrent,
         systemMessageKind: args.systemMessageKind,
         systemMessageSubject: args.systemMessageSubject,
@@ -625,6 +638,7 @@ export async function queueParentSystemMessage(
       kind: args.systemMessageKind,
       subject: args.systemMessageSubject,
       childReport: args.childReport,
+      interactionId: args.interactionId,
     },
   });
   if (!hasPendingInteraction && !held && !failed) {
@@ -711,11 +725,13 @@ async function deliverParentSystemMessageWithContextGuard(
   );
   return await queueReadyParentSystemMessage(deps, {
     childReport: args.childReport,
+    interactionId: args.interactionId,
     thread: parentThread,
     input: args.input,
     execution,
     environment: readyEnvironment,
     sendNow: args.sendNow,
+    stillAccurate: args.stillAccurate,
     stillCurrent: args.stillCurrent,
     systemMessageKind: args.systemMessageKind,
     systemMessageSubject: args.systemMessageSubject,

@@ -1,9 +1,10 @@
-import { and, eq, getTableColumns, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, isNull, or, sql } from "drizzle-orm";
 import { cloudroomCommands, cloudroomThreads, statusTransitionNeedsAttention, threads, threadPluginMetadata, type DbQueryConnection } from "@cloudroom/db";
 import type { ProjectCopyProgress, TeleportLocalStep } from "@cloudroom/domain";
 import { cloudTurnsElsewhere, emitPluginThreadStatusEntered } from "../plugins/plugin-thread-events.js";
 import { noteTurnFailed, type CloudFailure } from "../system/auth-failure-telemetry.js";
 import { CORE_PLAN_LIMIT, notePlanLimit, notePlanLimitEnded, notePlanLimitStatus } from "../system/plan-limit-telemetry.js";
+import { SANDBOX_PREFIX } from "./sandboxes.js";
 
 export type TeleportProgress = {
   id: string; owner: string; phase: "checking" | "stopping" | "uploading" | "running" | "complete" | "cancelled" | "error" | "cancelling";
@@ -114,14 +115,25 @@ export function openBindings(db: DbQueryConnection) {
     .where(and(isNull(threads.archivedAt), isNull(threads.deletedAt))).all();
 }
 
+export function openBinding(db: DbQueryConnection, threadId: string): OpenBinding | null {
+  return db.select({
+    threadId: cloudroomThreads.threadId, sessionId: cloudroomThreads.sessionId, coreUrl: cloudroomThreads.coreUrl,
+    status: threads.status, parentThreadId: threads.parentThreadId,
+    sending: sql<number>`exists (select 1 from ${cloudroomCommands} where ${cloudroomCommands.threadId} = ${cloudroomThreads.threadId} and ${cloudroomCommands.state} = 'sending')`,
+  }).from(cloudroomThreads).innerJoin(threads, eq(threads.id, cloudroomThreads.threadId))
+    .where(and(eq(cloudroomThreads.threadId, threadId), isNull(threads.archivedAt), isNull(threads.deletedAt))).get() ?? null;
+}
+
 export function lastGitStatus(db: DbQueryConnection, threadId: string): string | null {
   return db.select({ value: cloudroomThreads.lastGitStatus }).from(cloudroomThreads).where(eq(cloudroomThreads.threadId, threadId)).get()?.value ?? null;
 }
 
-/** Whether a visible, unarchived thread still runs at this Core address. Hidden side chats never keep a sandbox. */
+/** Whether an unarchived thread still runs at this Core address. Hidden side chats in their source's sandbox never keep
+ *  it; a thread the user hid from the sidebar, or a hidden fork in its own sandbox, still does (#2210). */
 export function coreInUse(db: DbQueryConnection, coreUrl: string): boolean {
+  const counts = or(eq(threads.visibility, "visible"), isNull(threads.sourceThreadId), sql`${cloudroomThreads.coreUrl} = ${SANDBOX_PREFIX} || ${threads.id}`);
   return Boolean(db.select({ id: threads.id }).from(cloudroomThreads).innerJoin(threads, eq(threads.id, cloudroomThreads.threadId))
-    .where(and(eq(cloudroomThreads.coreUrl, coreUrl), eq(threads.visibility, "visible"), isNull(threads.archivedAt), isNull(threads.deletedAt))).get());
+    .where(and(eq(cloudroomThreads.coreUrl, coreUrl), counts, isNull(threads.archivedAt), isNull(threads.deletedAt))).get());
 }
 
 /** Unstamped cloud threads belong to the signed-in account. Before another account signs in, they are stamped with the old one. */
@@ -133,8 +145,8 @@ export function saveBinding(db: DbQueryConnection, threadId: string, values: Par
   db.update(cloudroomThreads).set(values).where(eq(cloudroomThreads.threadId, threadId)).run();
 }
 
-export function commands(db: DbQueryConnection, threadId: string): Command[] {
-  return db.select().from(cloudroomCommands).where(eq(cloudroomCommands.threadId, threadId)).orderBy(cloudroomCommands.createdAt, cloudroomCommands.id).all();
+export function commands(db: DbQueryConnection, threadId: string, state?: Command["state"]): Command[] {
+  return db.select().from(cloudroomCommands).where(and(eq(cloudroomCommands.threadId, threadId), state === undefined ? undefined : eq(cloudroomCommands.state, state))).orderBy(cloudroomCommands.createdAt, cloudroomCommands.id).all();
 }
 
 export function queuedPrompts(db: DbQueryConnection, threadId: string): Command[] {
@@ -179,11 +191,12 @@ export function saveCommandState(db: DbQueryConnection, threadId: string, id: st
   if (unstarted && !["sending", "accepted", "running", "delivered"].includes(state)) saveStatus(db, threadId, ["failed", "unknown", "unknown_after_restart"].includes(state) ? "error" : "idle", { category: `prompt-${state.replaceAll("_", "-")}`, ...refusal });
 }
 
-export function effectivePrompt(db: DbQueryConnection, threadId: string, id: string, pending = false): Record<string, unknown> {
-  const original = command(db, id);
+export function effectivePrompt(db: DbQueryConnection, threadId: string, id: string, pending = false, preloaded?: Command[]): Record<string, unknown> {
+  const all = preloaded ?? commands(db, threadId);
+  const original = preloaded ? (all.find((item) => item.id === id) ?? null) : command(db, id);
   let input: Record<string, unknown> = original ? JSON.parse(original.input) : {};
   let revision = 1;
-  const edits = commands(db, threadId)
+  const edits = all
     .filter((item) => item.command === "edit" && (["accepted", "completed"].includes(item.state) || (pending && item.state === "sending")))
     .map((item) => JSON.parse(item.input))
     .filter((item) => item.target_request_id === id)

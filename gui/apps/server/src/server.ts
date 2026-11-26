@@ -56,6 +56,7 @@ import { registerInternalHostRoutes } from "./internal/hosts.js";
 import { registerInternalInteractiveRequestRoutes } from "./internal/interactive-requests.js";
 import { registerInternalThreadMemoryLimitRoutes } from "./internal/thread-memory-limit.js";
 import { registerInternalPluginHostArtifactRoutes } from "./internal/plugin-host-artifacts.js";
+import { registerInternalVoiceAudioRoutes } from "./services/ai/voice-audio-store.js";
 import { registerInternalSessionRoutes } from "./internal/session.js";
 import { registerInternalSkillRoutes } from "./internal/skills.js";
 import { registerInternalToolCallRoutes } from "./internal/tool-calls.js";
@@ -104,13 +105,14 @@ import {
   allowedAppOrigins,
   browserRequestProblem,
 } from "./browser-request-guard.js";
+import { installHumanClick } from "./human-click.js";
 import {
   arrivedOverLoopback,
   assertTrustedCaller,
   type CallerTrustReader,
   callerProofRequiredResponse,
   captureCallerTrust,
-  isOpenWithoutCallerProof,
+  checkOpenWithoutCallerProof,
   isTrustedCaller,
   loopbackPeer,
   PLUGIN_WIRE_HTTP_PATH,
@@ -151,6 +153,8 @@ function unauthorizedResponse(): Response {
     },
   );
 }
+
+const VOICE_AUDIO_INTERNAL_PATH = /^\/internal\/voice-audio\/[a-f0-9]{64}$/u;
 
 function normalizeInternalAuthPath(path: string): string {
   if (path === "/") {
@@ -588,17 +592,14 @@ export function createApp(
     if (problem !== null) {
       throw new ApiError(problem.status, "forbidden_origin", problem.error);
     }
-    if (
-      isTrustedCaller(context) ||
-      (await isOpenWithoutCallerProof(
-        context.req.method,
-        context.req.path,
-        loopbackPeer(context),
-      ))
-    ) {
-      return next();
-    }
-    return callerProofRequiredResponse(context);
+    if (isTrustedCaller(context)) return next();
+    const access = await checkOpenWithoutCallerProof(
+      context.req.method,
+      context.req.path,
+      loopbackPeer(context),
+    );
+    if (access === "open") return next();
+    return callerProofRequiredResponse(context, access === "unanswered");
   });
   app.use("/api/v1/development-only/*", async (_context, next) => {
     if (!deps.config.isDevelopment) {
@@ -607,10 +608,22 @@ export function createApp(
     return next();
   });
   app.use("/internal/*", async (context, next) => {
+    const normalizedPath = normalizeInternalAuthPath(context.req.path);
+    if (
+      context.req.method === "GET" &&
+      VOICE_AUDIO_INTERNAL_PATH.test(normalizedPath)
+    ) {
+      if (
+        context.req.header("origin") !== undefined ||
+        context.req.header("sec-fetch-site") !== undefined
+      ) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      return next();
+    }
     if (!isTrustedCaller(context) && arrivedOverLoopback(context)) {
       return callerProofRequiredResponse(context);
     }
-    const normalizedPath = normalizeInternalAuthPath(context.req.path);
     if (normalizedPath === "/internal/hosts/enroll-key") {
       return next();
     }
@@ -731,6 +744,10 @@ export function createApp(
     notifyCatalogChanged: () => deps.hub.notifySystem(["plugins-changed"]),
     warn: (message) => deps.logger.warn(message),
   });
+  installHumanClick(app, deps, {
+    catalog: pluginCatalogService,
+    plugins: pluginService,
+  });
   registerCallerProofRoutes(publicApi, deps.callerProofs);
   registerProjectRoutes(publicApi, deps);
   registerThreadSectionRoutes(publicApi, deps);
@@ -758,6 +775,7 @@ export function createApp(
   registerInternalSessionRoutes(internalApi, deps, pluginService);
   registerInternalSkillRoutes(internalApi, deps);
   registerInternalPluginHostArtifactRoutes(internalApi, deps);
+  registerInternalVoiceAudioRoutes(internalApi, deps);
   registerInternalEventRoutes(internalApi, deps);
   registerInternalToolCallRoutes(internalApi, deps);
   registerInternalInteractiveRequestRoutes(internalApi, deps);
@@ -797,6 +815,9 @@ export function createApp(
     upgradeWebSocket((context) => {
       assertBrowserWebSocketAllowed(context);
       const terminalId = context.req.param("terminalId");
+      if (terminalId === undefined) {
+        throw new ApiError(404, "terminal_not_found", "missing terminal id");
+      }
       const query = terminalWebSocketQuerySchema.safeParse({
         sinceSeq: context.req.query("sinceSeq"),
       });

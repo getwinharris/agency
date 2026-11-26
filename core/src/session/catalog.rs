@@ -33,7 +33,7 @@ impl Manager {
             "runtime":{"ready":!self.is_stopping() && storage.level != Level::Blocked && local.journal.writable(),"version":crate::VERSION,"commit":crate::COMMIT,
                 "configured":!self.config.harnesses.is_empty()},
             "appConnectivity":"unknown",
-            "resources":{"cpu":resources["cpu"],"memory":resources["memory"],"disk":resources["disk"]},
+            "resources":{"cpu":resources["cpu"],"memory":resources["memory"],"disk":resources["disk"]},"cpuMinuteMs":resources["cpuMinuteMs"],
             "resourceBytes":{"memoryUsedBytes":resources["memoryUsedBytes"],"memoryTotalBytes":resources["memoryTotalBytes"],
                 "diskAvailableBytes":resources["diskAvailableBytes"],"diskTotalBytes":resources["diskTotalBytes"]},
             "storage":storage,
@@ -41,7 +41,8 @@ impl Manager {
             "onboarding":{"localConnected":null,"offlineTaskVerified":null},
             "capabilities":{"settings":true,"updates":false},
             "sessionCount":sessions.len(),"agents":local.agent_counts(),"sessions":summaries,
-            "terminals":self.terminals.summary(),"previews":{"lastActivity":self.previews.last_activity()}})
+            "terminals":self.terminals.summary(),"previews":{"lastActivity":self.previews.last_activity()},
+            "mac":{"waiting":self.mac.waiting()}})
     }
 
     /// The latest 1,000 sessions, newest activity first. Prompts, receipts and records stay
@@ -165,6 +166,8 @@ impl Manager {
             runtime::Kind::Codex => &self.codex_models,
             runtime::Kind::Claude => &self.claude_models,
             runtime::Kind::Cursor => &self.cursor_models,
+            runtime::Kind::OpenCode => &self.opencode_models,
+            runtime::Kind::Antigravity => &self.antigravity_models,
             _ => return Err(Error::Conflict("model catalog unavailable")),
         };
         let mut cached = cache.lock().await;
@@ -173,11 +176,20 @@ impl Manager {
         {
             return Ok(models.clone());
         }
-        let (result, exit) = if kind == runtime::Kind::Cursor {
-            let models = runtime::cursor_models::list(&self.config, &self.storage).await;
-            (models, None)
-        } else {
-            runtime::models(&self.config, kind).await
+        let (result, exit) = match kind {
+            runtime::Kind::Cursor => (
+                runtime::cursor_models::list(&self.config, &self.storage).await,
+                None,
+            ),
+            runtime::Kind::OpenCode => (
+                runtime::opencode::list_models(&self.config, &self.storage).await,
+                None,
+            ),
+            runtime::Kind::Antigravity => (
+                runtime::antigravity::models(&self.config, &self.storage).await,
+                None,
+            ),
+            _ => runtime::models(&self.config, kind).await,
         };
         let crashed = matches!(
             exit,
@@ -203,7 +215,20 @@ impl Manager {
                 *cached = Some((Instant::now(), models.clone()));
                 return Ok(models);
             }
-            Err(_) if kind == runtime::Kind::Cursor => "model catalog unavailable",
+            Err(e)
+                if kind == runtime::Kind::Antigravity
+                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                return Err(Error::Conflict(runtime::antigravity::SIGN_IN));
+            }
+            Err(_)
+                if matches!(
+                    kind,
+                    runtime::Kind::Cursor | runtime::Kind::OpenCode | runtime::Kind::Antigravity
+                ) =>
+            {
+                "model catalog unavailable"
+            }
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
                 "model catalog unavailable (agent timed out listing models)"
             }
@@ -250,6 +275,7 @@ impl Manager {
                 | runtime::Kind::Devin
                 | runtime::Kind::Droid
                 | runtime::Kind::Kimi
+                | runtime::Kind::Antigravity
                 | runtime::Kind::OpenClaw
                 | runtime::Kind::AgentZero => {
                     let capabilities = runtime::cursor::capabilities(*kind);
@@ -262,6 +288,7 @@ impl Manager {
                         runtime::Kind::Devin => runtime::DEVIN_REASONING_LEVELS,
                         runtime::Kind::Droid => runtime::DROID_REASONING_LEVELS,
                         runtime::Kind::Kimi => runtime::KIMI_REASONING_LEVELS,
+                        runtime::Kind::Antigravity => runtime::antigravity::LEVELS,
                         runtime::Kind::OpenClaw => runtime::OPENCLAW_REASONING_LEVELS,
                         runtime::Kind::AgentZero => runtime::AGENT_ZERO_REASONING_LEVELS,
                         _ => runtime::PI_REASONING_LEVELS,
@@ -269,13 +296,20 @@ impl Manager {
                     // Cursor and OpenCode open images from the attached path; fx gets them inline.
                     harness["attachments"] = json!({"images":true,"files":true});
                     harness["provider_selection"] = json!(false);
-                    // fx switches effort per turn; the others keep the launch level.
+                    // fx and Antigravity switch effort per turn; the others keep the launch level.
                     if *kind == runtime::Kind::Fx {
                         harness["reasoning_levels"] =
                             json!([runtime::PI_REASONING_LEVELS, &["max"]].concat());
+                    }
+                    if matches!(*kind, runtime::Kind::Fx | runtime::Kind::Antigravity) {
                         harness["prompt_reasoning"] = json!(true);
                     }
-                    if *kind == runtime::Kind::Cursor {
+                    if matches!(
+                        *kind,
+                        runtime::Kind::Cursor
+                            | runtime::Kind::OpenCode
+                            | runtime::Kind::Antigravity
+                    ) {
                         harness["models"] = if self.storage.blocks() {
                             Value::Null
                         } else {
@@ -383,6 +417,7 @@ impl Manager {
             runtime::Kind::Devin => runtime::DEVIN_REASONING_LEVELS.contains(&reasoning),
             runtime::Kind::Droid => runtime::DROID_REASONING_LEVELS.contains(&reasoning),
             runtime::Kind::Kimi => runtime::KIMI_REASONING_LEVELS.contains(&reasoning),
+            runtime::Kind::Antigravity => runtime::antigravity::LEVELS.contains(&reasoning),
             runtime::Kind::OpenClaw => runtime::OPENCLAW_REASONING_LEVELS.contains(&reasoning),
             runtime::Kind::AgentZero => runtime::AGENT_ZERO_REASONING_LEVELS.contains(&reasoning),
         };

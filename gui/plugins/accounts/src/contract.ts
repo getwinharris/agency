@@ -1,9 +1,14 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
-export const providerSchema = z.enum(["claude-code", "codex", "acp-cursor"]);
+export const providerSchema = z.enum([
+  "claude-code",
+  "codex",
+  "acp-cursor",
+  "acp-antigravity",
+]);
 export type Provider = z.infer<typeof providerSchema>;
-export const MAX_ACCOUNTS = 10;
+export const MAX_ACCOUNTS = 30;
 export const LOCAL = "local";
 export const ACCOUNTS_CHANGED = "accounts-changed";
 
@@ -13,8 +18,13 @@ export const usageWindowSchema = z.object({
   resetsAt: z.number().nullable(),
   // The model family ("fable") a row is for. Missing: the limit covers every model.
   model: z.string().nullish(),
+  // When a read last confirmed this bar. 0: saved before this was kept. Missing: not tracked (Codex).
+  checkedAt: z.number().nullish(),
 });
 export type UsageWindow = z.infer<typeof usageWindowSchema>;
+// Accounts not in use are read hourly, so a bar older than this wasn't confirmed by its last read. Usage only rises
+// until a reset, so an old bar is a floor: the page greys it out instead of hiding it.
+export const USAGE_STALE_MS = 90 * 60_000;
 
 export const accountViewSchema = z.object({
   id: z.string(),
@@ -30,6 +40,8 @@ export const accountViewSchema = z.object({
   needsSignIn: z.boolean(),
   // A Claude account added before full logins: it runs on its one-year token, without claude.ai connectors.
   limitedLogin: z.boolean(),
+  // Its login failed or was rejected: only a new sign-in fixes it. A passing error is not this.
+  signedOut: z.boolean(),
 });
 export type AccountView = z.infer<typeof accountViewSchema>;
 
@@ -90,6 +102,16 @@ export const accountsRpcContract = defineRpcContract({
   },
   // Cursor accounts are added with a user API key from cursor.com/dashboard.
   "cursor.add": { input: z.object({ apiKey: z.string().max(4096) }), output: ok },
+  // Antigravity accounts sign in with Google: open the link, then paste the code Google shows.
+  "antigravity.start": {
+    input: z.null(),
+    output: z.object({ sessionId: z.string(), authorizeUrl: z.string() }),
+  },
+  "antigravity.complete": {
+    input: poll.extend({ code: z.string().max(4096) }),
+    output: ok,
+  },
+  "antigravity.cancel": { input: poll, output: ok },
   "claude.poll": { input: poll, output: polled },
   "codex.poll": { input: poll, output: polled },
 });

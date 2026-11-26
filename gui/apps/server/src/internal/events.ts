@@ -26,6 +26,7 @@ import {
 } from "@cloudroom/host-daemon-contract";
 import {
   requireThreadEventScopeTurnId,
+  UNDELIVERED_MESSAGE_WARNING,
   type ThreadEventType,
   type ThreadEventTurnStatus,
 } from "@cloudroom/domain";
@@ -40,7 +41,10 @@ import {
   maybePruneActiveThreadEventHistory,
 } from "../services/system/event-pruning.js";
 import { queueChildThreadTurnNotificationBestEffort } from "../services/threads/child-thread-notifications.js";
+import { countHostInterruptionsSinceLastRequest } from "../services/threads/thread-lifecycle.js";
 import { isParentNotifiableChildThread } from "../services/threads/thread-parent.js";
+import { hasPendingWorktreeAutoContinue } from "../services/threads/thread-worktree-move.js";
+import { chosenStopSequence } from "../services/threads/turn-retry.js";
 import {
   runQueuedMessageDispatch,
   type QueuedMessageDispatchWake,
@@ -373,6 +377,13 @@ function addParentTurnNotificationFollowUp(
   if (!isParentNotifiableChildThread(args.thread)) {
     return;
   }
+  // A self-moving child ends this turn only so Cloudroom can move and resume it; report once real work finishes.
+  if (
+    args.turnStatus === "completed" &&
+    hasPendingWorktreeAutoContinue(args.thread.id)
+  ) {
+    return;
+  }
   if (args.turnStatus === "failed") {
     if (args.failedParentNotificationThreadIds.has(args.thread.id)) {
       return;
@@ -466,12 +477,19 @@ async function applyEventEffects(
           turnCompleted.isRootTurnCompletion &&
           isParentNotifiableChildThread(turnCompleted.thread)
         ) {
+          // A late `interrupted` of a request the server already failed on a
+          // daemon loss was reported then, even before its turn started (#2142).
           const alreadyHandledByCommandFailure =
-            event.status === "failed" &&
-            hasThreadCommandFailureSystemErrorForTurn(deps, {
-              threadId: turnCompleted.thread.id,
-              turnId,
-            });
+            (event.status === "failed" &&
+              hasThreadCommandFailureSystemErrorForTurn(deps, {
+                threadId: turnCompleted.thread.id,
+                turnId,
+              })) ||
+            (event.status === "interrupted" &&
+              countHostInterruptionsSinceLastRequest(
+                deps.db,
+                turnCompleted.thread.id,
+              ) > 0);
           if (!alreadyHandledByCommandFailure) {
             addParentTurnNotificationFollowUp({
               failedParentNotificationThreadIds,
@@ -968,6 +986,50 @@ function dropInteractionLifecycleEvents(entries: PostableEventBatchEntry[]): {
   return { entries: kept, droppedLifecycleEvents };
 }
 
+/**
+ * The bridge marks a message it may have lost at any stop of a turn. The mark
+ * stands only for a Stop someone chose; an edit, move, or harness switch plans
+ * the turn's messages itself. A turn stops once and the bridge sends all its
+ * marks together, so marks for a turn that has some are a replay (#2137).
+ */
+function isWarningForChosenStop(
+  db: AppDeps["db"],
+  { event, threadId }: HostDaemonEventEnvelope,
+): boolean {
+  if (event.type !== "provider/warning" || event.summary !== UNDELIVERED_MESSAGE_WARNING) {
+    return true;
+  }
+  const stoppedAt = chosenStopSequence(threadId);
+  if (event.scope.kind !== "turn" || stoppedAt === null) return false;
+  const marked = db
+    .select({ sequence: storedEvents.sequence })
+    .from(storedEvents)
+    .where(
+      and(
+        eq(storedEvents.threadId, threadId),
+        eq(storedEvents.turnId, event.scope.turnId),
+        eq(storedEvents.type, "provider/warning"),
+        sql`json_extract(${storedEvents.data}, '$.summary') = ${UNDELIVERED_MESSAGE_WARNING}`,
+      ),
+    )
+    .limit(1)
+    .get();
+  if (marked !== undefined) return false;
+  const started = db
+    .select({ sequence: storedEvents.sequence })
+    .from(storedEvents)
+    .where(
+      and(
+        eq(storedEvents.threadId, threadId),
+        eq(storedEvents.type, "turn/started"),
+        eq(storedEvents.turnId, event.scope.turnId),
+      ),
+    )
+    .limit(1)
+    .get();
+  return started !== undefined && started.sequence <= stoppedAt;
+}
+
 export function registerInternalEventRoutes(app: Hono, deps: AppDeps): void {
   const { post } = typedRoutes<HostDaemonInternalSchema>(app, {
     onValidationError: (msg) => new ApiError(400, "invalid_request", msg),
@@ -1006,8 +1068,11 @@ export function registerInternalEventRoutes(app: Hono, deps: AppDeps): void {
           hostId: session.hostId,
           events,
         });
-      const { entries, droppedLifecycleEvents } =
+      const { entries: unownedEntries, droppedLifecycleEvents } =
         dropInteractionLifecycleEvents(ownedEntries);
+      const entries = unownedEntries.filter((entry) =>
+        isWarningForChosenStop(deps.db, entry.envelope),
+      );
       if (droppedLifecycleEvents.length > 0) {
         deps.logger.warn(
           {

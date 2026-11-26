@@ -34,7 +34,10 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
-import type { PromptDraftAttachment } from "@cloudroom/client-core";
+import type {
+  PromptDraftAttachment,
+  PromptDraftContext,
+} from "@cloudroom/client-core";
 import { BbHttpError } from "@/lib/sdk";
 import type { TypeaheadConfig } from "@/components/promptbox/PromptBoxInternal";
 import type { PluginComposerHost } from "@/components/plugin/plugin-composer-host";
@@ -66,6 +69,7 @@ const mocks = vi.hoisted(() => ({
     addAttachment: vi.fn(),
     attachments: [] as PromptDraftAttachment[],
     clearIfCurrentMatches: vi.fn(),
+    contexts: undefined as PromptDraftContext[] | undefined,
     getCurrent: vi.fn(),
     mentions: [] as PromptTextMention[],
     removeAttachment: vi.fn(),
@@ -93,8 +97,8 @@ const mocks = vi.hoisted(() => ({
   useThreadQueuedMessages: vi.fn(),
 }));
 
-vi.mock("react-router-dom", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("react-router-dom")>();
+vi.mock("react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router")>();
   return {
     ...actual,
     useNavigate: () => mocks.navigate,
@@ -102,9 +106,13 @@ vi.mock("react-router-dom", async (importOriginal) => {
 });
 
 vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
+  const { useContext } = await import("react");
   const { ComposerBannersSlot } = await vi.importActual<
     typeof import("@/components/plugin/PluginComposerBanners")
   >("@/components/plugin/PluginComposerBanners");
+  const { PromptDraftContextsContext } = await vi.importActual<
+    typeof import("@/components/promptbox/editor/prompt-context-chip")
+  >("@/components/promptbox/editor/prompt-context-chip");
   return {
     FollowUpPromptBox: ({
       activePromptMode,
@@ -135,6 +143,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
       };
       composer: {
         canModifierSubmit: boolean;
+        isFollowUpSubmitting: boolean;
         message: string;
         onChangeMessage: (message: string, mentions: []) => void;
         onEscape?: () => void;
@@ -178,7 +187,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
       textEffects?: readonly {
         effect: { className: string };
       }[];
-    }) => (
+    }) => {
+      const promptDraftContexts = useContext(PromptDraftContextsContext);
+      return (
       <div data-testid="follow-up-prompt-box">
         {environmentSummary}
         <div data-testid="prompt-stack">
@@ -258,6 +269,9 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
         <div data-testid="composer-location">
           {showScrollToBottomButton === false ? "inline" : "bottom"}
         </div>
+        <div data-testid="prompt-draft-contexts">
+          {JSON.stringify(promptDraftContexts ?? [])}
+        </div>
         <div data-testid="plugin-composer-scope">
           {pluginComposerHost
             ? `${pluginComposerHost.scope.kind}:${
@@ -312,6 +326,7 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
           <>
             <input
               aria-label="Composer message"
+              data-busy={composer.isFollowUpSubmitting}
               value={composer.message}
               onChange={(event) =>
                 composer.onChangeMessage(event.currentTarget.value, [])
@@ -376,7 +391,8 @@ vi.mock("@/components/promptbox/FollowUpPromptBox", async () => {
           </button>
         ) : null}
       </div>
-    ),
+      );
+    },
   };
 });
 
@@ -917,8 +933,10 @@ beforeEach(() => {
   mocks.promptDraft.text = "";
   mocks.promptDraft.mentions = [];
   mocks.promptDraft.attachments = [];
+  mocks.promptDraft.contexts = undefined;
   mocks.promptDraft.getCurrent.mockImplementation(() => ({
     attachments: mocks.promptDraft.attachments,
+    ...(mocks.promptDraft.contexts ? { contexts: mocks.promptDraft.contexts } : {}),
     mentions: mocks.promptDraft.mentions,
     text: mocks.promptDraft.text,
   }));
@@ -1108,6 +1126,28 @@ describe("ThreadDetailPromptArea", () => {
     ).toBe(true);
     expect(screen.queryByText("Queue")).toBeNull();
   });
+
+  it.each(["checking", "uploading", "error"] as const)(
+    "keeps the composer and its draft while Teleport to Cloud is %s, with sending held (#2575)",
+    (phase) => {
+      mocks.promptDraft.text = "half typed prompt";
+      renderPromptArea({
+        thread: makeThread({
+          teleport: { id: "tp_1", owner: "thr_1", phase, completed: 0, total: 1 },
+        }),
+      });
+
+      const composer = screen.getByLabelText("Composer message") as HTMLInputElement;
+      expect(composer.value).toBe("half typed prompt");
+      expect(composer.dataset.busy).toBe("true");
+      expect(screen.getByTestId("execution-read-only").textContent).toBe(
+        "true",
+      );
+      expect(screen.getByTestId("permission-read-only").textContent).toBe(
+        "true",
+      );
+    },
+  );
 
   it("keeps sent-message edit submission out of the normal send path", () => {
     mocks.defaultExecutionOptions = {
@@ -2142,5 +2182,36 @@ describe("ThreadDetailPromptArea", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("provides the queued message's own context previews to the inline queued editor", () => {
+    mocks.promptDraft.contexts = [
+      { label: "[message #1 - 2 words]", text: "bottom quote" },
+    ];
+    mocks.queuedMessages = [
+      makeQueuedMessage({
+        content: [
+          {
+            type: "text",
+            text: '<context message="#1">\nqueued quote\n</context>\nEdit me',
+            mentions: [],
+          },
+        ],
+      }),
+    ];
+
+    renderPromptArea();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit queued message 1" }),
+    );
+
+    const inlineEditor = within(
+      screen.getByTestId("inline-queued-message-editor"),
+    );
+    expect(
+      JSON.parse(
+        inlineEditor.getByTestId("prompt-draft-contexts").textContent ?? "[]",
+      ),
+    ).toEqual([{ label: "[message #1 - 2 words]", text: "queued quote" }]);
   });
 });

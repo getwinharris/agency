@@ -27,7 +27,7 @@ use std::{
     process::Stdio,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -73,7 +73,9 @@ pub(crate) const QUICK: Duration = Duration::from_secs(8);
 pub(crate) const READ: Duration = Duration::from_secs(45);
 /// The Mac app resends its report every minute, so an older one may describe a Mac that has since slept.
 const REPORTED: Duration = Duration::from_secs(150);
-pub const SKILL: &str = include_str!("cloud-mac/SKILL.md");
+pub const SKILL: &str = include_str!("user-computer/SKILL.md");
+/// The skill's old name, kept findable for agents and prompts that still say `cloud-mac` (#2118).
+pub const SKILL_STUB: &str = "---\nname: cloud-mac\ndescription: Old name of the user-computer skill. Read user-computer instead.\n---\n\nRenamed to `user-computer`: the user's computer can be macOS, Linux, or Windows. Read the `user-computer` skill.\n";
 pub const ROOM_CLI_SKILL: &str = include_str!("room-cli/SKILL.md");
 
 #[derive(Deserialize)]
@@ -126,6 +128,8 @@ pub struct Device {
     fetch: bool,
     /// The Mac's computer name, so `mac run` and `mac status` say which Mac runs commands (#608). Older helpers send none.
     name: Option<String>,
+    /// The computer's system, `macos`, `linux`, or `windows`, for `mac status` (#958). Older helpers send none.
+    os: Option<String>,
 }
 /// What the user's Mac app sees of Mac access (#109). The app reaches this sandbox even when the Mac's helper can't,
 /// so agents learn why the Mac is unavailable. `problem` is the short reason Settings shows, never technical detail.
@@ -133,7 +137,7 @@ pub struct Device {
 pub struct AppReport {
     access: String,
     problem: Option<String>,
-    /// The app runs where Mac access is hidden (Windows, #871); older apps send none.
+    /// An older Windows app, which hid Mac access (#871); newer ones send none.
     #[serde(default)]
     unsupported: bool,
 }
@@ -183,12 +187,19 @@ pub struct Mac {
     using: Mutex<Option<String>>,
     /// The last helper that connected, and its computer name if it sent one.
     named: Mutex<Option<(String, Option<String>)>>,
+    /// The device whose helper last streamed, and the system it said it runs (#958).
+    os: Mutex<Option<(String, String)>>,
     /// When a Mac with access on last asked for jobs but the pairing stayed with an away Mac, because that Mac's app
     /// isn't the one using this sandbox (no prompt from it: loops, phones, website wakes). Cleared on attach.
     kept_out: Mutex<Option<Instant>>,
     /// The device that ran the last finished command here, or that held the pairing before it moved. A finished
     /// `mac run` names its Mac only when this changes (Marko, 2026-11-03).
     last_ran: Mutex<Option<String>>,
+    /// Commands an agent or terminal is waiting on the Mac for right now. They use no CPU here (an approval pop-up, a
+    /// long copy), so the dashboard and the drain count them, or the sandbox sleeps under them (feedback 0024).
+    waiting: AtomicUsize,
+    /// When the last one ended: a big copy's next piece, or a retry, starts a moment later (`GRACE`).
+    ended: Mutex<Option<Instant>>,
 }
 impl Default for Mac {
     fn default() -> Self {
@@ -206,12 +217,21 @@ impl Default for Mac {
             check: AtomicBool::default(),
             using: Mutex::default(),
             named: Mutex::default(),
+            os: Mutex::default(),
             kept_out: Mutex::default(),
             last_ran: Mutex::default(),
+            waiting: AtomicUsize::default(),
+            ended: Mutex::default(),
         }
     }
 }
 impl Mac {
+    /// Commands waiting on the Mac, or 1 for `GRACE` after the last one ended.
+    pub(crate) fn waiting(&self) -> usize {
+        let count = self.waiting.load(Ordering::Relaxed);
+        let recent = || (self.ended.lock().unwrap()).is_some_and(|at| at.elapsed() < GRACE);
+        if count == 0 && recent() { 1 } else { count }
+    }
     /// A new thread or a dropped helper reopens the short wait for the Mac.
     pub(crate) fn expect(&self) {
         *self.since.lock().unwrap() = Instant::now();
@@ -367,7 +387,7 @@ impl Mac {
         let after = |at: &Instant| left.is_none_or(|left| *at > left);
         let reported = self.report.lock().unwrap();
         match reported.as_ref().filter(|(_, at)| at.elapsed() < REPORTED) {
-            Some((AppReport { unsupported: true, .. }, _)) => ("unsupported", "Mac unavailable: the user's Cloudroom app runs on Windows, where cloud agents can't use their computer yet. There is no setting to turn on, so don't ask them to; continue cloud work.".into()),
+            Some((AppReport { unsupported: true, .. }, _)) => ("unsupported", "Mac unavailable: the user's Cloudroom app on Windows is too old to let cloud agents use their computer. If you need it, ask them to update Cloudroom, then pick Computer access in its sidebar; otherwise continue cloud work.".into()),
             Some((report, _)) if report.access == "off" => ("access_off", "Mac unavailable: the user turned Mac access off. If you need their Mac, ask them to turn it on in Cloudroom; otherwise continue cloud work.".into()),
             Some((AppReport { problem: Some(problem), .. }, at)) if after(at) => ("mac_problem", format!("Mac unavailable: the user's Mac is online, but Mac access can't connect to Cloudroom{since}. Cloudroom shows them why in Settings → Machines, with a Check now link: {problem} Continue cloud work; mention it only if you need their Mac.")),
             Some((_, at)) if after(at) && kept_out => ("paired_away", format!("Mac unavailable: this sandbox is paired with another of the user's Macs, which is away (asleep or offline){since}. It moves to the Mac the user is on once they send this thread a message from Cloudroom there. Continue cloud work meanwhile.")),
@@ -450,6 +470,23 @@ impl Drop for Cancel {
     }
 }
 
+/// How long a finished Mac command still counts as waiting: the gap before a big copy's next piece, retries included.
+const GRACE: Duration = Duration::from_secs(5);
+/// Counts one command as waiting on the Mac until its `mac run` returns: done, refused, disconnected, or stopped.
+struct Waiting<'a>(&'a Mac);
+impl<'a> Waiting<'a> {
+    fn start(mac: &'a Mac) -> Self {
+        mac.waiting.fetch_add(1, Ordering::Relaxed);
+        Self(mac)
+    }
+}
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        *self.0.ended.lock().unwrap() = Some(Instant::now());
+        self.0.waiting.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 pub fn routes() -> Router<Arc<Manager>> {
     Router::new()
         .route("/v1/mac/jobs", get(stream))
@@ -503,6 +540,11 @@ async fn stream(
     let attached = m.previews.while_paired(&device, || {
         *m.mac.kept_out.lock().unwrap() = None;
         *m.mac.named.lock().unwrap() = Some((device.clone(), name.map(str::to_owned)));
+        *m.mac.os.lock().unwrap() = input
+            .os
+            .as_deref()
+            .filter(|os| matches!(*os, "macos" | "linux" | "windows"))
+            .map(|os| (device.clone(), os.to_owned()));
         *m.mac.helper.lock().unwrap() = Some(Helper {
             generation,
             device: device.clone(),
@@ -710,6 +752,13 @@ async fn local_run(
     let stdin = validate(&run)?;
     let started = Instant::now();
     let mac = &m.mac;
+    // Counted from before the wait for the Mac, under the drain's lock: a drain that begins later sees it, and a sandbox
+    // going to sleep starts none (feedback 0024).
+    let Some(_waiting) = m.unless_draining(|| Waiting::start(mac)) else {
+        return Err(conflict(
+            "This sandbox is going to sleep, so the command did not run. Try again.",
+        ));
+    };
     let mut changed = mac.changed.subscribe();
     let Some((generation, device, boot, fetch, events)) = attach(mac).await else {
         return Err(refused(&m, started));
@@ -900,11 +949,18 @@ async fn local_status(
         None => false,
     };
     let name = paired_name(&m);
-    Ok(Json(if connected {
+    let mut status = if connected {
         json!({"connected":true,"mac":name})
     } else {
         json!({"connected":false,"reason":naming(&m, mac.unavailable()),"mac":name})
-    }))
+    };
+    // Which system the paired computer's helper said it runs: Windows runs commands in Git Bash, with only Off and
+    // Full access (#958). Omitted while unknown, or for a computer that is no longer paired.
+    let os = mac.os.lock().unwrap().clone();
+    if let Some((_, os)) = os.filter(|(device, _)| m.previews.paired(device)) {
+        status["os"] = json!(os);
+    }
+    Ok(Json(status))
 }
 
 /// Every route on the agent socket. Two modules using the same method and path panic here, which a test catches.
@@ -1173,6 +1229,7 @@ room-cli mac pull MAC_PATH [VM_PATH]
 room-cli mac push VM_PATH [MAC_PATH]
 room-cli mac result JOB
 room-cli mac status
+room-cli mac computer-use status | tools [TOOL] | call TOOL ['JSON'] [--purpose WHY]
 Runs on the user's paired Mac as the user, in their home folder by default.
 Flags go before COMMAND: room-cli mac run --cwd DIR 'COMMAND'. Later words,
 flags included, go to COMMAND. DIR is relative to their home folder, or absolute.
@@ -1210,6 +1267,8 @@ else under that new name, which must not exist yet.";
             let value = request(&socket, "POST", "/jobs", Some(body)).await?;
             print_result(value).await
         }
+        // Before `--help`, which goes to the Mac's own `computer-use`.
+        ("computer-use", rest) => computer_use(&socket, rest).await,
         (_, rest) if rest.iter().any(|w| matches!(w.as_str(), "--help" | "-h")) => {
             println!("{usage}");
             Ok(0)
@@ -1244,6 +1303,98 @@ else under that new name, which must not exist yet.";
                 2
             })
         }
+    }
+}
+
+/// The Cloudroom app's CLI on the user's computer: its `~/.local/bin` link, else the macOS app's copy, else PATH's.
+const APP_CLI: &str = "c=\"$HOME/.local/bin/room-cli\"; [ -x \"$c\" ] || \
+     c=/Applications/Cloudroom.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist/room-cli; \
+     [ -x \"$c\" ] || c=room-cli;";
+/// Where `mac computer-use` saves the screenshots its replies carry.
+const SHOTS: &str = "/tmp/cloudroom-mac-computer-use";
+
+/// `room-cli mac computer-use ARGS`: the app's Computer Use on the user's computer, as this thread, so its sidebar row
+/// shows it and the user approves each app in this thread (docs/scopes/computer-use.md). This sandbox's own screen
+/// stays `room-cli computer-use`. Every call counts as a change: Read-only refuses it, Ask first asks.
+async fn computer_use(socket: &str, args: &[String]) -> io::Result<i32> {
+    let thread = std::env::var("ROOM_THREAD_ID").unwrap_or_default();
+    if thread.is_empty()
+        || !thread
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(io::Error::other(
+            "Run this from a Cloudroom thread (ROOM_THREAD_ID is not set).",
+        ));
+    }
+    let mut random = [0; 8];
+    io::Read::read_exact(&mut fs::File::open("/dev/urandom")?, &mut random)?;
+    let id = hex(&random);
+    // The reply follows its own line: a login shell's startup text can come first (#1012).
+    let mark = format!("cloudroom-computer-use-{id}");
+    let words: Vec<String> = args.iter().map(|word| literal(word)).collect();
+    let command = format!(
+        "{APP_CLI} echo {mark}; ROOM_THREAD_ID={thread} \"$c\" computer-use {}",
+        words.join(" ")
+    );
+    let body = json!({"command":command,"stdin":"","cwd":null,"write":true});
+    let mut value = request(socket, "POST", "/jobs", Some(body)).await?;
+    if value["state"] == "done"
+        && let Some(stdout) = value["stdout"].as_str().and_then(unhex)
+    {
+        value["stdout"] = hex(&save_shots(&stdout, &mark, &id)?).into();
+    }
+    print_result(value).await
+}
+
+/// Drops what came before `mark`, and saves the screenshots the app sends Cloud threads inline (`NAME_png_b64`) here,
+/// as `NAME_file` paths like a Local thread gets: the agent can't read the user's computer's files.
+fn save_shots(stdout: &[u8], mark: &str, id: &str) -> io::Result<Vec<u8>> {
+    let text = String::from_utf8_lossy(stdout);
+    let reply = text
+        .split_once(&format!("{mark}\n"))
+        .map_or(&*text, |(_, reply)| reply);
+    let Ok(mut value) = serde_json::from_str::<Value>(reply) else {
+        return Ok(reply.as_bytes().to_vec());
+    };
+    let mut count = 0;
+    shots_to_files(&mut value, id, &mut count)?;
+    if count == 0 {
+        return Ok(reply.as_bytes().to_vec());
+    }
+    Ok(format!("{}\n", serde_json::to_string_pretty(&value)?).into_bytes())
+}
+
+fn shots_to_files(value: &mut Value, id: &str, count: &mut usize) -> io::Result<()> {
+    match value {
+        Value::Array(items) => items
+            .iter_mut()
+            .try_for_each(|item| shots_to_files(item, id, count)),
+        Value::Object(map) => {
+            for key in map.keys().cloned().collect::<Vec<_>>() {
+                let image = key
+                    .strip_suffix("_b64")
+                    .and_then(|key| key.rsplit_once('_'))
+                    .filter(|(_, kind)| matches!(*kind, "png" | "jpeg" | "jpg"));
+                if let Some((name, kind)) = image
+                    && let Some(data) = map.get(&key).and_then(Value::as_str)
+                {
+                    *count += 1;
+                    let file = format!(
+                        "{SHOTS}/{name}-{id}-{count}.{}",
+                        if kind == "png" { "png" } else { "jpg" }
+                    );
+                    fs::create_dir_all(SHOTS)?;
+                    fs::write(&file, crate::fs::unbase64(data))?;
+                    map.remove(&key);
+                    map.insert(format!("{name}_file"), file.into());
+                } else if let Some(entry) = map.get_mut(&key) {
+                    shots_to_files(entry, id, count)?;
+                }
+            }
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 
@@ -1284,6 +1435,25 @@ mod tests {
     }
 
     #[test]
+    fn a_command_counts_as_waiting_until_its_run_returns() {
+        // The dashboard and the drain read this count, so a sandbox never sleeps under a Mac approval pop-up.
+        let mac = super::Mac::default();
+        let (first, second) = (super::Waiting::start(&mac), super::Waiting::start(&mac));
+        assert_eq!(mac.waiting(), 2);
+        drop(first);
+        assert_eq!(mac.waiting(), 1);
+        drop(second);
+        assert_eq!(
+            mac.waiting(),
+            1,
+            "a big copy's next piece comes a moment later"
+        );
+        let past = std::time::Instant::now().checked_sub(super::GRACE);
+        *mac.ended.lock().unwrap() = past;
+        assert_eq!(mac.waiting(), 0);
+    }
+
+    #[test]
     fn a_push_job_keeps_its_copy_for_the_mac() {
         // Security fix (#222): without `copy`, the Mac helper falls back to the sandbox's own unpack command.
         let copy =
@@ -1295,7 +1465,7 @@ mod tests {
 
     #[test]
     fn mac_status_says_why_from_the_app_report() {
-        // #871: Windows apps send "off" with `unsupported`, so agents must not ask the user to turn on a hidden setting.
+        // #871: older Windows apps send "off" with `unsupported`, so agents ask for an update, not a hidden setting.
         for (extra, reason) in [
             ("", "access_off"),
             (r#","unsupported":true"#, "unsupported"),

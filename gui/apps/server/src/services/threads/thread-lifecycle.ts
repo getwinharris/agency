@@ -1,3 +1,4 @@
+import type { ProviderRegistryService } from "../providers/provider-registry.js";
 import { advanceEnvironmentProvisioning } from "../environments/environment-engine.js";
 import { revokeThreadDesktopBrowserControl } from "../desktop-browsers.js";
 import {
@@ -28,6 +29,7 @@ import {
   markThreadDeleted,
   markThreadStorageDeleted,
   threads,
+  type DbConnection,
   type DbNotifier,
   type DbQueryConnection,
   type DbTransaction,
@@ -35,6 +37,7 @@ import {
 import { assertNever } from "@cloudroom/core-ui";
 import {
   type ProvisioningTranscriptEntry,
+  type SystemThreadInterruptedEventData,
   type SystemThreadInterruptedReason,
   type Thread,
   type ThreadEventScope,
@@ -114,15 +117,21 @@ import {
 import { NotificationBuffer } from "../lib/notification-buffer.js";
 import { queueChildThreadTurnNotificationBestEffort } from "./child-thread-notifications.js";
 import { isParentNotifiableChildThread } from "./thread-parent.js";
+import { loadFailedTurn, turnStartedBeforeBoot } from "./turn-failed.js";
 import {
   clearThreadProvisionSchedule,
   getThreadProvisionContext,
 } from "./thread-startup-store.js";
 import { cancelAbandonedProviderCreations } from "./thread-environment-providers.js";
-import { emitPluginThreadDeleted } from "../plugins/plugin-thread-events.js";
+import {
+  emitPluginMessageQueued,
+  emitPluginThreadDeleted,
+} from "../plugins/plugin-thread-events.js";
+import { requeueRefusedTurnRequest } from "./queue-waits.js";
 import { scheduleThreadProvisioningAdvance } from "./thread-provisioning.js";
 import { pendingImportFork } from "./thread-fork-history.js";
 import { isPreStartThreadStatus } from "./thread-status.js";
+import { deleteLocalChatFileCopies } from "./thread-storage.js";
 import { settleDanglingBackgroundTasksForStoppedThreadInTransaction } from "./background-task-reconciliation.js";
 
 type ThreadStartCommand = Awaited<ReturnType<typeof buildThreadStartCommand>>;
@@ -226,6 +235,7 @@ interface HasProviderTurnCompletedEventAtOrAfterArgs {
 
 interface RequestThreadStopArgs extends Omit<ThreadStopCommandArgs, "intent"> {
   interruptionReason: SystemThreadInterruptedReason;
+  memory?: SystemThreadInterruptedEventData["memory"];
 }
 
 const AWAITED_THREAD_STOP_TIMEOUT_MS = 60_000;
@@ -482,6 +492,7 @@ interface ApplyActiveTurnInterruptionArgs {
 interface MarkThreadStopRequestedWithEventArgs {
   reason: SystemThreadInterruptedReason;
   threadId: string;
+  memory?: SystemThreadInterruptedEventData["memory"];
 }
 
 function hasActiveThreadProvisioningContext(
@@ -579,6 +590,7 @@ function markThreadStoppingWithEventInTransaction(
   appendThreadInterruptedEventInTransaction(deps.db, {
     threadId: args.threadId,
     reason: args.reason,
+    memory: args.memory,
   });
   deps.hub.notifyThread(args.threadId, ["events-appended"], {
     eventTypes: ["system/thread/interrupted"],
@@ -818,18 +830,27 @@ function recordEmptyThreadStartProviderSessionInTransaction(
   });
 }
 
-/** Grok's own auth errors name no fix (#1160); other providers keep theirs. */
-export const GROK_PROVIDER_ID = "acp-grok";
+/** ACP agents' own auth errors name no fix (#1160): those that declare a sign-in command get its hint. */
+export function offersSignIn(
+  registry: Pick<ProviderRegistryService, "get">,
+  providerId: string,
+): boolean {
+  return registry.get(providerId)?.info.strings?.signInCommand !== undefined;
+}
 
-/** A signed-out Grok's failure gains its sign-in hint, e.g. `grok login`. */
+/** A signed-out agent's failure gains its sign-in hint, e.g. `agy acp --login`. */
 function threadFailureMessage(
   deps: ThreadCommandResultSettlementDeps,
   providerId: string,
   report: ThreadFailureResultReport,
 ): string {
+  const strings = deps.providerRegistry.get(providerId)?.info.strings;
+  // Cursor's own error already names its command; agy's and Grok's don't.
   const hint =
-    providerId === GROK_PROVIDER_ID && report.errorCode === "auth_required"
-      ? deps.providerRegistry.get(providerId)?.info.strings?.signInHint
+    report.errorCode === "auth_required" &&
+    strings?.signInCommand !== undefined &&
+    !report.errorMessage.includes(strings.signInCommand)
+      ? strings.signInHint
       : undefined;
   return hint === undefined
     ? report.errorMessage
@@ -929,6 +950,33 @@ export function settleThreadStartCommandResult(
       })
     ) {
       return emptyCommandResultSideEffects();
+    }
+    // The host refused this start before touching the live turn it competed
+    // with, so that turn's own end settles the thread: its result stands and
+    // the parent hears no false failure. Its message waits on the queue for
+    // that turn instead of being lost; an edit's is not resent (#1584).
+    if (args.report.errorCode === "turn_busy") {
+      const queued =
+        args.command.replacesProviderThreadId === undefined
+          ? requeueRefusedTurnRequest(args.deps, {
+              requestId: args.command.requestId,
+              threadId: thread.id,
+            })
+          : null;
+      if (queued === null) return emptyCommandResultSideEffects();
+      if (carriesCustomInstructions(args.command.input)) {
+        markCustomInstructionsLost(args.deps.db, thread.id);
+      }
+      postCommitActions.push({
+        run: (deps) => {
+          emitPluginMessageQueued(queued);
+          requestQueuedMessageDispatch(deps, {
+            kind: "thread-ready",
+            threadId: thread.id,
+          });
+        },
+      });
+      return { postCommitActions };
     }
     clearThreadProvisionSchedule(thread.id);
     // The host came back reporting this thread live, so the start arrived.
@@ -1160,6 +1208,7 @@ export function requestThreadStorageDeletion(
     reason: "thread-deleted",
   });
   if (thread.environmentId === null) {
+    deleteLocalChatFileCopies(deps, thread.id);
     markThreadStorageDeleted(deps.db, { threadId: thread.id });
     finalizeStoppedThread(deps, { threadId: thread.id });
     return;
@@ -1196,6 +1245,7 @@ export function requestThreadStorageDeletion(
 export function deleteThreadOnMac(deps: AppDeps, thread: Thread): void {
   const deleted = markThreadDeleted(deps.db, deps.hub, { threadId: thread.id });
   if (deleted) emitPluginThreadDeleted(deleted);
+  void stopSharingDeleted(deps);
   cancelAbandonedProviderCreations(deps, thread.id);
   deps.terminalSessions.closeDeletedThreadTerminals({ threadId: thread.id });
   requestThreadStorageDeletion(
@@ -1459,6 +1509,7 @@ function markThreadStopRequested(
         {
           reason: args.interruptionReason,
           threadId: args.threadId,
+          memory: args.memory,
         },
       );
     },
@@ -1619,6 +1670,7 @@ export function requestThreadStopForCurrentState(
   thread: RequestThreadStopForCurrentStateThread,
   environment: RequestThreadStopForCurrentStateEnvironment | null,
   interruptionReason: "manual-stop" | "memory-limit" = "manual-stop",
+  memory?: SystemThreadInterruptedEventData["memory"],
 ): void {
   if (hasLiveThreadRuntime(deps, thread)) {
     if (environment === null) {
@@ -1628,6 +1680,7 @@ export function requestThreadStopForCurrentState(
       environmentId: environment.id,
       hostId: environment.hostId,
       interruptionReason,
+      memory,
       threadId: thread.id,
     });
     return;
@@ -1643,6 +1696,7 @@ export function requestThreadStopForCurrentState(
 }
 
 import { cloudroom, isCloudThread } from "../cloudroom/commands.js";
+import { stopSharingDeleted } from "../cloudroom/shares.js";
 import { forgetSentMessage } from "../system/first-response-telemetry.js";
 
 export async function stopThreadForCurrentState(
@@ -1959,10 +2013,7 @@ function interruptActiveTurnForThreadInTransaction(
 }
 
 function interruptActiveThreads(
-  deps: Pick<
-    AppDeps,
-    "db" | "hub" | "logger" | "pendingInteractions" | "providerRegistry"
-  >,
+  deps: LoggedPendingInteractionWorkSessionDeps,
   args: InterruptActiveThreadsArgs,
 ): InterruptActiveThreadsResult {
   if (args.threads.length === 0) {
@@ -2070,16 +2121,59 @@ function interruptActiveThreads(
         ...(thread ? buildThreadStatusChangeMetadata(deps, thread) : {}),
       },
     );
+    // No daemon reports this turn's end, so the parent hears it here, once
+    // per request: a revived turn the next deadline ends again stays quiet
+    // (#2142). Work from before a reboot wakes nothing (ADR 20261103-233411).
+    if (
+      result.failureEventAppended &&
+      thread?.status === "error" &&
+      isParentNotifiableChildThread(thread)
+    ) {
+      if (
+        turnStartedBeforeBoot(thread, loadFailedTurn(deps.db, thread.id)) ||
+        countHostInterruptionsSinceLastRequest(deps.db, thread.id) > 1 ||
+        !isFirstFailureReportSinceStatusChange(thread.id)
+      ) {
+        continue;
+      }
+      void queueChildThreadTurnNotificationBestEffort(deps, {
+        childThread: thread,
+        parentThreadId: thread.parentThreadId,
+        ...(result.interruptedTurnId === null
+          ? {}
+          : { turnId: result.interruptedTurnId }),
+        turnStatus: "failed",
+      });
+    }
   }
 
   return { threads: results };
 }
 
+/** Daemon losses that ended the thread's latest request, in either scope (#2142). */
+export function countHostInterruptionsSinceLastRequest(
+  db: DbConnection,
+  threadId: string,
+): number {
+  const afterSequence = loadFailedTurn(db, threadId)?.requestSequence ?? 0;
+  return (
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(events)
+      .where(
+        and(
+          eq(events.threadId, threadId),
+          eq(events.type, "system/thread/interrupted"),
+          sql`json_extract(${events.data}, '$.reason') = 'host-daemon-restarted'`,
+          sql`${events.sequence} > ${afterSequence}`,
+        ),
+      )
+      .get()?.count ?? 0
+  );
+}
+
 export function interruptActiveThreadsForHost(
-  deps: Pick<
-    AppDeps,
-    "db" | "hub" | "logger" | "pendingInteractions" | "providerRegistry"
-  >,
+  deps: LoggedPendingInteractionWorkSessionDeps,
   args: InterruptActiveThreadsForHostArgs,
 ): InterruptActiveThreadsResult {
   const activeThreads = deps.db

@@ -212,10 +212,13 @@ impl Local {
     /// Opens the journal and rebuilds the sessions: from a usable snapshot, then the records after it.
     /// A missing, unreadable, older or too-new snapshot means a full replay.
     pub(super) fn open(directory: &std::path::Path) -> io::Result<Self> {
-        let snapshot = Journal::read_snapshot(directory)
-            .and_then(|bytes| serde_json::from_slice::<Snapshot>(&bytes).ok())
-            .filter(|s| s.version == SNAPSHOT_VERSION);
-        let journal = Journal::open_from(directory, snapshot.as_ref().map_or(0, |s| s.sequence))?;
+        let mut snapshot = None;
+        let journal = Journal::open_from(directory, || {
+            snapshot = Journal::read_snapshot(directory)
+                .and_then(|bytes| serde_json::from_slice::<Snapshot>(&bytes).ok())
+                .filter(|s| s.version == SNAPSHOT_VERSION);
+            snapshot.as_ref().map_or(0, |s| s.sequence)
+        })?;
         let (changed, _) = watch::channel(journal.last());
         let mut local = Local {
             loud: journal.last(),
@@ -806,6 +809,10 @@ impl Local {
                 session.title = record.data["title"].as_str().map(str::to_owned);
                 session.owe("title", &record.data, record.sequence);
             }
+            "pin" => {
+                session.pinned = true;
+                session.owe("pinned", &record.data, record.sequence);
+            }
             "thread_report" => session
                 .thread_reports
                 .retain(|report| report["seq"] != record.data["seq"]),
@@ -835,15 +842,17 @@ impl Local {
                         Some(at) => session.child_archived_at.insert(child.to_owned(), at),
                         None => session.child_archived_at.remove(child),
                     };
-                    let late = record.data["late"].as_array().into_iter().flatten();
-                    let late: std::collections::BTreeSet<String> = late
-                        .filter_map(|id| Some(id.as_str()?.to_owned()))
-                        .collect();
-                    if late.is_empty() {
-                        session.late_reports.remove(child);
-                    } else {
-                        session.late_reports.insert(child.to_owned(), late);
-                    }
+                    // An archive its child's Core took names the reports it may still send, maybe none; a queued
+                    // one can't, so it keeps no list (relay.rs `holds_archive`).
+                    match record.data["late"].as_array() {
+                        Some(late) => {
+                            let late = late.iter().filter_map(|id| Some(id.as_str()?.to_owned()));
+                            session
+                                .late_reports
+                                .insert(child.to_owned(), late.collect())
+                        }
+                        None => session.late_reports.remove(child),
+                    };
                 }
             }
             "child_start" => {
@@ -896,6 +905,9 @@ impl Local {
             "parent_report" => {
                 if let Some(request) = record.data["request_id"].as_str() {
                     session.reported.insert(request.to_owned());
+                }
+                if let Some(reply) = record.data.get("reply") {
+                    session.told_reply = reply.as_str().map(str::to_owned);
                 }
             }
             "usage_limited" => {

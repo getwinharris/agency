@@ -1,9 +1,13 @@
 import {
   findWorktreeForBranch,
+  getGitCommonDir,
   runGit,
   type GitCommandResult,
 } from "bb-environment-provider-host/git";
-import { runGitWithWorktreeMetadataLock } from "bb-environment-provider-host/locks";
+import {
+  runGitWithWorktreeMetadataLock,
+  withWorktreeMetadataLock,
+} from "bb-environment-provider-host/locks";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -11,14 +15,11 @@ import { SPARE_DIR_PREFIX, sparePathIn, spareReadyPath } from "./paths.js";
 import { removeWorktree } from "./worktree.js";
 
 const SPARE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-// The app warns about low disk space at the same level.
-const LOW_DISK_BYTES = 10e9;
+// Where Cloudroom starts parking unused worktrees: spares go before anyone's work does.
+const LOW_DISK_BYTES = 30e9;
 // Git re-reads every file written in the same second as its index, so the
 // index is refreshed once the clock has moved on. Without it a claim is slow.
 const INDEX_SETTLE_MS = 1500;
-// A file watcher started in the spare holds its folder open, and on Windows
-// that blocks the move.
-const NO_WATCHER = ["-c", "core.fsmonitor=false"];
 
 /** Spares being claimed, built, or removed. Nobody waits: a busy spare is skipped. */
 const busy = new Set<string>();
@@ -123,25 +124,33 @@ export async function claimSpareWorktree(args: {
     )
       return null;
     try {
-      await runGitWithWorktreeMetadataLock(
-        ["worktree", "move", sparePath, targetPath],
-        { cwd: sourcePath, signal },
-      );
-      // No hook runs here: the spare's old path no longer exists, so Git
-      // finds none in it.
-      return await runGit(
-        [
-          "-c",
-          "checkout.workers=0",
-          "-c",
-          `core.hooksPath=${sparePath}`,
-          "checkout",
-          "--force",
-          "-B",
-          args.branchName,
-          args.startPoint,
-        ],
-        { cwd: targetPath, signal },
+      // `runGit` starts no file watcher in the spare: on Windows one would hold
+      // its folder open and block the move. The checkout writes the branch's
+      // upstream to .git/config, as `git worktree add -B` does, so it runs
+      // under the same lock (#2561).
+      return await withWorktreeMetadataLock(
+        await getGitCommonDir(sourcePath, { signal }),
+        async () => {
+          await runGit(["worktree", "move", sparePath, targetPath], {
+            cwd: sourcePath,
+            signal,
+          });
+          // No hook runs here: `runGit` turns them off, and the hook runs below.
+          return runGit(
+            [
+              "-c",
+              "checkout.workers=0",
+              "checkout",
+              "--force",
+              "-B",
+              args.branchName,
+              args.startPoint,
+            ],
+            { cwd: targetPath, signal },
+          );
+        },
+        signal,
+        true,
       );
     } catch (error) {
       if (signal.aborted) throw error;
@@ -166,7 +175,7 @@ export async function claimSpareWorktree(args: {
       head,
       "1",
     ],
-    { cwd: targetPath, signal },
+    { cwd: targetPath, signal, hooks: true },
   );
   return result;
 }
@@ -199,19 +208,13 @@ async function build(args: BuildSpareArgs): Promise<void> {
         ],
         { cwd: sourcePath, env, signal },
       );
-      await runGit(
-        [
-          ...NO_WATCHER,
-          "-c",
-          "checkout.workers=0",
-          "reset",
-          "--hard",
-          "--quiet",
-        ],
-        { cwd: sparePath, env, signal },
-      );
+      await runGit(["-c", "checkout.workers=0", "reset", "--hard", "--quiet"], {
+        cwd: sparePath,
+        env,
+        signal,
+      });
       await delay(INDEX_SETTLE_MS, undefined, { signal });
-      await runGit([...NO_WATCHER, "update-index", "-q", "--refresh"], {
+      await runGit(["update-index", "-q", "--refresh"], {
         cwd: sparePath,
         env,
         signal,

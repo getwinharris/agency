@@ -142,7 +142,7 @@ describe("theme.css neutral ramp", () => {
     )?.[1];
     expect(stickyRule).toContain("background-image: linear-gradient(");
     expect(
-      stickyRule?.match(/var\(--bb-sidebar-open-in-split-background\)/g),
+      stickyRule?.match(/var\(--room-sidebar-open-in-split-background\)/g),
     ).toHaveLength(2);
 
     const interactiveRule = css.match(
@@ -271,10 +271,7 @@ describe("theme.css Cadence text tokens", () => {
 
 describe("theme.css terminal font token", () => {
   it("provides the existing terminal font stack as the default", () => {
-    const fontFamily = variableValue(
-      modeBlock("light"),
-      "font-terminal",
-    );
+    const fontFamily = variableValue(modeBlock("light"), "font-terminal");
 
     expect(fontFamily).toContain('"JetBrainsMono Nerd Font Mono"');
     expect(fontFamily).toContain('"Courier New", monospace');
@@ -300,7 +297,7 @@ describe("theme.css semantic update surfaces", () => {
 describe("theme.css desktop portal hit testing", () => {
   it("carves portaled overlays out of native window drag regions", () => {
     const rule = css.match(
-      /\[data-bb-portaled-overlay\]:not\(\[data-state="closed"\]\)\s*\{([^}]*)\}/,
+      /\[data-room-portaled-overlay\]:not\(\[data-state="closed"\]\),\s*\[data-bb-portaled-overlay\]:not\(\[data-state="closed"\]\)\s*\{([^}]*)\}/,
     )?.[1];
 
     expect(rule).toBeDefined();
@@ -335,10 +332,17 @@ describe("theme.css shimmer and scroll-anchor paint scope", () => {
   });
 
   it("pauses the sweep and releases the layer under inert or aria-hidden hosts", () => {
-    const rule = css.match(
-      /\[inert\] \.animate-shine,\s*\[inert\] \.animate-shine-icon,\s*\[aria-hidden="true"\] \.animate-shine,\s*\[aria-hidden="true"\] \.animate-shine-icon \{([^}]*)\}/,
-    )?.[1];
-    expect(rule).toBeDefined();
+    const at = css.indexOf("[inert] .animate-shine,");
+    const rule = css.slice(at, css.indexOf("}", at));
+    for (const target of [
+      ".animate-shine,",
+      ".animate-shine-icon,",
+      ".working-grid i::after,",
+      ".subagent-grid i::after",
+    ]) {
+      expect(rule).toContain(`[inert] ${target}`);
+      expect(rule).toContain(`[aria-hidden="true"] ${target}`);
+    }
     expect(rule).toMatch(/animation-play-state:\s*paused;/);
     expect(rule).toMatch(/will-change:\s*auto;/);
   });

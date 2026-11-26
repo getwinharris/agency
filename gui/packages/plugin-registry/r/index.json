@@ -90,6 +90,10 @@
       "type": "registry:ui"
     },
     {
+      "name": "hugeicons-icon",
+      "type": "registry:ui"
+    },
+    {
       "name": "icon",
       "type": "registry:ui"
     },
@@ -191,6 +195,10 @@
     },
     {
       "name": "slider",
+      "type": "registry:ui"
+    },
+    {
+      "name": "slot",
       "type": "registry:ui"
     },
     {

@@ -83,6 +83,7 @@ import type {
   UpdateThreadRequest,
   UpdateQueuedMessageRequest,
 } from "@cloudroom/server-contract";
+import { RoomHttpError } from "../response.js";
 import { signalRequestArgs, type CreateSdkAreaArgs } from "./common.js";
 
 export const DEFAULT_THREAD_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
@@ -179,6 +180,8 @@ export type ThreadSearchResult = ThreadSearchResponse;
 export type ThreadResolveMentionsResult = ResolveThreadMentionsResponse;
 export interface ThreadOutputResponse {
   output: string | null;
+  /** A newer reply an active thread is still writing, not yet in `output` (#2451). */
+  partialOutput?: string;
   /** Why the thread failed; null unless its status is `error`. */
   error?: string | null;
   /** The recorded stop, when the last turn was interrupted (#1159). */
@@ -611,7 +614,7 @@ export interface ThreadsArea {
     args: ThreadStatusArgs,
   ): Promise<ThreadConversationOutlineResult>;
   count(args?: ThreadCountArgs): Promise<ThreadCountResult>;
-  messageForkPoint(args: ThreadStatusArgs & { sequence: number }): Promise<{ exact: boolean; sequence: number | null; textOnly?: boolean }>;
+  messageForkPoint(args: ThreadStatusArgs & { sequence: number }): Promise<{ exact: boolean; sequence: number | null }>;
   defaultExecutionOptions(
     args: ThreadStatusArgs,
   ): Promise<ThreadDefaultExecutionOptionsResult>;
@@ -742,6 +745,7 @@ function sendJson(args: ThreadSendArgs): SendMessageRequest {
     permissionMode: args.permissionMode,
     reasoningLevel: args.reasoningLevel,
     senderThreadId: args.senderThreadId,
+    fromComposer: args.fromComposer,
     serviceTier: args.serviceTier,
     pluginSubmission: args.pluginSubmission,
     executionInputSources: args.executionInputSources,
@@ -869,14 +873,19 @@ function sleep(ms: number): Promise<void> {
 // before the server reads the poll already sent on it, so a wait read sees a
 // reset while the server is fine (#1046). Wait reads are GETs, safe to repeat,
 // so retry a few resets in a row before the deadline; all else throws as before.
+// A 504 is retried too: Connect's when a busy host misses its deadline (#2446).
+// `thread wait --children` reuses it for its list reads (#2283).
 const THREAD_WAIT_RESET_RETRIES = 3;
+// Connect gives a reply's headers 30 s (tunnel-do.ts), so each event long poll
+// asks for less, leaving room for transit and a busy host (#2446).
+const THREAD_EVENT_POLL_MS = 20_000;
 const CONNECTION_RESET_CODES = new Set([
   "ECONNRESET",
   "EPIPE",
   "UND_ERR_SOCKET",
 ]);
 
-async function retryConnectionReset<T>(
+export async function retryConnectionReset<T>(
   deadline: number,
   read: () => Promise<T>,
 ): Promise<T> {
@@ -888,11 +897,13 @@ async function retryConnectionReset<T>(
         error instanceof TypeError
           ? (error.cause as { code?: unknown } | null | undefined)?.code
           : undefined;
+      const retryable =
+        (error instanceof RoomHttpError && error.status === 504) ||
+        (typeof code === "string" && CONNECTION_RESET_CODES.has(code));
       if (
         attempt >= THREAD_WAIT_RESET_RETRIES ||
         Date.now() >= deadline ||
-        typeof code !== "string" ||
-        !CONNECTION_RESET_CODES.has(code)
+        !retryable
       ) {
         throw error;
       }
@@ -1346,7 +1357,10 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
       return transport.readJson(
         transport.api.v1.threads[":id"].worktree.$post({
           param: { id: input.threadId },
-          json: { carry: input.carry ?? [] },
+          json: {
+            carry: input.carry ?? [],
+            ...(input.self === undefined ? {} : { self: input.self }),
+          },
         }),
       );
     },
@@ -1642,7 +1656,12 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
             threadId: input.threadId,
             type: target.eventType,
             waitMs: String(
-              Math.floor(Math.min(Math.max(0, deadline - Date.now()), 30_000)),
+              Math.floor(
+                Math.min(
+                  Math.max(0, deadline - Date.now()),
+                  THREAD_EVENT_POLL_MS,
+                ),
+              ),
             ),
           }),
         );

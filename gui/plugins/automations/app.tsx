@@ -35,7 +35,7 @@ import {
   type LoopDialogRun,
   type Priority,
 } from "./loop-dialog";
-import { replaceWebhookUrl, useCloudAutomations } from "./cloud-view";
+import { replaceWebhookUrl, showLoopError, useCloudAutomations } from "./cloud-view";
 import {
   AutomationOverviewView,
   automationProjectLabel,
@@ -44,7 +44,7 @@ import {
   type LoopReviewState,
 } from "./overview-view";
 import { PERSONAL_PROJECT_ID } from "./lib/format-schedule";
-import { loopsChanged, PausedLoopsLabel } from "./paused-notice";
+import { loopsChanged, PausedLoopsLabel, usePlanLoopsChanged } from "./paused-notice";
 import { ScanCard } from "./scan-card";
 import { failurePause } from "./lib/paused.js";
 import type { LoopTemplate } from "./templates";
@@ -456,7 +456,7 @@ function DeleteAutomationDialog({
   );
 }
 
-// Templates tab: the repos to pick from, and one Cloud (default) or Local loop per picked repo.
+// Templates tab: the repos to pick from, and one Cloud (or Local by default on Free) loop per picked repo.
 function useTemplates(onAdded: () => void): LoopTemplatesState {
   const rpc = useRpc<typeof automationRpcContract>();
   const sdk = useSdk();
@@ -465,10 +465,9 @@ function useTemplates(onAdded: () => void): LoopTemplatesState {
   const [projects, setProjects] = useState(lastLoaded.projects);
   const [plan, setPlan] = useState(lastLoaded.plan);
   const [usage, setUsage] = useState(lastLoaded.usage);
-  const paid = plan !== undefined && plan !== "free";
-  // Free never sees the templates, so it never pays for the estimate.
+  const [planAsked, setPlanAsked] = useState(0);
+  usePlanLoopsChanged(() => setPlanAsked((count) => count + 1));
   useEffect(() => {
-    if (!paid) return;
     let cancelled = false;
     rpc.call("templates_usage", null).then(
       (result) => {
@@ -480,7 +479,7 @@ function useTemplates(onAdded: () => void): LoopTemplatesState {
     return () => {
       cancelled = true;
     };
-  }, [rpc, paid]);
+  }, [rpc]);
   useEffect(() => {
     let cancelled = false;
     rpc.call("account_plan", null).then(
@@ -493,7 +492,7 @@ function useTemplates(onAdded: () => void): LoopTemplatesState {
     return () => {
       cancelled = true;
     };
-  }, [rpc]);
+  }, [rpc, planAsked]);
   useEffect(() => {
     let cancelled = false;
     sdk.projects.list().then(
@@ -548,6 +547,9 @@ function useTemplates(onAdded: () => void): LoopTemplatesState {
               model: agent.model,
               reasoningLevel: agent.reasoningLevel,
               priority: template.priority,
+              ...(template.secrets !== undefined
+                ? { secrets: [...template.secrets] }
+                : {}),
             });
             return;
           }
@@ -577,23 +579,19 @@ function useTemplates(onAdded: () => void): LoopTemplatesState {
         );
       }
       if (failed[0]?.status === "rejected") {
-        toast.error(
+        showLoopError(
           `Couldn't add ${template.name} to ${failed.length} repo${failed.length === 1 ? "" : "s"}: ${errorText(failed[0].reason)}`,
+          () => navigate.openUrl("https://www.cloudroom.dev/billing"),
         );
       }
       onAdded();
     },
-    [providers, rpc, sdk, onAdded],
-  );
-  const onUpgrade = useCallback(
-    () => navigate.openUrl("https://www.cloudroom.dev/billing"),
-    [navigate],
+    [navigate, providers, rpc, sdk, onAdded],
   );
   return {
     projects,
     onAdd,
-    locked: plan === undefined ? null : plan === "free",
-    onUpgrade,
+    freePlan: plan === "free",
     usage,
   };
 }

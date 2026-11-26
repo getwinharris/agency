@@ -354,7 +354,10 @@ impl Manager {
             return fail("setting_unavailable", error, None);
         }
         let reasoning = check.reasoning.as_deref();
-        if matches!(check.harness, runtime::Kind::Codex | runtime::Kind::Claude) {
+        if matches!(
+            check.harness,
+            runtime::Kind::Codex | runtime::Kind::Claude | runtime::Kind::Antigravity
+        ) {
             let models = match self.model_catalog(check.harness).await {
                 Ok(models) => models,
                 Err(error) => return fail("models_unavailable", error.message(), None),
@@ -643,6 +646,7 @@ impl Manager {
                     &self.config,
                     profile,
                     &written,
+                    &path,
                     &transfer.workspace.path,
                     &self.storage,
                 )

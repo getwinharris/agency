@@ -3,6 +3,7 @@ import { COMPUTER, type Thread } from "@cloudroom/domain";
 import { Icon } from "@cloudroom/shared-ui/icon";
 import { cn } from "@cloudroom/shared-ui/lib/utils";
 import { GithubFaviconIcon } from "@/components/pull-request/GithubFaviconIcon";
+import { isCloudGithubLoginMissing } from "@/components/thread/timeline/CloudLoginRow";
 import { PROMPT_STACK_CARD_ROW_HEIGHT, PROMPT_STACK_INLAY_SEGMENT_CLASS, PromptStackCard } from "@/components/promptbox/banner/PromptStackCard";
 import { BannerActionSlot, PromptBannerActionButton } from "@/components/promptbox/banner/prompt-banner-actions";
 import { FixPrompt } from "@/components/ui/fix-prompt";
@@ -20,6 +21,7 @@ export function ProjectCopyNotice({ thread }: { thread: Thread }) {
   const progress = thread.projectCopy;
   const dismissKey = `cloudroom.project-copy.dismissed.${thread.id}`;
   if (!progress || progress.phase === "complete") return null;
+  if (!thread.teleport && isCloudGithubLoginMissing(progress)) return null;
   const failed = progress.phase === "error";
   const waiting = progress.phase === "waiting";
   if (failed && window.localStorage.getItem(dismissKey)) return null;
@@ -28,14 +30,14 @@ export function ProjectCopyNotice({ thread }: { thread: Thread }) {
     const [title, detail] = waiting
       ? ["Copy paused", "Resumes when this thread wakes"]
       : cloning
-        ? ["Cloning from GitHub", "New Cloud project"]
+        ? [progress.gitHost === "gitlab" ? "Cloning from GitLab" : "Cloning from GitHub", "New Cloud project"]
         : progress.total
           ? [`Copying from ${computer}`, `${megabytes(progress.completed)} of ${megabytes(progress.total)} MB${progress.secondsLeft === undefined ? "" : ` · ${timeLeft(progress.secondsLeft)}`}`]
           : [`Preparing files on ${computer}`, "New Cloud project"];
     return (
       <PromptStackCard ariaLabel="Project copy progress" className="ml-auto mr-3 w-fit max-w-[calc(100%-1.5rem)] overflow-hidden sm:mr-4">
         <div role="status" className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-sm">
-          {cloning ? <GithubFaviconIcon className="text-foreground" /> : <Icon name={waiting ? "FolderSync" : "Laptop"} aria-hidden className="size-4 shrink-0 text-foreground" />}
+          {cloning && progress.gitHost === "gitlab" ? <Icon name="GitBranch" className="size-4" /> : cloning ? <GithubFaviconIcon className="text-foreground" /> : <Icon name={waiting ? "FolderSync" : "Laptop"} aria-hidden className="size-4 shrink-0 text-foreground" />}
           <span className="shrink-0 font-medium text-foreground">{title}</span>
           <span aria-hidden className="text-subtle-foreground">·</span>
           <span className="truncate text-muted-foreground">{detail}</span>

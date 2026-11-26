@@ -1,9 +1,11 @@
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { backup, DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, extname, isAbsolute, join, normalize, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
@@ -20,12 +22,14 @@ import {
   threadPluginMetadata,
   threads,
 } from "@cloudroom/db";
-import { getHostPathComparisonKey, PERSONAL_PROJECT_ID, THREAD_TELEPORT_LOCAL_OPERATION, threadScope, type PromptInput, type TeleportLocalStep, type Thread, COMPUTER } from "@cloudroom/domain";
+import { chatImagePaths, getHostPathComparisonKey, legacyChatFileCopySegments, PERSONAL_PROJECT_ID, THREAD_TELEPORT_LOCAL_OPERATION, threadScope, type PromptInput, type TeleportLocalStep, type Thread, COMPUTER } from "@cloudroom/domain";
+import { chatFileCopyPath, readRegularFile } from "@cloudroom/config/chat-file-copies";
+import { gitSafetyArgs } from "@cloudroom/host-workspace";
 import { folderOpenerCommand, tarCommand } from "@cloudroom/process-utils";
 import type { CreateThreadEnvironmentArgs } from "@cloudroom/server-contract";
 import type { AppDeps } from "../../types.js";
 import { ApiError } from "../../errors.js";
-import { resolvePrimaryHostId } from "../hosts/primary-host.js";
+import { readPrimaryHostIdFromDataDir, resolvePrimaryHostId } from "../hosts/primary-host.js";
 import { runLiveHostCommand } from "../hosts/live-command.js";
 import { workspaceContextFromPath } from "../environments/workspace-command-target.js";
 import { provisionUnmanagedEnvironmentForPath } from "../threads/thread-environment-directory.js";
@@ -38,20 +42,21 @@ import { DEFAULT_ENVIRONMENT_PROVIDER_ID } from "../environments/environment-pro
 import { requestQueuedMessageDispatch } from "../threads/queued-message-dispatch.js";
 import { settleDanglingBackgroundTasksForStoppedThreadInTransaction } from "../threads/background-task-reconciliation.js";
 import { NotificationBuffer } from "../lib/notification-buffer.js";
-import { requireThreadStoragePath } from "../threads/thread-storage.js";
+import { requireHostDataDir, saveChatFileCopyForThread } from "../threads/thread-storage.js";
 import { cloudroom } from "./commands.js";
 import { RECORD_VALUES, values, type CloudroomClient } from "./client.js";
 import { SKIPPED } from "./project-copy.js";
 import { claudeTranscriptThrough, cloudForkPoint, FORK_HARNESSES, isFiles, localCheckpoint, sourceCode } from "./fork.js";
 import { binding, localTeleports, teleportProgress } from "./store.js";
 
-type Harness = "codex" | "pi" | "claude-code" | "acp-cursor" | "acp-opencode";
+type Harness = "codex" | "pi" | "claude-code" | "acp-cursor" | "acp-opencode" | "acp-antigravity";
 const VM_SESSIONS: Record<Harness, string> = {
   codex: "$HOME/.codex/sessions",
   pi: "$HOME/.pi/agent/sessions",
   "claude-code": "$HOME/.claude/projects",
   "acp-cursor": "$HOME/.cursor/chats",
   "acp-opencode": "$HOME/.local/share/opencode",
+  "acp-antigravity": "$HOME/.gemini/antigravity-cli/conversations",
 };
 const CHUNK = 3 * 1024 * 1024;
 const PREVIEW_MB = 20;
@@ -112,11 +117,18 @@ async function run(deps: AppDeps, threadId: string, step: (value: TeleportLocalS
   const saved = binding(deps.db, threadId);
   const harness = thread?.providerId as Harness | undefined;
   const phase = teleportProgress(deps.db, threadId)?.phase;
-  if (!thread || thread.executionTarget !== "cloud" || thread.parentThreadId || thread.archivedAt || thread.deletedAt
-    || !saved?.sessionId || !harness || !(harness in VM_SESSIONS) || (phase && !["complete", "cancelled", "error"].includes(phase)))
-    throw new ApiError(409, "teleport_unavailable", "Teleport to Local needs a Codex, Pi, Claude Code, opencode, or Cursor cloud parent thread.");
+  // Name the real blocker instead of the generic refusal (#1974). An unfinished move comes first: the thread may be about
+  // to change place, so say nothing about where it is. "This computer" is only its own saved host id, never a fallback guess.
+  if (phase && !["complete", "cancelled", "error"].includes(phase))
+    throw new ApiError(409, "teleport_unavailable", `A Teleport for this thread is still in progress (${phase}). Try again once it finishes.`);
+  if (thread && thread.executionTarget !== "cloud") {
+    const hostId = thread.environmentId ? getEnvironment(deps.db, thread.environmentId)?.hostId : undefined;
+    throw new ApiError(409, "teleport_unavailable", hostId && hostId === readPrimaryHostIdFromDataDir({ dataDir: deps.config.dataDir }) ? `This thread is already on this ${computer}.` : "This thread is not in Cloud.");
+  }
+  if (!thread || thread.parentThreadId || thread.archivedAt || thread.deletedAt || !harness || !(harness in VM_SESSIONS))
+    throw new ApiError(409, "teleport_unavailable", "Teleport to Local needs a Codex, Pi, Claude Code, opencode, Antigravity, or Cursor cloud parent thread.");
   const nativeId = getLastProviderThreadId(deps, threadId);
-  if (!nativeId || !/^[A-Za-z0-9_-]+$/.test(nativeId))
+  if (!saved?.sessionId || !nativeId || !/^[A-Za-z0-9_-]+$/.test(nativeId))
     throw new ApiError(409, "teleport_unavailable", "This cloud thread has no saved conversation yet.");
   const environment = await localEnvironment(deps, thread);
   const client = await cloudroom(deps).teleportClient(threadId, "teleport_local");
@@ -130,6 +142,7 @@ async function run(deps: AppDeps, threadId: string, step: (value: TeleportLocalS
   step("downloading");
 
   const vmPath = (await vm(client, findNative(harness, nativeId))).toString().trim();
+  if (harness === "acp-antigravity" && !/^\/tmp\/cloudroom-agy-[A-Za-z0-9_]+\.db$/.test(vmPath)) throw new ApiError(409, "teleport_unavailable", "Antigravity could not snapshot this conversation.");
   if (!vmPath) throw new ApiError(409, "teleport_unavailable", "The cloud conversation file was not found. The thread stays in Cloud.");
   const cloud = await client.sessionWorkspace(saved.sessionId);
   const lineage = harness === "codex" ? await codexLineage(client, vmPath) : [];
@@ -141,13 +154,18 @@ async function run(deps: AppDeps, threadId: string, step: (value: TeleportLocalS
     downloadEach(client, lineage, allowed),
   ]);
   step("copying");
-  if (harness === "acp-cursor" || harness === "acp-opencode") await vm(client, `rm -f ${quote(vmPath)}`).catch(() => {});
+  if (harness === "acp-cursor" || harness === "acp-opencode" || harness === "acp-antigravity") await vm(client, `rm -f ${quote(vmPath)}`).catch(() => {});
   // A parent file that differs on the Mac is set aside, unless another Local thread is still using it.
   const inUse = (id: string) => deps.db.select({ id: threads.id }).from(threads)
     .where(and(eq(threads.providerId, "codex"), eq(threads.executionTarget, "local"), isNull(threads.archivedAt), isNull(threads.deletedAt))).all()
     .some((row) => row.id !== threadId && getLastProviderThreadId(deps, row.id) === id);
   for (const [index, path] of lineage.entries()) await installNative("codex", "", path, parents[index]!, environment.path, inUse);
-  if (harness === "acp-opencode") await importOpenCode(deps, threadId, environment, nativeId, session);
+  if (harness === "acp-antigravity") {
+    if (deps.db.select({id: threads.id}).from(threads).where(and(eq(threads.providerId, harness), eq(threads.executionTarget, "local"), isNull(threads.archivedAt), isNull(threads.deletedAt))).all()
+      .some(row => row.id !== threadId && getLastProviderThreadId(deps, row.id) === nativeId)) throw new Error("This Antigravity conversation is already open in another Local thread.");
+    await importAntigravity(nativeId, session, cloud.path, environment.path);
+  }
+  else if (harness === "acp-opencode") await importOpenCode(deps, threadId, environment, nativeId, session);
   else await installNative(harness, nativeId, vmPath, session, environment.path);
   const aside = randomUUID();
   const kept = await applyChanges(environment.path, changes.archive, aside, changes.base);
@@ -285,7 +303,7 @@ async function localForkFolder(deps: AppDeps, source: Thread): Promise<string> {
   if (hostId && project) await ensureProjectCheckoutForThread(deps, { project, hostId });
   return (await localEnvironment(deps, source).catch((error: unknown) => {
     throw error instanceof ApiError && error.body.code === "teleport_unavailable"
-      ? new ApiError(409, "fork_unavailable", `This project has no folder on this ${computer} and no GitHub repo to clone. Add its folder here, or fork to Cloud.`)
+      ? new ApiError(409, "fork_unavailable", `This project has no folder on this ${computer} and no repository to clone. Add its folder here, or fork to Cloud.`)
       : error;
   })).path;
 }
@@ -319,8 +337,9 @@ async function landLocalForkCode(deps: AppDeps, client: CloudroomClient, source:
   try {
     const file = join(temporary, "code.bundle");
     await writeFile(file, bundle);
-    const fetch = () => exec("git", ["-C", folder, "fetch", "-q", file, `refs/cloudroom/${id}:refs/heads/${branch}`], { windowsHide: true });
-    await fetch().catch(async () => { await exec("git", ["-C", folder, "fetch", "-q", "origin"], { windowsHide: true }).catch(() => {}); await fetch(); });
+    // GIT_ALLOW_PROTOCOL=file: a checkout's `url.*.insteadOf` can't turn the local bundle into a proxy or SSH fetch.
+    const fetch = () => exec("git", [...gitSafetyArgs(), "-C", folder, "fetch", "-q", file, `refs/cloudroom/${id}:refs/heads/${branch}`], { env: BUNDLE_ONLY, windowsHide: true });
+    await fetch().catch(async () => { await exec("git", [...gitSafetyArgs(), "-C", folder, "fetch", "-q", "origin"], { windowsHide: true }).catch(() => {}); await fetch(); });
   } catch (error) {
     const reason = error instanceof Error && "stderr" in error ? String(error.stderr).trim() : "";
     throw new ApiError(409, "fork_code_unavailable", `The Cloud thread's code could not be copied to this ${computer}: ${reason || "git fetch failed"}`);
@@ -365,7 +384,7 @@ export async function copyToMac(deps: AppDeps, threadId: string): Promise<{ bran
       try { await writeFile(file, await download(client, path)); }
       finally { await vm(client, `rm -f ${quote(path)}`).catch(() => {}); }
       if (!full && await git(environment.path, ["bundle", "verify", "-q", file]) === null) continue;
-      try { await exec("git", ["-C", environment.path, "fetch", "-q", file, `refs/heads/${branch}:refs/heads/${branch}`], { windowsHide: true }); }
+      try { await exec("git", [...gitSafetyArgs(), "-C", environment.path, "fetch", "-q", file, `refs/heads/${branch}:refs/heads/${branch}`], { env: BUNDLE_ONLY, windowsHide: true }); }
       catch (error) {
         const reason = error instanceof Error && "stderr" in error ? String(error.stderr).trim() : "";
         throw new ApiError(409, "copy_unavailable", /checked out|rejected|non-fast-forward/.test(reason)
@@ -398,46 +417,57 @@ export async function openOnMac(deps: AppDeps, threadId: string, path: string): 
 }
 
 type ImageDeps = Pick<AppDeps, "db" | "hub" | "config" | "providerRegistry">;
-/** This Mac's copy of a cloud file the chat showed, so it still shows once the sandbox no longer has it. */
-async function savedCloudFile(deps: ImageDeps, threadId: string, path: string): Promise<string> {
+/** This Mac's data folder, which keeps a Cloud thread's copies of the files its chat showed. */
+function imageDataDir(deps: ImageDeps): string {
   const hostId = resolvePrimaryHostId(deps);
   if (!hostId) throw new ApiError(409, "host_unavailable", "This computer's local host is not ready.");
-  return join(await requireThreadStoragePath(deps, { hostId, threadId }), "Cloud files", normalize(path));
+  return requireHostDataDir(deps, hostId);
 }
 
-const CHAT_IMAGE = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)\s]+))/g;
-const CODE = /```[\s\S]*?```|`[^`\n]*`/g;
+/** This Mac's copies of a cloud file the chat showed, so it still shows once the sandbox no longer has it: the current
+ *  one, then where copies were saved before 2026-11-23 (read only, since agents can write thread storage). */
+function savedCloudFiles(dataDir: string, threadId: string, path: string): string[] {
+  const copy = chatFileCopyPath(dataDir, threadId, path);
+  const legacy = legacyChatFileCopySegments(path);
+  if (!copy || !legacy) throw new ApiError(400, "invalid_path", "Cloud file paths must be absolute.");
+  return [copy, join(dataDir, "thread-storage", threadId, ...legacy)];
+}
 
 /** When a turn ends, its sandbox is still awake: saves the images its last message shows, so they still show after the
  *  sandbox is rebuilt from a copy without /tmp (a failover's move home, cold storage). Never wakes the sandbox. */
 export async function saveCloudImages(deps: ImageDeps, threadId: string, text: string): Promise<void> {
-  const paths = new Set<string>();
-  for (const [, wrapped, bare] of text.replace(CODE, "").matchAll(CHAT_IMAGE)) {
-    const path = (() => { try { return decodeURI(wrapped ?? bare ?? ""); } catch { return ""; } })();
-    if (path.startsWith("/") && /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(path)) paths.add(path);
-  }
-  if (!paths.size) return;
+  const paths = chatImagePaths(text).filter((path) => path.startsWith("/"));
+  if (!paths.length) return;
+  const requireThread = Boolean(getThread(deps.db, threadId));
   const client = await cloudroom(deps).threadClient(threadId, false).catch(() => null);
   if (!client) return;
-  for (const path of [...paths].slice(0, 10)) {
+  const dataDir = imageDataDir(deps);
+  let failure: unknown;
+  for (const path of paths) {
     const data = await download(client, path, PREVIEW_MB).catch(() => null);
-    if (!data) continue;
-    const saved = await savedCloudFile(deps, threadId, path);
-    await mkdir(dirname(saved), { recursive: true });
-    await writeFile(saved, data);
+    // Keep going: the other images can still be saved. The first error is still reported.
+    if (data) await saveChatFileCopyForThread(deps, { data, dataDir, filePath: path, requireThread, threadId }).catch((error: unknown) => { failure ??= error; });
   }
+  if (failure !== undefined) throw failure;
 }
 
 export async function cloudFile(deps: AppDeps, threadId: string, path: string): Promise<Buffer> {
   if (!isAbsolute(path)) throw new ApiError(400, "invalid_path", "Cloud file paths must be absolute.");
-  const saved = await savedCloudFile(deps, threadId, path);
+  const requireThread = Boolean(getThread(deps.db, threadId));
+  const dataDir = imageDataDir(deps);
+  let saved: Buffer | null = null;
+  for (const file of savedCloudFiles(dataDir, threadId, path)) {
+    saved = await readRegularFile(file, PREVIEW_MB * 1024 * 1024);
+    if (saved) break;
+  }
   try {
-    const data = await download(await cloudroom(deps).threadClient(threadId, !existsSync(saved)), path, PREVIEW_MB);
-    await mkdir(dirname(saved), { recursive: true });
-    await writeFile(saved, data);
+    // Only a copy that can be shown spares a sleeping sandbox the wake.
+    const data = await download(await cloudroom(deps).threadClient(threadId, saved === null), path, PREVIEW_MB);
+    // A copy that can't be saved still leaves the file to show.
+    await saveChatFileCopyForThread(deps, { data, dataDir, filePath: path, requireThread, threadId }).catch(() => {});
     return data;
   } catch (error) {
-    if (existsSync(saved)) return readFile(saved);
+    if (saved) return saved;
     throw error instanceof ApiError ? error : new ApiError(502, "cloud_file_unavailable", `Could not read ${path} from the cloud. ${error instanceof Error ? error.message : ""}`.trim());
   }
 }
@@ -506,8 +536,24 @@ export async function vm(client: CloudroomClient, command: string, signal?: Abor
 }
 
 export function findNative(harness: Harness, nativeId: string): string {
+  if (harness === "acp-antigravity") {
+    if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(nativeId)) throw new Error("Invalid Antigravity conversation ID");
+    const script = `import os,sqlite3,sys,tempfile
+from pathlib import Path
+p=Path.home()/".gemini/antigravity-cli/conversations"/(sys.argv[1]+".db")
+if not p.is_file() or p.is_symlink(): sys.exit(1)
+src=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True)
+src.execute("pragma trusted_schema=off")
+if not src.execute("select 1 from trajectory_meta where cascade_id=? limit 1",(sys.argv[1],)).fetchone(): sys.exit(1)
+fd,out=tempfile.mkstemp(prefix="cloudroom-agy-",suffix=".db"); os.close(fd)
+dst=sqlite3.connect(out); src.backup(dst); dst.close(); src.close(); print(out)`;
+    return `python3 -I -c ${quote(script)} ${quote(nativeId)}`;
+  }
+  // OpenCode 2 moved export under `session` (#2686); `--standalone` leaves no background service running. An unreadable
+  // version runs OpenCode 1's.
   if (harness === "acp-opencode")
-    return `mkdir -p ~/.cache/cloudroom && f=~/.cache/cloudroom/opencode-${nativeId}.json && OPENCODE_DISABLE_AUTOUPDATE=1 opencode export ${nativeId} > "$f" </dev/null && echo "$f"`;
+    return `export OPENCODE_DISABLE_AUTOUPDATE=1; v=$(opencode --version 2>/dev/null </dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1); c=export; [ "\${v%%.*}" -ge 2 ] 2>/dev/null && c="session export --standalone"
+mkdir -p ~/.cache/cloudroom && f=~/.cache/cloudroom/opencode-${nativeId}.json && opencode $c ${nativeId} > "$f" </dev/null && echo "$f"`;
   // A Cursor chat is a folder (meta.json plus a SQLite store), so it travels as one archive.
   if (harness === "acp-cursor")
     return `d=$(ls -d "${VM_SESSIONS[harness]}"/*/${nativeId} 2>/dev/null | head -n1); [ -f "$d/meta.json" ] || exit 0
@@ -704,8 +750,11 @@ async function same(a: string, b: string): Promise<boolean> {
   return Promise.all([readFile(a), readFile(b)]).then(([left, right]) => left.equals(right), () => false);
 }
 
+/** Env for fetching a local bundle file: no other transport, so repo config can't redirect it. */
+const BUNDLE_ONLY = { ...process.env, GIT_ALLOW_PROTOCOL: "file" };
+
 async function git(cwd: string, args: string[]): Promise<string | null> {
-  return exec("git", ["-C", cwd, ...args], { maxBuffer: 64 * 1024 * 1024, windowsHide: true }).then((result) => result.stdout, () => null);
+  return exec("git", [...gitSafetyArgs(), "-C", cwd, ...args], { maxBuffer: 64 * 1024 * 1024, windowsHide: true }).then((result) => result.stdout, () => null);
 }
 
 /** `lineage`: a Codex fork's parent file (see `codexLineage`), kept byte-for-byte. A Mac copy that already holds
@@ -744,6 +793,129 @@ async function installNative(harness: Harness, nativeId: string, vmPath: string,
   const temporary = `${target}.${randomUUID()}.tmp`;
   await writeFile(temporary, data, { mode: 0o600 });
   await rename(temporary, target);
+}
+
+/** agy runs commands in the first workspace saved in its conversation: `trajectory_metadata_blob`, a protobuf whose
+ *  field 7 lists workspace URIs and field 1 holds workspaces (folder URI 1, git root URI 2). Moves `from` to `to` there. */
+export function moveAntigravityWorkspace(blob: Uint8Array, from: string, to: string): Buffer {
+  const move = (value: Buffer) => {
+    if (!value.toString().startsWith("file://")) return value;
+    const path = decodeURIComponent(new URL(value.toString()).pathname), root = from.replace(/\/+$/, "");
+    if (path !== root && !path.startsWith(root + "/")) return value;
+    return Buffer.from(pathToFileURL(join(to, path.slice(root.length))).href);
+  };
+  // Unchanged bytes are copied in ranges, so a large blob costs no more than its own size.
+  const rewrite = (data: Buffer, map: (field: number, value: Buffer) => Buffer) => {
+    const parts: Buffer[] = [];
+    let at = 0, copied = 0;
+    const varint = () => {
+      let value = 0;
+      for (let scale = 1; ; scale *= 128) {
+        if (at >= data.length || scale > 2 ** 63) throw new Error("Invalid protobuf");
+        const byte = data[at++]!;
+        value += (byte & 127) * scale;
+        if (byte < 128) return value;
+      }
+    };
+    const encode = (value: number) => {
+      const bytes: number[] = [];
+      for (; value > 127; value = Math.floor(value / 128)) bytes.push((value % 128) | 128);
+      return Buffer.from([...bytes, value]);
+    };
+    while (at < data.length) {
+      const start = at, key = varint(), type = key % 8;
+      if (type === 0) varint();
+      else if (type === 1 || type === 5) at += type === 1 ? 8 : 4;
+      else if (type !== 2) throw new Error("Invalid protobuf");
+      const length = type === 2 ? varint() : 0, value = data.subarray(at, at += length);
+      if (at > data.length) throw new Error("Invalid protobuf");
+      const mapped = type === 2 ? map(Math.floor(key / 8), value) : value;
+      if (mapped === value) continue;
+      parts.push(data.subarray(copied, start), encode(key), encode(mapped.length), mapped);
+      copied = at;
+    }
+    return parts.length ? Buffer.concat([...parts, data.subarray(copied)]) : data;
+  };
+  return rewrite(Buffer.from(blob), (field, value) =>
+    field === 7 ? move(value) : field === 1 ? rewrite(value, (inner, uri) => (inner === 1 || inner === 2 ? move(uri) : uri)) : value);
+}
+
+/** Writes the moved workspace into the staged copy only when it is exactly the layout agy 1.5 makes: anything else, or an
+ *  error, leaves the copy as it came. No triggers or foreign keys, so the update changes this one row and nothing else. */
+export function moveAntigravityConversation(file: string, id: string, from: string, to: string) {
+  const db = new DatabaseSync(file);
+  try {
+    db.exec("PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=OFF");
+    const table = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='trajectory_metadata_blob'").get();
+    if (table?.sql !== 'CREATE TABLE `trajectory_metadata_blob` (`id` text DEFAULT "main",`data` blob,PRIMARY KEY (`id`))'
+      || db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' LIMIT 1").get()
+      || db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND tbl_name='trajectory_metadata_blob' COLLATE NOCASE AND sql IS NOT NULL LIMIT 1").get()
+      || db.prepare("SELECT 1 FROM sqlite_master m, pragma_foreign_key_list(m.name) WHERE m.type='table' LIMIT 1").get()
+      || !db.prepare("SELECT 1 FROM trajectory_meta WHERE cascade_id=? LIMIT 1").get(id)) return;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id='main' AND typeof(data)='blob' AND length(data) <= 1048576").get();
+      const moved = row?.data instanceof Uint8Array ? moveAntigravityWorkspace(row.data, from, to) : null;
+      if (moved && !moved.equals(row!.data as Uint8Array))
+        db.prepare("UPDATE trajectory_metadata_blob SET data=? WHERE id='main'").run(moved);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/** SQLite's backup includes the WAL. Preserve an existing Local copy and refuse to replace a diverged conversation. */
+async function importAntigravity(id: string, bytes: Buffer, from: string, to: string) {
+  if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id))
+    throw new Error("Invalid Antigravity conversation ID");
+  const folder = join(homedir(), ".gemini", "antigravity-cli", "conversations");
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  const target = join(folder, id + ".db"),
+    staged = join(folder, "." + randomUUID() + ".db");
+  await writeFile(staged, bytes, { mode: 0o600, flag: "wx" });
+  try {
+    try {
+      moveAntigravityConversation(staged, id, from, to);
+    } catch {} // Commands then still run in the Cloud folder (#2453), as before.
+    const incoming = new DatabaseSync(staged, { readOnly: true });
+    try {
+      incoming.exec("PRAGMA trusted_schema=OFF");
+      if (!incoming.prepare("SELECT 1 FROM trajectory_meta WHERE cascade_id=? LIMIT 1").get(id))
+        throw new Error("Antigravity conversation identity mismatch");
+      if (existsSync(target)) {
+        if (!(await lstat(target)).isFile())
+          throw new Error("Antigravity conversation is not a regular file");
+        incoming.prepare("ATTACH DATABASE ? AS previous").run(target);
+        if (
+          !incoming
+            .prepare("SELECT 1 FROM previous.trajectory_meta WHERE cascade_id=? LIMIT 1")
+            .get(id) ||
+          incoming
+            .prepare("SELECT * FROM previous.steps EXCEPT SELECT * FROM main.steps LIMIT 1")
+            .get()
+        )
+          throw new Error(
+            "This Local Antigravity conversation changed. The thread stays in Cloud.",
+          );
+        const previous = target + ".before-teleport-" + randomUUID();
+        await writeFile(previous, "", { flag: "wx", mode: 0o600 });
+        await backup(incoming, previous, { source: "previous" });
+        incoming.exec("DETACH DATABASE previous");
+        await chmod(target, 0o600);
+        await backup(incoming, target);
+      } else {
+        await link(staged, target);
+      }
+    } finally {
+      incoming.close();
+    }
+  } finally {
+    await Promise.all(["", "-wal", "-shm"].map((suffix) => rm(staged + suffix, { force: true })));
+  }
 }
 
 async function importOpenCode(deps: AppDeps, threadId: string, environment: { id: string; hostId: string; path: string }, nativeId: string, data: Buffer) {

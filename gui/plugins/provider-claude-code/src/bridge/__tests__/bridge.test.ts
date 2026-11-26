@@ -7,7 +7,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +19,7 @@ import {
   type JsonValue,
   type RuntimePermissionPolicy,
   type ThreadEvent,
+  UNDELIVERED_MESSAGE_WARNING,
 } from "@cloudroom/domain";
 
 const { forkSessionMock, queryMock } = vi.hoisted(() => ({
@@ -70,24 +70,15 @@ interface AssistantToolUseMessageArgs {
   toolUseId: string;
 }
 
-interface CanUseToolPolicyAllowExpectation {
-  behavior: "allow";
-  updatedInput: Record<string, unknown>;
-}
-
 interface CanUseToolPolicyDenyExpectation {
   behavior: "deny";
   messageIncludes: string;
 }
 
-type CanUseToolPolicyExpectation =
-  | CanUseToolPolicyAllowExpectation
-  | CanUseToolPolicyDenyExpectation;
-
 interface CanUseToolPolicyCase {
   blockedPath?: string;
   decisionReason?: string;
-  expected: CanUseToolPolicyExpectation;
+  expected: CanUseToolPolicyDenyExpectation;
   id: string;
   input: Record<string, unknown>;
   name: string;
@@ -896,10 +887,16 @@ describe("bridge", () => {
     );
 
     expect(options.cwd).toBe("/tmp/worktree");
+    // Claude's own timers are always blocked: `room-cli wake` and loops replace them.
     expect(options.disallowedTools).toEqual([
       "ExitPlanMode",
       "NotebookEdit",
       "Task",
+      "ScheduleWakeup",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "RemoteTrigger",
     ]);
     expect(options.systemPrompt).toBe("You are a manager.");
   });
@@ -925,6 +922,7 @@ describe("bridge", () => {
       disableClaudeAiConnectors: true,
       enableWorkflows: true,
       ultracode: true,
+      skillOverrides: { loop: "off", schedule: "off" },
     });
   });
 
@@ -949,6 +947,7 @@ describe("bridge", () => {
       disableClaudeAiConnectors: true,
       enableWorkflows: true,
       ultracode: false,
+      skillOverrides: { loop: "off", schedule: "off" },
     });
   });
 
@@ -972,6 +971,7 @@ describe("bridge", () => {
       disableClaudeAiConnectors: true,
       enableWorkflows: false,
       ultracode: false,
+      skillOverrides: { loop: "off", schedule: "off" },
     });
   });
 
@@ -994,6 +994,7 @@ describe("bridge", () => {
       disableClaudeAiConnectors: true,
       enableWorkflows: false,
       ultracode: false,
+      skillOverrides: { loop: "off", schedule: "off" },
     });
   });
 
@@ -1191,30 +1192,12 @@ describe("bridge", () => {
 
   const WEAKER_FALSE = '{"sandbox":{"enableWeakerNetworkIsolation":false}}';
   const WEAKER_TRUE = WEAKER_FALSE.replace("false", "true");
-  // root/config is the user's Claude dir; root/repo is a git repo with a
-  // linked worktree at root/wt; root/plain is not a repo.
+  // root/config is the user's Claude dir; root/repo is the thread's folder.
   function makeClaudeSettingsFixture(files: Record<string, string> = {}) {
     const root = mkdtempSync(join(tmpdir(), "bb-claude-sandbox-"));
-    const git = (...args: string[]) =>
-      execFileSync("git", ["-C", join(root, "repo"), ...args], {
-        stdio: "ignore",
-      });
-    for (const dir of ["config", "plain", "repo/src"]) {
+    for (const dir of ["config", "repo"]) {
       mkdirSync(join(root, dir), { recursive: true });
     }
-    git("init", "-q");
-    git(
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@t",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "init",
-    );
-    git("worktree", "add", "-q", join(root, "wt"));
     for (const [file, contents] of Object.entries(files)) {
       mkdirSync(dirname(join(root, file)), { recursive: true });
       writeFileSync(join(root, file), contents);
@@ -1237,25 +1220,13 @@ describe("bridge", () => {
       { "config/settings.json": WEAKER_FALSE },
       false,
     ],
+    // Claude skips the folder's settings outside Full access, so they don't count.
     [
-      "false in cwd local settings",
+      "false in the folder's settings",
       "repo",
       { "repo/.claude/settings.local.json": WEAKER_FALSE },
-      false,
+      true,
     ],
-    [
-      "false in repo-root local settings from a subfolder",
-      "repo/src",
-      { "repo/.claude/settings.local.json": WEAKER_FALSE },
-      false,
-    ],
-    [
-      "false in main-checkout local settings from a worktree",
-      "wt",
-      { "repo/.claude/settings.local.json": WEAKER_FALSE },
-      false,
-    ],
-    ["git failure", "plain", {}, false],
   ] as const)(
     "configures acceptEdits and auto sessions with the same Claude sandbox (trustd %s)",
     (_name, cwdPath, files, weakerNetwork) => {
@@ -1296,11 +1267,6 @@ describe("bridge", () => {
   it.each([
     ["an account switch to settings that set it false", "accountB", null],
     ["a user settings edit to false", "config", "config/settings.json"],
-    [
-      "a project settings edit to false",
-      "config",
-      "repo/.claude/settings.json",
-    ],
   ] as const)("drops the trustd flag on the next turn after %s", async (_name, nextAccount, editedFile) => {
     const root = makeClaudeSettingsFixture({
       "accountB/settings.json": WEAKER_FALSE,
@@ -1394,7 +1360,7 @@ describe("bridge", () => {
         permissionMode: "auto",
         permissionScope: "workspace",
       },
-      {},
+      { CLAUDE_CONFIG_DIR: "/nonexistent-claude-config" },
     );
 
     expect(options.additionalDirectories).toEqual([
@@ -1406,6 +1372,7 @@ describe("bridge", () => {
       failIfUnavailable: false,
       autoAllowBashIfSandboxed: true,
       allowUnsandboxedCommands: true,
+      enableWeakerNetworkIsolation: true,
       network: { allowLocalBinding: true },
       filesystem: {
         allowWrite: [
@@ -1476,24 +1443,6 @@ describe("bridge", () => {
           messageIncludes: "Cloudroom's workspace sandbox allows work inside",
         },
       },
-      {
-        id: "full-bypass-allow",
-        name: "full bypass allows Bash input unchanged",
-        policy: FULL_POLICY,
-        toolName: "Bash",
-        decisionReason: "This command requires approval",
-        input: {
-          command: "git status --short",
-          description: "Permission boundary test",
-        },
-        expected: {
-          behavior: "allow",
-          updatedInput: {
-            command: "git status --short",
-            description: "Permission boundary test",
-          },
-        },
-      },
     ] satisfies CanUseToolPolicyCase[];
 
     it.each(policyCases)("$name", async (testCase) => {
@@ -1536,23 +1485,11 @@ describe("bridge", () => {
           throw new Error(`Expected ${testCase.name} to return a decision`);
         }
 
-        switch (testCase.expected.behavior) {
-          case "allow":
-            expect(result).toMatchObject({
-              behavior: "allow",
-              toolUseID,
-              updatedInput: testCase.expected.updatedInput,
-            });
-            expect("decisionClassification" in result).toBe(false);
-            break;
-          case "deny":
-            if (result.behavior !== "deny") {
-              throw new Error(`Expected ${testCase.name} to deny`);
-            }
-            expect(result.toolUseID).toBe(toolUseID);
-            expect(result.message).toContain(testCase.expected.messageIncludes);
-            break;
+        if (result.behavior !== "deny") {
+          throw new Error(`Expected ${testCase.name} to deny`);
         }
+        expect(result.toolUseID).toBe(toolUseID);
+        expect(result.message).toContain(testCase.expected.messageIncludes);
 
         bridge.sendRequest(stopRequestId, "thread/stop", {
           threadId,
@@ -1566,6 +1503,198 @@ describe("bridge", () => {
       } finally {
         bridge.restore();
       }
+    });
+
+    it("forwards canUseTool to the user in full access instead of silently auto-allowing", async () => {
+      const bridge = createBridgeJsonRpcTestHarness(handleLine);
+      const queries: ControlledClaudeQuery[] = [];
+      queryMock.mockImplementation(() => {
+        const query = createControlledClaudeQuery();
+        queries.push(query);
+        return query;
+      });
+
+      try {
+        const threadId = "thread-full-forwards-can-use-tool";
+        const toolUseID = "tool-full-ask";
+        const input = { command: "rm -rf /tmp/demo" };
+        bridge.sendRequest(1, "thread/start", {
+          threadId,
+          cwd: "/tmp/worktree",
+          instructionMode: "append",
+          options: {
+            ...FULL_POLICY,
+            instructions: "test",
+            providerOptions: { workflowsEnabled: false },
+          },
+        });
+        await bridge.waitForResponse(1);
+
+        const canUseTool = getLastCanUseTool();
+        const resultPromise = canUseTool("Bash", input, {
+          decisionReason: "Bypass permissions disabled by settings",
+          matchedAskRule: { source: "userSettings", toolName: "Bash" },
+          requestId: "control-request",
+          signal: new AbortController().signal,
+          toolUseID,
+        });
+        await bridge.flushWork();
+
+        const approvalRequest = bridge.messages.find((message) =>
+          isApprovalInteraction(message),
+        );
+        if (approvalRequest?.id === undefined) {
+          throw new Error("Expected full-access canUseTool to request user approval");
+        }
+        expect(approvalRequest).toMatchObject({
+          params: {
+            threadId,
+            payload: {
+              kind: "approval",
+              subject: expect.objectContaining({ itemId: toolUseID }),
+            },
+          },
+        });
+
+        handleLine(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: approvalRequest.id,
+            result: { decision: "deny", grantedPermissions: null },
+          }),
+        );
+        await expect(resultPromise).resolves.toMatchObject({
+          behavior: "deny",
+          toolUseID,
+        });
+
+        await stopBridgeThread({ bridge, queries, threadId });
+      } finally {
+        bridge.restore();
+      }
+    });
+
+    // Full access means no card for Claude's bypass-immune removal checks (v169).
+    // Reasons copied from Claude Code 2.1.332; claude-live.test.ts re-checks
+    // them against the latest real Claude every night.
+    const CLAUDE_REMOVAL_REASONS = [
+      "Dangerous rm operation on working directory or its ancestor: /tmp/worktree",
+      "Dangerous rm operation on statically-unresolvable target: command substitution output",
+      "Dangerous rm operation not ruled out — the shell may read this command differently than it was parsed",
+      "Claude Code can't be sure it read this command the way the shell will, so it can't rule out a dangerous removal. Read the command, and don't go ahead if you can't tell what it does.",
+      "This shell -c script runs rm and could not be checked",
+    ];
+    const FULL_OPTIONS = {
+      ...FULL_POLICY,
+      instructions: "test",
+      providerOptions: { workflowsEnabled: false },
+    };
+
+    async function askRemovalCheck(args: {
+      options: Record<string, JsonValue>;
+      decisionReason: string;
+      toolName?: string;
+      matchedAskRule?: { source: string; toolName: string };
+      blockedPath?: string;
+      claudeInitPermissionMode?: string;
+    }): Promise<{ card: boolean; behavior: string | undefined }> {
+      const bridge = createBridgeJsonRpcTestHarness(handleLine);
+      const queries: ControlledClaudeQuery[] = [];
+      queryMock.mockImplementation(() => {
+        const query = createControlledClaudeQuery();
+        queries.push(query);
+        return query;
+      });
+      const threadId = "thread-claude-removal-check";
+      try {
+        bridge.sendRequest(1, "thread/start", {
+          threadId,
+          cwd: "/tmp/worktree",
+          instructionMode: "append",
+          options: args.options,
+        });
+        await bridge.waitForResponse(1);
+        if (args.claudeInitPermissionMode !== undefined) {
+          queries[0]?.emit({
+            type: "system",
+            subtype: "init",
+            permissionMode: args.claudeInitPermissionMode,
+            session_id: threadId,
+          } as unknown as SDKMessage);
+          await bridge.flushWork();
+        }
+        const pending = getLastCanUseTool()(
+          args.toolName ?? "Bash",
+          { command: "rm -rf ." },
+          {
+            decisionReason: args.decisionReason,
+            matchedAskRule: args.matchedAskRule,
+            blockedPath: args.blockedPath,
+            requestId: "control-request",
+            signal: new AbortController().signal,
+            toolUseID: "tool-claude-removal-check",
+          },
+        );
+        await bridge.flushWork();
+        const card = bridge.messages.find(isApprovalInteraction);
+        if (card?.id !== undefined) {
+          handleLine(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: card.id,
+              result: { decision: "deny", grantedPermissions: null },
+            }),
+          );
+        }
+        const result = await pending;
+        await stopBridgeThread({ bridge, queries, threadId });
+        return { card: card !== undefined, behavior: result?.behavior };
+      } finally {
+        bridge.restore();
+      }
+    }
+
+    it.each(CLAUDE_REMOVAL_REASONS)(
+      "full access allows Claude's removal check with no card: %s",
+      async (decisionReason) => {
+        await expect(
+          askRemovalCheck({ options: FULL_OPTIONS, decisionReason }),
+        ).resolves.toEqual({ card: false, behavior: "allow" });
+      },
+    );
+
+    it.each([
+      {
+        name: "the user's own ask rule",
+        options: FULL_OPTIONS,
+        matchedAskRule: { source: "userSettings", toolName: "Bash" },
+      },
+      {
+        name: "a deny rule inside a shell -c script",
+        options: FULL_OPTIONS,
+        decisionReason: "A permission rule denies a command in this shell -c script",
+      },
+      { name: "a non-shell tool", options: FULL_OPTIONS, toolName: "Write" },
+      { name: "a removal that also hits a blocked path", options: FULL_OPTIONS, blockedPath: "/etc" },
+      {
+        name: "a removal that also hits Claude's read block",
+        options: FULL_OPTIONS,
+        decisionReason:
+          "Dangerous rm operation not ruled out; under the read block (permissions.blockReadsOutsideWorkingDirectories) a command the shell parser cannot analyze asks the person",
+      },
+      {
+        name: "full access that Claude's settings turned off",
+        options: FULL_OPTIONS,
+        claudeInitPermissionMode: "default",
+      },
+      { name: "a removal check outside full access", options: canonicalOptions() },
+    ])("still shows a card for $name", async (testCase) => {
+      await expect(
+        askRemovalCheck({
+          decisionReason: CLAUDE_REMOVAL_REASONS[0] ?? "",
+          ...testCase,
+        }),
+      ).resolves.toEqual({ card: true, behavior: "deny" });
     });
   });
 
@@ -1835,6 +1964,22 @@ describe("bridge", () => {
       });
       expect(approvals()).toHaveLength(3);
 
+      // An explicit matchedAskRule still prompts even after a session network grant.
+      const askedNetwork = getLastCanUseTool()(
+        "SandboxNetworkAccess",
+        { host: "restricted.internal" },
+        {
+          matchedAskRule: { source: "userSettings", toolName: "SandboxNetworkAccess" },
+          requestId: "control-request",
+          signal: new AbortController().signal,
+          toolUseID: "tool-network-ask-rule",
+        },
+      );
+      await bridge.flushWork();
+      expect(approvals()).toHaveLength(4);
+      answer(approvals().at(-1)?.id, "deny");
+      await expect(askedNetwork).resolves.toMatchObject({ behavior: "deny" });
+
       // Claude's session rules already allow plain repeats, so these asks are
       // ones Claude still wants a person for: an ask rule matched part of the
       // command or the fetch.
@@ -1853,7 +1998,7 @@ describe("bridge", () => {
         "tool-fetch-2",
       );
       await bridge.flushWork();
-      const pending = approvals().slice(3);
+      const pending = approvals().slice(4);
       expect(pending.map((message) => interactionPayload(message))).toEqual([
         expect.objectContaining({
           reason: "Run this command outside the sandbox?",
@@ -2229,7 +2374,12 @@ describe("bridge", () => {
     },
   );
 
-  it("returns to the user's permission preset once a plan is approved", async () => {
+  // Full access in Plan mode: Claude only switches to bypass later if the
+  // session launched with it allowed. If it still refuses, removal checks ask.
+  it.each([
+    { name: "", switchFails: false },
+    { name: " and asks about removals when Claude refuses bypass", switchFails: true },
+  ])("returns to the user's permission preset once a plan is approved$name", async ({ switchFails }) => {
     const bridge = createBridgeJsonRpcTestHarness(handleLine);
     const queries: ControlledClaudeQuery[] = [];
     queryMock.mockImplementation(() => {
@@ -2257,6 +2407,15 @@ describe("bridge", () => {
         },
       });
       await bridge.waitForResponse(1);
+      expect(getLatestQueryCall().options).toMatchObject({
+        permissionMode: "plan",
+        allowDangerouslySkipPermissions: true,
+      });
+      if (switchFails) {
+        queries[0]?.setPermissionMode.mockRejectedValue(
+          new Error("session was not launched with --dangerously-skip-permissions"),
+        );
+      }
 
       const canUseTool = getLastCanUseTool();
       const planPromise = canUseTool(
@@ -2286,22 +2445,35 @@ describe("bridge", () => {
       await expect(planPromise).resolves.toMatchObject({ behavior: "allow" });
       await bridge.flushWork();
 
-      const editResult = await canUseTool(
-        "Edit",
-        { file_path: "/tmp/worktree/test.md", new_string: "hi" },
-        {
-          requestId: "control-request",
-          signal: new AbortController().signal,
-          toolUseID: "tool-edit",
-          blockedPath: "/tmp/worktree",
-          decisionReason: "Outside the sandbox",
-        },
+      expect(queries[0]?.setPermissionMode).toHaveBeenLastCalledWith(
+        "bypassPermissions",
       );
 
-      expect(editResult).toMatchObject({ behavior: "allow" });
-      expect(
-        bridge.messages.filter((message) => isApprovalInteraction(message)),
-      ).toHaveLength(1);
+      const removal = canUseTool(
+        "Bash",
+        { command: "rm -rf ." },
+        {
+          decisionReason: "Dangerous rm operation on working directory or its ancestor: /tmp/worktree",
+          requestId: "control-request",
+          signal: new AbortController().signal,
+          toolUseID: "tool-plan-removal",
+        },
+      );
+      await bridge.flushWork();
+      const cards = bridge.messages.filter(isApprovalInteraction);
+      expect(cards).toHaveLength(switchFails ? 2 : 1);
+      if (switchFails) {
+        handleLine(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: cards[1]?.id,
+            result: { decision: "deny", grantedPermissions: null },
+          }),
+        );
+      }
+      await expect(removal).resolves.toMatchObject({
+        behavior: switchFails ? "deny" : "allow",
+      });
 
       await stopBridgeThread({ bridge, queries, threadId });
     } finally {
@@ -2512,6 +2684,64 @@ describe("bridge", () => {
       await bridge.flushWork();
       query.finish();
       await bridge.waitForResponse(6);
+    } finally {
+      queries.forEach((query) => query.finish());
+      bridge.restore();
+    }
+  });
+
+  it("marks at a Stop only the steers Claude queued and never started, with their visible text (#2137)", async () => {
+    const bridge = createBridgeJsonRpcTestHarness(handleLine);
+    const queries: ControlledClaudeQuery[] = [];
+    queryMock.mockImplementation(() => {
+      const query = createControlledClaudeQuery();
+      queries.push(query);
+      return query;
+    });
+
+    try {
+      const threadId = "thread-undelivered-steer";
+      await startBridgeThread({ bridge, threadId });
+      const query = queries[0]!;
+      const call = getLatestQueryCall();
+      const steer = async (requestId: number, input: JsonValue[]) => {
+        bridge.sendRequest(requestId, "turn/steer", {
+          ...canonicalTurnParams({ threadId, expectedTurnId: "turn-1", input }),
+          clientRequestId: `creq_${"23456789ab".slice(0, 9)}${requestId}`,
+        });
+        const prompt = await readNextPrompt(call);
+        await bridge.waitForResponse(requestId);
+        return prompt.uuid!;
+      };
+      const lifecycle = (uuid: string, state: string) =>
+        query.emit({ type: "command_lifecycle", command_uuid: uuid, state, session_id: threadId } as unknown as SDKMessage);
+      const taken = await steer(2, [{ type: "text", text: "taken", mentions: [] }]);
+      const queued = await steer(3, [
+        { type: "text", text: "Also run the tests.", mentions: [] },
+        { type: "text", text: "agent-only context", mentions: [], visibility: "agent-only" },
+      ]);
+      await steer(4, [{ type: "text", text: "no frame yet", mentions: [] }]);
+      lifecycle(taken, "queued");
+      lifecycle(taken, "started");
+      lifecycle(queued, "queued");
+      await bridge.flushWork();
+
+      bridge.sendRequest(5, "thread/stop", {
+        threadId,
+        providerThreadId: threadId,
+        intent: "interrupt",
+        activeTurnId: null,
+      });
+      await bridge.flushWork();
+      query.finish();
+      await bridge.waitForResponse(5);
+
+      const warnings = assembleCapturedThreadEvents(bridge.messages, "claude-code").filter(
+        (event) => event.type === "provider/warning",
+      );
+      expect(warnings).toMatchObject([
+        { summary: UNDELIVERED_MESSAGE_WARNING, details: "Also run the tests." },
+      ]);
     } finally {
       queries.forEach((query) => query.finish());
       bridge.restore();
@@ -2962,7 +3192,8 @@ describe("bridge", () => {
       expect(queryOptions.env?.CLAUDE_CODE_WEB_FETCH_AGENT).toBe("0");
       expect(queryOptions.env?.CLAUDE_CODE_ENTRYPOINT).toBe("cli");
       expect(queryOptions.env?.CLAUDE_AGENT_SDK_CLIENT_APP).toBeUndefined();
-      expect(queryOptions.settingSources).toEqual(["user", "project", "local"]);
+      // Outside Full access a folder's own Claude settings (hooks, helpers, MCP servers) never load.
+      expect(queryOptions.settingSources).toEqual(["user"]);
 
       bridge.sendRequest(2, "thread/stop", {
         threadId: "thread-home-config",
@@ -4403,6 +4634,9 @@ describe("bridge", () => {
     const close = vi
       .spyOn(SdkSession.prototype, "closeGracefully")
       .mockRejectedValueOnce(new Error(stopError));
+    // Only Windows holds a failed stop and retries it (#2228).
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
 
     try {
       const threadId = "thread-failed-stop";
@@ -4413,14 +4647,32 @@ describe("bridge", () => {
         threadId,
       });
       await bridge.waitForResponse(1);
+      queries[0]?.emit({
+        type: "system",
+        subtype: "task_started",
+        session_id: "provider-failed-stop",
+        task_id: "task-1",
+        task_type: "local_bash",
+        description: "npm run dev",
+      } as unknown as SDKMessage);
+      await bridge.flushWork();
+      const endedTasks = () =>
+        assembleCapturedThreadEvents(bridge.messages, "claude-code").flatMap(
+          (event) =>
+            event.type === "item/backgroundTask/completed"
+              ? [event.item.taskStatus]
+              : [],
+        );
+      // Stop on an idle thread releases Claude and its background commands.
       const stop = {
         threadId,
         providerThreadId: threadId,
-        intent: "interrupt",
+        intent: "release",
         activeTurnId: null,
       };
       bridge.sendRequest(2, "thread/stop", stop);
       expect((await bridge.waitForResponse(2)).error?.message).toBe(stopError);
+      expect(endedTasks()).toEqual([]);
 
       bridge.sendRequest(3, "turn/start", {
         threadId,
@@ -4445,12 +4697,15 @@ describe("bridge", () => {
         "After unarchive",
       );
       expect((await bridge.waitForResponse(3)).error).toBeUndefined();
+      // The retried stop confirmed the old Claude ended, and its command with it.
+      expect(endedTasks()).toEqual(["stopped"]);
 
       bridge.sendRequest(4, "thread/stop", stop);
       await bridge.flushWork();
       queries[1]?.finish();
       await bridge.waitForResponse(4);
     } finally {
+      Object.defineProperty(process, "platform", platform);
       close.mockRestore();
       bridge.restore();
     }

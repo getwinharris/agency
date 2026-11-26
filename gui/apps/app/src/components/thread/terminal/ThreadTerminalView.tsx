@@ -23,6 +23,7 @@ import type {
   TerminalServerMessage,
   TerminalSession,
 } from "@cloudroom/server-contract";
+import { useAppCommandKeyDispatch } from "@/components/commands/AppCommandProvider";
 import { useAppThemeEpoch } from "@/hooks/useAppTheme";
 import { usePreferredTheme } from "@/hooks/useTheme";
 import type { MarkdownPreviewLinkHandler } from "@/components/ui/markdown-link";
@@ -32,6 +33,7 @@ import { useAppNavigationHost } from "@/lib/app-navigation-host";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
 import {
   anchorPointFromMouseEvent,
+  createLiveSelectionRectReader,
   selectionAnchorFromPointerRelease,
   type MessageProseSelection,
   type SelectionAnchor,
@@ -470,13 +472,20 @@ function buildTerminalSelection({
     return null;
   }
 
+  const rect =
+    anchor === null
+      ? containerElement.getBoundingClientRect()
+      : new DOMRect(anchor.point.x, anchor.point.y, 0, 0);
   const selection: MessageProseSelection = {
     text: trimmedText,
     copyText: text,
-    rect:
-      anchor === null
-        ? containerElement.getBoundingClientRect()
-        : new DOMRect(anchor.point.x, anchor.point.y, 0, 0),
+    rect,
+    anchorElement: containerElement,
+    getAnchorRect: createLiveSelectionRectReader({
+      anchor,
+      anchorElement: containerElement,
+      rect,
+    }),
   };
   if (anchor !== null) {
     selection.anchorPoint = anchor.point;
@@ -664,6 +673,8 @@ export function ThreadTerminalView({
   );
   const effectiveOnOpenLink = onOpenLink ?? handleOpenLinkByPreference;
   const onOpenLinkRef = useRef<MarkdownPreviewLinkHandler>(effectiveOnOpenLink);
+  const runAppShortcut = useAppCommandKeyDispatch();
+  const runAppShortcutRef = useRef(runAppShortcut);
 
   autoFocusRef.current = autoFocus;
   isPanelOpenRef.current = isPanelOpen;
@@ -674,6 +685,9 @@ export function ThreadTerminalView({
   onSessionChangeRef.current = onSessionChange;
   onTitleChangeRef.current = onTitleChange;
   onUserInputRef.current = onUserInput;
+  useEffect(() => {
+    runAppShortcutRef.current = runAppShortcut;
+  }, [runAppShortcut]);
 
   const reportTerminalSelection = useCallback(
     (anchor: SelectionAnchor | null) => {
@@ -889,6 +903,15 @@ export function ThreadTerminalView({
       terminal.loadAddon(fitAddon);
       const currentActiveElement = document.activeElement;
       terminal.open(containerElement);
+      // App shortcuts win over the shell (#2218). Plain keys, Escape and
+      // Ctrl+letter (Ctrl+C, Ctrl+W, Ctrl+R) always reach the shell.
+      terminal.attachCustomKeyEventHandler(
+        (event) =>
+          (event.metaKey ||
+            event.altKey ||
+            (event.ctrlKey && event.shiftKey)) &&
+          runAppShortcutRef.current(event),
+      );
       const linkHandlers = {
         onActivate: requestOpenTerminalLink,
         onHover: (target: TerminalLinkTarget | null) => {

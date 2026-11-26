@@ -1,9 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
+import { useGitlabConnection } from "@/hooks/useGitlabConnection";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { CloudroomStatus } from "@cloudroom/sdk/browser";
 import { Button } from "@cloudroom/shared-ui/button";
 import { Icon, type IconName } from "@cloudroom/shared-ui/icon";
+import { hideEmail, usePrivacyMode } from "@cloudroom/shared-ui/lib/privacy-mode";
 import { cn } from "@cloudroom/shared-ui/lib/utils";
 import { useClaudeConnection } from "@/components/ClaudeConnection";
 import { useCloudLogin } from "@/components/CodexConnectionPanel";
@@ -23,6 +25,8 @@ type PlanUsage = NonNullable<CloudroomStatus["planUsage"]>;
 const BILLING_URL = "https://www.cloudroom.dev/billing";
 const TILE_CLASS = "grid size-8 shrink-0 place-items-center rounded-lg bg-foreground/8";
 const openBilling = () => openUrlInExternalBrowser(BILLING_URL);
+/** The one booking page for paying customers (docs/scopes/calls.md#one-booking-page). The website picks the calendar. */
+const CALL_URL = "https://www.cloudroom.dev/call?from=app";
 /** The cheque's paper, like the invite tickets'. */
 const PAPER: CSSProperties = { backgroundColor: "#f3ecdb", backgroundImage: "repeating-linear-gradient(90deg, transparent 0 22px, rgba(120,100,60,.05) 22px 23px)" };
 const count = (value: number) => Math.floor(value).toLocaleString("en-US");
@@ -34,29 +38,34 @@ export function StatusPill({ ok, title, children }: { ok: boolean; title?: strin
   </span>;
 }
 
-export function AccountOverview({ email, onSignOut }: { email: string; onSignOut: () => void }) {
+export function AccountOverview({ email: real, onSignOut }: { email: string; onSignOut: () => void }) {
+  const [privacy] = usePrivacyMode();
+  const email = hideEmail(real, privacy);
   const status = useCloudroomAccount().data;
   const accountId = status?.account?.id;
   const github = useQuery({ queryKey: ["cloudroom-github-auth", accountId], enabled: Boolean(accountId) && status?.ready === true, retry: false, queryFn: ({ signal }) => sdk.cloudroom.githubAuth(signal) }).data?.state;
   const githubUser = useQuery({ queryKey: ["cloudroom-github-account"], enabled: github === "connected", retry: false, queryFn: ({ signal }) => sdk.cloudroom.githubAccount(signal) }).data;
   const claude = useClaudeConnection({ target: "cloud" }, Boolean(accountId)).data?.state;
   const codex = useCloudLogin("codex").data?.state;
+  const lab = useGitlabConnection().state;
   const paid = Boolean(status?.plan && status.plan !== "free");
   return <>
     <div className="grid gap-4 sm:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
       <MembershipCard email={email} plan={status?.plan ?? null} login={githubUser?.login ?? null} usage={status?.planUsage ?? null} />
       <div className={cn(SETTINGS_CARD_CLASS, "flex flex-col")}>
-        <ActionRow icon="CreditCard" title="Manage plan" detail="Upgrade, change, or cancel" external onClick={openBilling} />
         {paid
-          ? <ActionRow icon="Plus" title="Buy credits" detail="$50 for 50,000 · $100 for 100,000" onClick={openBilling} />
-          : <ActionRow icon="Plus" title="Upgrade to Pro" detail="50,000 Cloud Credits every 30 days" onClick={openBilling} />}
+          ? <ActionRow icon="CreditCard" title="Manage plan" detail="Upgrade, change, or cancel" external onClick={openBilling} />
+          : <ActionRow icon="Zap" title="Upgrade to Pro" detail="55,000 Cloud Credits every month" external onClick={openBilling} />}
+        <ActionRow icon="Plus" title="Buy credits" detail="From $5 · $1 = 1,000 credits" external onClick={openBilling} />
         <ActionRow icon="FileText" title="Invoices" detail="Receipts for every payment" external onClick={openBilling} />
+        {paid && <ActionRow icon="Calendar" title="Book a 1:1 call" detail="30 minutes with our team" external onClick={() => openUrlInExternalBrowser(CALL_URL)} />}
         <ActionRow icon="LogOut" title="Sign out" detail="Cloud agents keep running" onClick={onSignOut} />
       </div>
     </div>
     <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)]">
       <ConnectedCard rows={[
         ["GitHub", <span className={cn(TILE_CLASS, "text-foreground")}><Icon name="Github" className="size-4" aria-hidden /></span>, github],
+        ...(lab?.login ? [["GitLab", <span className={TILE_CLASS}><img src="/gitlab.svg" alt="" className="size-4"/></span>, lab.expired ? "expired" : "connected"] as [string, ReactNode, string]] : []),
         ["Claude Code", <AgentLogo id="claude-code" />, claude],
         ["Codex", <AgentLogo id="codex" />, codex],
       ]} />
@@ -147,7 +156,7 @@ function ConnectedCard({ rows }: { rows: [string, ReactNode, string | undefined]
         <span className="min-w-0 flex-1 truncate text-foreground">{name}</span>
         {state === "connected"
           ? <StatusPill ok>Connected</StatusPill>
-          : state && <Button variant="outline" size="sm" onClick={() => navigate(getSettingsSectionRoutePath("cloud-environment"))}>Connect</Button>}
+          : state && <Button variant="outline" size="sm" onClick={() => navigate(getSettingsSectionRoutePath("cloud-environment"))}>{state === "expired" ? "Reconnect" : "Connect"}</Button>}
       </div>)}
     </div>
   </div>;

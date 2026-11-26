@@ -109,7 +109,7 @@ async fn copy_in(
     // so only a regular file is measured; anything else passes, since a login profile may set errexit.
     let size = "$([ ! -f \"$n\" ] || [ -L \"$n\" ] || wc -c < \"$n\")";
     let pack = format!(
-        "p={}; {RESOLVE} t={dir}; mkdir -m 700 \"$t\" || exit 1; cd -- \"$(dirname -- \"$p\")\" || {{ rm -rf \"$t\"; exit 1; }}; \
+        "p={}; {RESOLVE} t={dir}; (umask 077 && mkdir \"$t\") || exit 1; cd -- \"$(dirname -- \"$p\")\" || {{ rm -rf \"$t\"; exit 1; }}; \
          b={size} || {{ rm -rf \"$t\"; exit 1; }}; \
          {{ COPYFILE_DISABLE=1 tar --no-xattrs -czf - -- \"$n\" || touch \"$t/failed\"; }} \
          | head -c {} > \"$t/a.tgz\"; s=$(wc -c < \"$t/a.tgz\" | tr -d ' '); \
@@ -323,7 +323,7 @@ pub(super) async fn push(socket: &str, source: &str, target: &str) -> io::Result
         }
     };
     let out = String::from_utf8_lossy(&out);
-    let to = last_line(&out);
+    let to = landed(&out, &name.to_string_lossy());
     let mut printed = json!({"copied":source,"to":to});
     // Like cp, pushing `outputs` again to an existing `.../outputs` lands in `.../outputs/outputs`, so the files
     // one level up keep their old bytes (#1292). Say so, since agents read that as a failed overwrite.
@@ -451,6 +451,19 @@ fn last_line(text: &str) -> &str {
     text.trim().lines().last().unwrap_or_default()
 }
 
+/// Where a push landed, for display only: the one line naming the pushed item at its place, since a login shell's
+/// logout or exit trap can print after it, like `clear`'s terminal codes (#2614). Otherwise the last line, as before.
+fn landed<'a>(out: &'a str, name: &str) -> &'a str {
+    let mut named = out.lines().filter(|line| {
+        line.strip_suffix(name)
+            .is_some_and(|rest| rest.ends_with(['/', '\\']))
+    });
+    match (named.next(), named.next()) {
+        (Some(line), None) => line,
+        _ => last_line(out),
+    }
+}
+
 /// After the first line that is exactly `mark`: the next line, then the bytes after it.
 fn framed<'a>(stdout: &'a [u8], mark: &str) -> io::Result<(&'a str, &'a [u8])> {
     let head = format!("{mark}\n");
@@ -467,13 +480,34 @@ fn framed<'a>(stdout: &'a [u8], mark: &str) -> io::Result<(&'a str, &'a [u8])> {
 /// or an empty line and a binary piece. Text that only names a mark, like `ls /tmp`, is no pull.
 pub(super) fn archive(stdout: &[u8]) -> bool {
     let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
+    // One UTF-8 pass answers every empty header's binary-piece check without rescanning its suffix.
+    let mut last_invalid = None;
+    let mut offset = 0;
+    for chunk in stdout.utf8_chunks() {
+        let valid = chunk.valid().len();
+        if !chunk.invalid().is_empty() {
+            last_invalid = Some(offset + valid);
+        }
+        offset += valid + chunk.invalid().len();
+    }
+    let mut seen = std::collections::HashSet::new();
     let marks = stdout
         .split(|&b| b == b'\n')
-        .filter(|line| line.starts_with(MARK.as_bytes()));
+        .scan(0usize, |offset, line| {
+            let start = *offset;
+            *offset += line.len() + 1;
+            Some((start, line))
+        })
+        .filter(|(_, line)| line.starts_with(MARK.as_bytes()));
     marks
-        .filter_map(|line| std::str::from_utf8(line).ok())
-        .any(|mark| match framed(stdout, mark) {
-            Ok(("", data)) => std::str::from_utf8(data).is_err(),
+        .filter_map(|(start, line)| std::str::from_utf8(line).ok().map(|mark| (start, mark)))
+        // A duplicate mark always names its first frame, as it did when framed searched from the start.
+        .filter(|(_, mark)| seen.insert(*mark))
+        // Start at the mark itself instead of rescanning all prior output for every mark.
+        .any(|(start, mark)| match framed(&stdout[start..], mark) {
+            Ok(("", data)) => {
+                last_invalid.is_some_and(|invalid| stdout.len() - data.len() <= invalid)
+            }
             Ok((head, data)) => match head.split_once(' ') {
                 Some((size, sha)) => {
                     digits(size) && sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())
@@ -560,6 +594,41 @@ impl Drop for Temp {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn archive_handles_many_distinct_marks_quickly() {
+        let output = (0..10_000)
+            .map(|i| format!("cloudroom-copy-{i:016x}\ninvalid\n"))
+            .collect::<String>();
+        let start = std::time::Instant::now();
+        assert!(!super::archive(output.as_bytes()));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "400 KB of marker-heavy output took {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn archive_checks_binary_suffixes_quickly() {
+        let output = (0..50_000)
+            .map(|i| format!("cloudroom-copy-{i:016x}\n\n"))
+            .collect::<String>();
+        let start = std::time::Instant::now();
+        assert!(!super::archive(output.as_bytes()));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "1.55 MB of blank archive headers took {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn archive_uses_the_first_frame_for_duplicate_marks() {
+        assert!(!super::archive(
+            b"cloudroom-copy-a\ninvalid\ncloudroom-copy-a\n2\n\x1f\x8b"
+        ));
+    }
+
+    #[test]
     fn framed_skips_login_shell_text_and_forged_marks() {
         let mark = "cloudroom-copy-00ff";
         for (stdout, want) in [
@@ -588,6 +657,23 @@ mod tests {
             (b"no mark", None),
         ] {
             assert_eq!(super::framed(stdout, mark).ok(), want);
+        }
+    }
+
+    #[test]
+    fn push_destination_skips_logout_output() {
+        // Git Bash with `clear` in ~/.bash_logout, as captured on Windows (#2614), and other login-shell text.
+        for (out, want) in [
+            (
+                "/c/Users/u/dest/a.txt\n\x1b[H\x1b[2J\x1b[3J",
+                "/c/Users/u/dest/a.txt",
+            ),
+            ("Hi\n/Users/u/a.txt\n/Users/u\n", "/Users/u/a.txt"),
+            // A new name, or two lines naming the item: the last line, as before.
+            ("/c/Users/u/new.txt\n\x1bc", "\x1bc"),
+            ("/x/a.txt\n/y/a.txt\n\x1bc", "\x1bc"),
+        ] {
+            assert_eq!(super::landed(out, "a.txt"), want);
         }
     }
 }

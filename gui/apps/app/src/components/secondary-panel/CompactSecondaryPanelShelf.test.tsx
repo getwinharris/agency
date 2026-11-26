@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CompactSecondaryPanelShelf } from "./CompactSecondaryPanelShelf";
+import { CompactSecondaryPanelShelf } from "@/components/right-panel/shell/mobile-drawer";
 import { APP_OVERLAY_LAYER } from "@/components/ui/app-overlay-layers";
 import { getCompactSecondaryPanelPresentation } from "@/components/ui/secondary-panel-shelf-visibility";
 
@@ -80,7 +80,7 @@ describe("CompactSecondaryPanelShelf", () => {
     expect(shelf.className).toContain("pt-[env(safe-area-inset-top)]");
     expect(shelf.className).toContain("pr-[env(safe-area-inset-right)]");
     expect(shelf.className).toContain(
-      "pb-[var(--bb-safe-area-bottom,env(safe-area-inset-bottom))]",
+      "pb-[var(--room-safe-area-bottom,env(safe-area-inset-bottom))]",
     );
     expect(shelf.className).toContain("pl-[env(safe-area-inset-left)]");
   });
@@ -379,7 +379,7 @@ describe("CompactSecondaryPanelShelf", () => {
     );
 
     const nestedAction = document.createElement("button");
-    nestedAction.setAttribute("data-bb-portaled-overlay", "");
+    nestedAction.setAttribute("data-room-portaled-overlay", "");
     nestedAction.addEventListener("keydown", (event) => {
       if (event.key === "Escape") event.preventDefault();
     });

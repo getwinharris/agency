@@ -69,7 +69,7 @@ function failIfSpawned(): SpawnLoginShellPath {
 }
 
 describe("desktop shell PATH loading", () => {
-  it("uses the macOS login shell PATH for packaged desktop launches", () => {
+  it("uses the macOS login shell PATH for packaged desktop launches", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
     const shellPath = "/Users/sawyerhood/.bun/bin:/usr/bin:/bin";
     const fakeSpawn = createFakeSpawn({
@@ -77,7 +77,7 @@ describe("desktop shell PATH loading", () => {
     });
     const warningLogger = createWarningLogger();
 
-    const result = ensurePackagedUserShellPath({
+    const result = await ensurePackagedUserShellPath({
       env,
       isPackaged: true,
       logger: warningLogger.logger,
@@ -91,18 +91,47 @@ describe("desktop shell PATH loading", () => {
     expect(warningLogger.warnings).toEqual([]);
     expect(fakeSpawn.calls).toEqual([
       {
-        args: ["-ilc", 'printf "%s" "$PATH"'],
+        args: [
+          "-ilc",
+          'printf "%s\\0%s\\0%s\\0%s" "$PATH" "$DO_NOT_TRACK" "$CLOUDROOM_TELEMETRY" "$BB_TELEMETRY"',
+        ],
         command: "/bin/zsh",
-        timeoutMs: 2_000,
+        timeoutMs: 4_000,
       },
     ]);
   });
 
-  it("leaves PATH alone in desktop dev mode", () => {
+  it("imports telemetry opt-out variables from the login shell without overriding explicit ones", async () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/usr/bin:/bin",
+      BB_TELEMETRY: "true",
+    };
+    const shellPath = "/opt/homebrew/bin:/usr/bin:/bin";
+    const fakeSpawn = createFakeSpawn({
+      result: createSpawnResult({
+        stdout: [shellPath, "1", "false", "false"].join("\0"),
+      }),
+    });
+
+    await ensurePackagedUserShellPath({
+      env,
+      isPackaged: true,
+      logger: createWarningLogger().logger,
+      platform: "darwin",
+      spawnLoginShellPath: fakeSpawn.spawn,
+    });
+
+    expect(env.PATH).toBe(shellPath);
+    expect(env.DO_NOT_TRACK).toBe("1");
+    expect(env.CLOUDROOM_TELEMETRY).toBe("false");
+    expect(env.BB_TELEMETRY).toBe("true");
+  });
+
+  it("leaves PATH alone in desktop dev mode", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/opt/homebrew/bin:/usr/bin:/bin" };
     const warningLogger = createWarningLogger();
 
-    const result = ensurePackagedUserShellPath({
+    const result = await ensurePackagedUserShellPath({
       env,
       isPackaged: false,
       logger: warningLogger.logger,
@@ -115,14 +144,14 @@ describe("desktop shell PATH loading", () => {
     expect(warningLogger.warnings).toEqual([]);
   });
 
-  it("falls back to the inherited PATH when the shell spawn fails", () => {
+  it("falls back to the inherited PATH when the shell spawn fails", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
     const fakeSpawn = createFakeSpawn({
       result: createSpawnResult({ error: new Error("spawn failed") }),
     });
     const warningLogger = createWarningLogger();
 
-    const result = ensurePackagedUserShellPath({
+    const result = await ensurePackagedUserShellPath({
       env,
       isPackaged: true,
       logger: warningLogger.logger,
@@ -137,7 +166,7 @@ describe("desktop shell PATH loading", () => {
     ]);
   });
 
-  it("falls back to the inherited PATH when shell PATH loading times out", () => {
+  it("falls back to the inherited PATH when shell PATH loading times out", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
     const fakeSpawn = createFakeSpawn({
       result: createSpawnResult({
@@ -147,7 +176,7 @@ describe("desktop shell PATH loading", () => {
     });
     const warningLogger = createWarningLogger();
 
-    const result = ensurePackagedUserShellPath({
+    const result = await ensurePackagedUserShellPath({
       env,
       isPackaged: true,
       logger: warningLogger.logger,
@@ -161,7 +190,7 @@ describe("desktop shell PATH loading", () => {
     expect(warningLogger.warnings[0]).toContain("ETIMEDOUT");
   });
 
-  it("uses the configured Linux login shell", () => {
+  it("uses the configured Linux login shell", async () => {
     const env: NodeJS.ProcessEnv = {
       PATH: "/usr/bin:/bin",
       SHELL: "/usr/bin/fish",
@@ -171,7 +200,7 @@ describe("desktop shell PATH loading", () => {
       result: createSpawnResult({ stdout: shellPath }),
     });
 
-    const result = ensurePackagedUserShellPath({
+    const result = await ensurePackagedUserShellPath({
       env,
       isPackaged: true,
       logger: createWarningLogger().logger,
@@ -183,20 +212,23 @@ describe("desktop shell PATH loading", () => {
     expect(env.PATH).toBe(shellPath);
     expect(fakeSpawn.calls).toEqual([
       {
-        args: ["-ilc", 'printf "%s" "$PATH"'],
+        args: [
+          "-ilc",
+          'printf "%s\\0%s\\0%s\\0%s" "$PATH" "$DO_NOT_TRACK" "$CLOUDROOM_TELEMETRY" "$BB_TELEMETRY"',
+        ],
         command: "/usr/bin/fish",
-        timeoutMs: 2_000,
+        timeoutMs: 4_000,
       },
     ]);
   });
 
-  it("falls back to bash when Linux SHELL is unset", () => {
+  it("falls back to bash when Linux SHELL is unset", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
     const fakeSpawn = createFakeSpawn({
       result: createSpawnResult({ stdout: "/home/user/bin:/usr/bin:/bin" }),
     });
 
-    ensurePackagedUserShellPath({
+    await ensurePackagedUserShellPath({
       env,
       isPackaged: true,
       logger: createWarningLogger().logger,
@@ -207,10 +239,10 @@ describe("desktop shell PATH loading", () => {
     expect(fakeSpawn.calls[0]?.command).toBe("/bin/bash");
   });
 
-  it("skips unsupported platforms", () => {
+  it("skips unsupported platforms", async () => {
     const env: NodeJS.ProcessEnv = { PATH: "C:\\Windows\\System32" };
 
-    const result = ensurePackagedUserShellPath({
+    const result = await ensurePackagedUserShellPath({
       env,
       isPackaged: true,
       logger: createWarningLogger().logger,

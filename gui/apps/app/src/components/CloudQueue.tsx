@@ -14,6 +14,41 @@ import { useCreditsCohort, useHiddenUntil, usePopup } from "@/lib/popups";
 // The cloud queue (docs/scopes/public-launch.md): Free accounts wait in line to start Cloud threads. Everything else,
 // including Local threads, works as usual. The website decides; these only show it.
 export type CloudQueue = { position: number; total: number; regionBlocked: boolean };
+export type CloudCapacity = "paid" | "priority";
+
+/** Under the new-thread composer when Metal is near capacity and reserving slots for higher plans (ADR 20261124-103714). */
+export function CloudCapacityCard({ capacity, onUseLocal }: { capacity: CloudCapacity; onUseLocal: () => void }) {
+  useUpgradePromptViewed("capacity_card");
+  const priority = capacity === "priority";
+  return (
+    <section aria-label="Cloud capacity reserved" className="mt-3 flex gap-3 rounded-lg border border-warning/30 bg-surface-raised-solid p-4">
+      <Icon name="Cloud" className="mt-0.5 size-4 shrink-0 text-warning-text" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground">
+          {priority ? "Cloud capacity is reserved for priority plans" : "Cloud capacity is reserved for paid plans"}
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {priority
+            ? "Cloud servers are near full capacity right now, so the last VM slots are reserved for Super, Business, and Ultra plans. Your existing Cloud threads keep working, and Local threads work right now."
+            : "Cloud servers are near full capacity right now, so remaining VM slots are reserved for paid plans. Your existing Cloud threads keep working, and Local threads work right now."}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" onClick={() => openUpgrade("capacity_card")}>
+            <Icon name="Zap" aria-hidden />
+            {priority ? "Upgrade to Super" : "Upgrade to Pro"}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={onUseLocal}>
+            <Icon name="Laptop" aria-hidden />
+            Run it on Local
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {priority ? "Super includes priority Cloud capacity" : "Pro is $50/month"}
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 /** Under the new-thread composer while Cloud is picked and the account waits. */
 export function CloudQueueCard({ queue, onUseLocal }: { queue: CloudQueue; onUseLocal: () => void }) {
@@ -114,7 +149,7 @@ export function PlanCard() {
         <p className="mb-1.5 text-sm text-foreground"><span className={cn("font-semibold", low && "text-warning")}>{Math.floor(planLeft + extra).toLocaleString("en-US")}</span> Cloud Credits left</p>
         {extra > 0
           ? <CreditsBar className="h-1 bg-foreground/10" plan={planLeft} limit={limit} extra={extra} extraTotal={extraTotal} planClassName="bg-primary" edgeClassName="border-surface-raised-solid" />
-          : <div className="h-1 overflow-hidden rounded-full bg-foreground/10"><div className={cn("h-full rounded-full", low ? "bg-warning" : "bg-primary")} style={{ width: `${share(used, limit) * 100}%` }} /></div>}
+          : <div className="h-1 overflow-hidden rounded-full bg-foreground/10"><div className={cn("h-full rounded-full", low ? "bg-warning" : "bg-primary")} style={{ width: `${share(planLeft, limit) * 100}%` }} /></div>}
       </div>
       <div className="mt-3 flex justify-end">
         <Button type="button" size="sm" className="h-7 gap-1 px-2.5 text-xs" onClick={() => openUpgrade("plan_card")}>Get more credits<Icon name="ArrowRight" aria-hidden /></Button>
@@ -143,7 +178,7 @@ function PlanMeter({ plan, used, limit, extra, extraTotal, onExpand }: { plan: s
       {extra > 0
         ? <CreditsBar className="mt-1.5 h-1 bg-foreground/10" plan={planLeft} limit={limit} extra={extra} extraTotal={extraTotal} planClassName={calm ? "bg-primary" : "bg-warning"} edgeClassName="border-sidebar" />
         : <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-foreground/10">
-          <div className={cn("h-full rounded-full", out ? "bg-destructive" : calm ? "bg-primary" : "bg-warning")} style={{ width: `${share(used, limit) * 100}%` }} />
+          <div className={cn("h-full rounded-full", out ? "bg-destructive" : calm ? "bg-primary" : "bg-warning")} style={{ width: `${share(planLeft, limit) * 100}%` }} />
         </div>}
     </div>
   );
@@ -200,9 +235,9 @@ export function CreditsExplainer() {
 }
 
 const PRO_REASONS = [
-  "Pro gives you 50,000 Cloud Credits a month. Free gives you 3,000.",
-  "Pro keeps cloud agents awake 4× longer, so they reply faster.",
-  "Pro cloud agents never get paused when the cloud gets busy.",
+  "Pro gives you 55,000 Cloud Credits a month. Free gives you 1,000.",
+  "Pro runs up to 50 concurrent Cloud agents and 20 active Loops. Free runs 5 and 2.",
+  "Pro gets priority ahead of Free accounts when Cloud servers get busy.",
   "Pro keeps your chat history up to 1 year. Free keeps 7 days.",
 ];
 let lastReason = Math.floor(Math.random() * PRO_REASONS.length);
@@ -238,6 +273,56 @@ export function CloudQueueChip() {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="top">You're #{queue.position.toLocaleString("en-US")} in the cloud queue. Get Pro to skip it.</TooltipContent>
+      </Tooltip>
+    </SidebarMenuItem>
+  );
+}
+
+/** Sidebar footer badge while Metal capacity is reserved for higher plans. Debounces clearing and ignores sign-out. */
+export function CloudCapacityChip() {
+  const account = useCloudroomAccount().data;
+  const signedIn = Boolean(account?.account);
+  const capacity = !signedIn || account?.cloudQueue ? null : account?.cloudCapacity ?? null;
+  const waited = useRef(false);
+  useEffect(() => {
+    if (!signedIn) {
+      waited.current = false;
+      return;
+    }
+    if (capacity) {
+      waited.current = true;
+      return;
+    }
+    if (!waited.current) return;
+    // Wait just past one 60 s mode poll before toasting so brief dips near a boundary don't spam toasts.
+    const timer = setTimeout(() => {
+      waited.current = false;
+      appToast.success("Cloud capacity is open again.");
+    }, 70_000);
+    return () => clearTimeout(timer);
+  }, [signedIn, capacity]);
+  useUpgradePromptViewed(capacity ? "capacity_badge" : null);
+  if (!capacity) return null;
+  const priority = capacity === "priority";
+  return (
+    <SidebarMenuItem data-footer-item="cloud-capacity">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            aria-label="Cloud capacity reserved"
+            className="h-[26px] gap-1 rounded-md bg-warning/15 px-2 text-xs font-medium text-warning-text hover:bg-warning/25 hover:text-warning-text [&_[data-icon-root]]:size-3.5"
+            onClick={() => openUpgrade("capacity_badge")}
+          >
+            <Icon name="Cloud" aria-hidden />
+            Cloud busy
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {priority
+            ? "Cloud servers are near capacity. Remaining slots are reserved for Super, Business, and Ultra. Click to upgrade."
+            : "Cloud servers are near capacity. Remaining slots are reserved for paid plans. Click to upgrade."}
+        </TooltipContent>
       </Tooltip>
     </SidebarMenuItem>
   );

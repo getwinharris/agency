@@ -9,7 +9,7 @@ import * as sync from "../../src/services/cloudroom/sync.js";
 import { listQueuedCommands } from "../helpers/commands.js";
 import { cloudroom } from "../../src/services/cloudroom/commands.js";
 import { appRequestId, installTag, readInstallTag } from "../../src/services/cloudroom/cloud-threads.js";
-import { command, coreStates, saveBinding, saveCommandState, saveStatus, saveTeleportProgress } from "../../src/services/cloudroom/store.js";
+import { binding, command, coreStates, saveBinding, saveCommandState, saveStatus, saveTeleportProgress } from "../../src/services/cloudroom/store.js";
 import { projectRecords } from "../../src/services/cloudroom/events.js";
 import type { SessionRecord } from "../../src/services/cloudroom/client.js";
 import { getLastThreadOutput } from "../../src/services/threads/thread-data.js";
@@ -21,7 +21,7 @@ import { availableModelFixture } from "../helpers/available-models.js";
 import { registerProviderHostRpcResponder } from "../helpers/host-rpc.js";
 import { seedEnvironment, seedEvent, seedHostSession, seedPrimaryHost, seedProjectWithSource, seedThread, seedThreadRuntimeState, seedTurnStarted } from "../helpers/seed.js";
 import { turnScope } from "@cloudroom/domain";
-import { archiveThread, unarchiveThread, createThread, getThread, setProjectGitRemoteUrlIfMissing, upsertProjectExecutionDefaults, events, cloudroomThreads, cloudroomCommands } from "@cloudroom/db";
+import { archiveThread, unarchiveThread, createThread, listQueuedThreadMessages, getThread, setProjectGitRemoteUrlIfMissing, upsertProjectExecutionDefaults, events, cloudroomThreads, cloudroomCommands } from "@cloudroom/db";
 
 /** The app tags each prompt, steer, edit and rewind with its install (#237): `tagged` names one, `untagged` reads one. */
 const untagged = (id: string | undefined) => id?.replace(/^app_[a-f0-9]{12}_/, "");
@@ -645,7 +645,8 @@ it.each([true, false, null])("starts without copying local files or waiting for 
     expect(firstMessages()).toEqual([originalMessage]);
     expect(service.queue(thread.id)).toEqual([]);
     expect(state).not.toHaveProperty("syncProgress");
-    expect(paths.some(path => path.startsWith("/v1/workspaces"))).toBe(targetExists !== null);
+    // Every case sets up the workspace: a missing folder clones its GitHub origin, cleaned of its token (#2190).
+    expect(paths.some(path => path.startsWith("/v1/workspaces"))).toBe(true);
     expect(requestText).toContain("Keep my message");
     expect(requestText).not.toContain("project contents");
     expect(requestText).not.toContain("SECRET-URL-CANARY");
@@ -670,7 +671,6 @@ it.each([["drops", 1], ["times out", 11_000]] as const)("clones a new Cloud thre
   await mkdir(root, { recursive: true });
   const { project } = seedProjectWithSource(harness.deps, { hostId: host.id, path: root });
   setProjectGitRemoteUrlIfMissing(harness.db, harness.deps.hub, project.id, "https://github.com/example/project");
-  await sync.setCopyMacGithub(harness.deps, false);
   // Never install a real sync helper LaunchAgent on the developer's Mac.
   const setup = vi.spyOn(sync, "setupSync").mockResolvedValue();
   let started = false;
@@ -744,7 +744,7 @@ it.each(["starting", "stopping"] as const)("archives and restores a %s Cloud chi
 });
 
 
-it.each(["codex", "pi"])("renames a Cloud %s thread offline without native execution or execution-setting changes", async (providerId) => {
+it.each(["codex", "pi"])("renames and hides a Cloud %s thread offline without native execution or execution-setting changes", async (providerId) => {
   const harness = await createTestAppHarness();
   try {
     const { host } = seedHostSession(harness.deps);
@@ -766,6 +766,11 @@ it.each(["codex", "pi"])("renames a Cloud %s thread offline without native execu
       }
       expect((await patch({ title: null })).status).toBe(200);
       expect(getThread(harness.db, thread.id)?.title).toBeNull();
+      // Visibility is sidebar state (#2210).
+      for (const visibility of ["hidden", "visible"] as const) {
+        expect((await patch({ visibility })).status).toBe(200);
+        expect(getThread(harness.db, thread.id)?.visibility).toBe(visibility);
+      }
     }
     expect(listQueuedCommands(harness, "thread.rename")).toEqual([]);
     expect(harness.db.select().from(cloudroomCommands).all()).toEqual([]);
@@ -818,11 +823,11 @@ it("lets a Cloud thread clear or keep its parent, re-links one in its own sandbo
     expect(parentOf(own.id)).toBeNull();
     expect((await patch(own.id, lead.id)).status).toBe(200);
     expect(parentOf(own.id)).toBe(lead.id);
-    const service = cloudroom(harness.deps) as unknown as { childTurnEnded?: (child: { id: string; parentThreadId: string }, status: string) => void; tellLocalParent(threadId: string, status: string, turn: string): void; noticeCloudParent(threadId: string, status: string, turn: string): Promise<void> };
+    const service = cloudroom(harness.deps) as unknown as { childTurnEnded?: (child: { id: string; parentThreadId: string }, status: string) => void; children: { tellLocalParent(threadId: string, status: string, turn: string): void; noticeCloudParent(threadId: string, status: string, turn: string): Promise<void> } };
     const reports = vi.fn();
     service.childTurnEnded = reports;
-    service.tellLocalParent(own.id, "completed", "turn-1");
-    expect(reports).toHaveBeenCalledWith(expect.objectContaining({ id: own.id, parentThreadId: lead.id }), "completed");
+    service.children.tellLocalParent(own.id, "completed", "turn-1");
+    expect(reports).toHaveBeenCalledWith(expect.objectContaining({ id: own.id, parentThreadId: lead.id }), "completed", undefined, "turn-1");
     expect((await patch(own.id, cloudParent.id)).status).toBe(200);
     expect(parentOf(own.id)).toBe(cloudParent.id);
 
@@ -852,10 +857,10 @@ it("lets a Cloud thread clear or keep its parent, re-links one in its own sandbo
 
     const notices = (id: string) => harness.db.select().from(cloudroomCommands).all().filter(row => row.threadId === id).map(row => JSON.parse(row.input).text);
     harness.db.insert(cloudroomCommands).values({ id: `first_${own.id}`, threadId: own.id, command: "prompt", input: JSON.stringify({ text: "Start", parent_thread: cloudParent.id }), state: "completed", createdAt: 1 }).run();
-    await service.noticeCloudParent(own.id, "completed", "turn-2");
+    await service.children.noticeCloudParent(own.id, "completed", "turn-2");
     expect(notices(cloudParent.id)).toEqual([]);
     expect((await patch(own.id, shared.id)).status).toBe(200);
-    await service.noticeCloudParent(own.id, "completed", "turn-3");
+    await service.children.noticeCloudParent(own.id, "completed", "turn-3");
     expect(notices(shared.id)).toEqual([expect.stringContaining(`Child thread ${own.id} completed`)]);
   } finally { cloudroom(harness.deps).stop(); website.close(); await harness.cleanup(); }
 });
@@ -1017,8 +1022,8 @@ it("gives a Cloud child or fork only the keys of the sandbox its source runs in,
     const cloud = (parentThreadId?: string) => createThread(harness.db, harness.hub, { projectId: project.id, parentThreadId, executionTarget: "cloud", providerId: "claude-code", status: "idle" });
     // A loop's run with only SENTRY_TOKEN, and a --shared-sandbox child in its sandbox: only the run has a sandbox.
     const run = cloud(), shared = cloud(run.id);
-    harness.db.insert(cloudroomThreads).values([run, shared].map((thread, index) => ({ threadId: thread.id, coreUrl: `sandbox:${run.id}`, sessionId: `cr_${index}`, startRequestId: `start_${index}`, model: "test-model", reasoning: "medium" }))).run();
-    // The run finished a turn, so it can be forked.
+    harness.db.insert(cloudroomThreads).values([run, shared].map((thread, index) => ({ threadId: thread.id, coreUrl: `sandbox:${run.id}`, sessionId: `cr_${index}`, nativeId: "provider-turn-1", startRequestId: `start_${index}`, model: "test-model", reasoning: "medium" }))).run();
+    // The run finished a turn in its current Claude session, so it can be forked.
     seedTurnStarted(harness.deps, { threadId: run.id, turnId: "turn-1", sequence: 1 });
     seedEvent(harness.deps, { threadId: run.id, environmentId: null, providerThreadId: "provider-turn-1", sequence: 2, type: "turn/completed", scope: turnScope("turn-1"), data: { providerThreadId: "provider-turn-1", status: "completed" } });
     const start = { executionTarget: "cloud" as const, projectId: project.id, providerId: "claude-code", origin: "cli" as const, model: "test-model", reasoningLevel: "medium" as const, environment: { type: "project-default" as const }, input: [{ type: "text" as const, text: "print every key", mentions: [] }], startedOnBehalfOf: null };
@@ -1317,6 +1322,17 @@ it("credits Claude usage that arrives after a follow-up was sent to the turn tha
     await expect.poll(() => harness.db.select().from(cloudroomThreads).get()!.cursor >= records.findIndex((value) => (value as { kind: string }).kind === "usage") + 1).toBe(true);
     expect(harness.db.select().from(events).all().filter((event) => event.type === "thread/tokenUsage/updated").map((event) => event.turnId)).toEqual(["one"]);
     expect(service.threadStatus(thread.id)?.error ?? null).toBeNull();
+    // The same plan limit on two turns in a row gets a card each; one turn reporting it twice gets one (#949).
+    const limit = "Claude's plan limit (not Cloudroom's). Switch accounts to keep working. Claude said: You've hit your Fable limit";
+    for (const turn of ["three", "four"]) {
+      expect(await send(thread.id, turn)).toMatchObject({ delivery: "sent" });
+      record("state", { state: "starting_turn", request_id: turn });
+      record("receipt", { request_id: turn, command: "prompt", state: "failed", error: limit });
+    }
+    record("receipt", { request_id: "four", command: "prompt", state: "failed", error: limit });
+    const repeated = records.length;
+    await expect.poll(() => harness.db.select().from(cloudroomThreads).get()!.cursor >= repeated).toBe(true);
+    expect(harness.db.select().from(events).all().filter((event) => event.type === "system/error").map((event) => JSON.parse(event.data).message)).toEqual([limit, limit]);
   } finally {
     service.stop();
     core.closeAllConnections();
@@ -1392,7 +1408,7 @@ it("queues Cloud follow-ups at once while the cloud is still starting, then deli
     const remove = async (id: string) => { const response = await harness.app.request(`/api/v1/threads/${thread.id}/queued-messages/${id}`, { method: "DELETE" }); return { status: response.status, ...await response.json() }; };
     const config = join(harness.config.dataDir, "cloudroom.json"), connection = await readFile(config, "utf8");
     await writeFile(config, JSON.stringify({ sandboxToken: "a".repeat(64) }), { mode: 0o600 });
-    (service as unknown as { lastCapabilities: null }).lastCapabilities = null;
+    (service as unknown as { rt: { lastCapabilities: null } }).rt.lastCapabilities = null;
     for (const [id, status] of [["%20", 404], ["missing", 404], [tagged("second"), 200]] as const) {
       expect(await quick(remove(id))).toMatchObject({ status });
     }
@@ -1737,16 +1753,16 @@ it("a background login save never brings back a login Disconnect removed, whethe
   }
 });
 
-// The clone signs gh in with this Mac's login, and sleep wipes it, so Cloud must hold it to give it back on wake (#1628).
-// It only fills a gap: another computer's or account's saved login stays.
+// Local `gh` is never auto-copied to Cloud, even when "Auth my agents" (`copyLogins`) is on, a legacy cloudroom-github.json
+// exists on disk, or the user switches Cloudroom accounts (ADR 20261124-215124).
 it.each([
-  { case: "toggle off", copyLogins: false, githubCard: true, github: "gho_fake" },
-  { case: "toggle never chosen", copyLogins: null, githubCard: true, github: "gho_fake" },
-  { case: "Disconnect, or another account picked here", copyLogins: false, githubCard: false, github: null },
-  { case: "Cloud already holds another computer's login", copyLogins: false, githubCard: true, cloud: "other", github: "other" },
-  { case: "a second wake during the copy waits for it", copyLogins: false, githubCard: true, steps: "concurrent", github: "gho_fake" },
-  { case: "another Cloudroom account signed in within a minute", copyLogins: false, githubCard: true, steps: "reset", github: "gho_fake" },
-])("GitHub login sync to Cloud: $case", async ({ copyLogins, githubCard, cloud, steps, github }) => {
+  { case: "toggle off", copyLogins: false, legacyMacFile: false, github: null },
+  { case: "toggle never chosen", copyLogins: null, legacyMacFile: false, github: null },
+  { case: "toggle on", copyLogins: true, legacyMacFile: false, github: null },
+  { case: "toggle on with legacy cloudroom-github.json", copyLogins: true, legacyMacFile: true, github: null },
+  { case: "Cloud already holds a login with toggle off", copyLogins: false, legacyMacFile: false, cloud: "other", github: "other" },
+  { case: "another Cloudroom account signed in within a minute", copyLogins: true, legacyMacFile: true, steps: "reset", github: null },
+])("GitHub login sync to Cloud: $case", async ({ copyLogins, legacyMacFile, cloud, steps, github }) => {
   const home = await mkdtemp(join(tmpdir(), "cloudroom-gh-"));
   const env = { PATH: process.env.PATH, HOME: process.env.HOME };
   await writeFile(join(home, "gh"), "#!/bin/sh\n[ \"$1 $2\" = 'auth token' ] && echo gho_fake\n", { mode: 0o755 });
@@ -1755,20 +1771,50 @@ it.each([
   const service = cloudroom(harness.deps);
   const website = await fakeLoginsWebsite();
   (service.sandboxes as { account: () => Promise<unknown> }).account = async () => website.account;
-  (service as unknown as { sandboxMode: () => Promise<boolean> }).sandboxMode = async () => true;
-  const syncLogins = () => (service as unknown as { syncLogins: () => Promise<void> }).syncLogins();
+  (service as unknown as { rt: { sandboxMode: () => Promise<boolean> } }).rt.sandboxMode = async () => true;
+  const syncLogins = () => (service as unknown as { auth: { syncLogins: () => Promise<void> } }).auth.syncLogins();
   try {
     if (copyLogins !== null) await sync.setCopyLogins(harness.deps, copyLogins);
-    await sync.setCopyMacGithub(harness.deps, githubCard);
+    if (legacyMacFile) await writeFile(join(harness.config.dataDir, "cloudroom-github.json"), JSON.stringify({ mac: true }));
     if (cloud) website.logins.set("github", JSON.stringify({ token: cloud }));
-    if (steps === "concurrent") { void syncLogins(); await syncLogins(); }
-    else await syncLogins();
+    await syncLogins();
     if (steps === "reset") { website.logins.clear(); service.sandboxes.reset(); await syncLogins(); }
     expect(website.logins.has("github") ? JSON.parse(website.logins.get("github")!).token : null).toBe(github);
   } finally {
     service.stop(); await website.close(); await harness.cleanup();
     process.env.PATH = env.PATH; process.env.HOME = env.HOME;
     await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("POST /github/mac guards against cross-origin/bad bodies, and explicit chosen saves bypass the upload cache", async () => {
+  const harness = await createTestAppHarness();
+  const service = cloudroom(harness.deps);
+  const website = await fakeLoginsWebsite();
+  (service.sandboxes as { account: () => Promise<unknown> }).account = async () => website.account;
+  try {
+    const crossOrigin = await harness.app.request("/api/v1/cloudroom/account/github/mac", {
+      method: "POST",
+      headers: { Origin: "https://evil.example", "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(crossOrigin.status).toBe(403);
+    const badBody = await harness.app.request("/api/v1/cloudroom/account/github/mac", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedLogin: "bad login!" }),
+    });
+    expect(badBody.status).toBe(400);
+
+    const entry = JSON.stringify({ token: "gho_same" });
+    await service.sandboxes.saveLogin("github", entry, undefined, false, true);
+    expect(JSON.parse(website.logins.get("github")!).token).toBe("gho_same");
+    // Simulate Disconnect on another computer (website clears login; this app keeps its in-memory digest cache).
+    website.logins.delete("github");
+    await service.sandboxes.saveLogin("github", entry, undefined, false, true);
+    expect(JSON.parse(website.logins.get("github")!).token).toBe("gho_same");
+  } finally {
+    service.stop(); await website.close(); await harness.cleanup();
   }
 });
 
@@ -1786,18 +1832,24 @@ it.each([
   const service = cloudroom(harness.deps);
   const website = await fakeLoginsWebsite();
   (service.sandboxes as { account: () => Promise<unknown> }).account = async () => website.account;
-  (service as unknown as { sandboxMode: () => Promise<boolean> }).sandboxMode = async () => true;
+  (service as unknown as { rt: { sandboxMode: () => Promise<boolean> } }).rt.sandboxMode = async () => true;
   const rules = service.sandboxes.skipLogins;
   service.sandboxes.skipLogins = async () => new Set([...await rules(), "codex", "pi", "opencode", "hermes", "devin", "openclaw", "cursor", "github"]);
   try {
     await sync.setCopyLogins(harness.deps, copyLogins);
     if (removed) await sync.markLogin(harness.deps, "kimi", "blocked");
-    await (service as unknown as { syncLogins: () => Promise<void> }).syncLogins();
+    await (service as unknown as { auth: { syncLogins: () => Promise<void> } }).auth.syncLogins();
     await mkdir(join(home, "credentials"));
     await writeFile(join(home, "config.toml"), 'default_model = "fake"\n');
     await writeFile(join(home, "credentials", "kimi-code.json"), '{"access_token":"fake"}');
     expect((await harness.app.request("/api/v1/cloudroom/mac/logins", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status).toBe(200);
     expect(website.logins.has("kimi")).toBe(kimi);
+    if (!copyLogins && !removed) {
+      // Enabling copyLogins resets the 60s throttle so an immediate /mac/logins upload succeeds right away.
+      expect((await harness.app.request("/api/v1/cloudroom/account/copy-logins", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true }) })).status).toBe(200);
+      expect((await harness.app.request("/api/v1/cloudroom/mac/logins", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status).toBe(200);
+      expect(website.logins.has("kimi")).toBe(true);
+    }
   } finally {
     service.stop(); await website.close(); await harness.cleanup();
     if (saved === undefined) delete process.env.KIMI_CODE_HOME; else process.env.KIMI_CODE_HOME = saved;
@@ -1959,6 +2011,33 @@ it("maps exactly the Core session states core/docs/api.md lists", async () => {
   expect([...documented].sort()).toEqual([...coreStates].sort());
 });
 
+// #2513: a Local parent hears why its Cloud child's turn failed, in Core's words on the failed receipt.
+it("tells a Local parent why its Cloud child's turn failed", async () => {
+  const harness = await createTestAppHarness();
+  try {
+    const { host } = seedHostSession(harness.deps);
+    const { project } = seedProjectWithSource(harness.deps, { hostId: host.id });
+    const environment = seedEnvironment(harness.deps, { hostId: host.id, projectId: project.id });
+    const parent = seedThread(harness.deps, { environmentId: environment.id, projectId: project.id });
+    seedThreadRuntimeState(harness.deps, { environmentId: environment.id, providerThreadId: "provider-parent", threadId: parent.id });
+    const child = createThread(harness.db, harness.hub, { projectId: project.id, parentThreadId: parent.id, executionTarget: "cloud", providerId: "codex", status: "active" });
+    harness.db.insert(cloudroomThreads).values({ threadId: child.id, coreUrl: `sandbox:${child.id}`, sessionId: "cr_child", startRequestId: "start", nativeId: "native", model: "m", reasoning: "medium" }).run();
+    const service = cloudroom(harness.deps) as unknown as { rt: { me(): Promise<string>; state(id: string): { actFrom: number | null } }; stream: { handleStreamRecord(...args: unknown[]): Promise<unknown> }; messaging: { failStart(id: string, message: string): void } };
+    const state = Object.assign(service.rt.state(child.id), { actFrom: 0 });
+    const error = "Codex's plan limit (not Cloudroom's). Switch accounts to keep working. Codex said: usage limit reached";
+    const record = { sequence: 1, timestamp_ms: 1, session_id: "cr_child", kind: "receipt", data: { request_id: appRequestId(await service.rt.me(), "turn"), command: "prompt", state: "failed", error } };
+    await service.stream.handleStreamRecord(binding(harness.db, child.id), null, record, new AbortController().signal, false, false, null, 0, 0, () => state, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+    const notice = harness.db.select().from(events).where(eq(events.threadId, parent.id)).all().find((row) => row.type === "client/turn/requested" && row.data.includes('"initiator":"system"'));
+    expect(notice?.data).toContain(`failed.\\n\\nError: ${error}`);
+    // A start Core refuses for good, say at a Codex usage limit, too; it waits behind the first notice.
+    const refused = "Your Codex usage limit is reached. Sign in with another ChatGPT account to keep working, or wait for it to reset.";
+    service.messaging.failStart(child.id, refused);
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+    expect(listQueuedThreadMessages(harness.db, parent.id)[0]?.content).toContain(`failed.\\n\\nError: ${refused}`);
+  } finally { await harness.cleanup(); }
+});
+
 it("tells a Cloud parent once when Core keeps refusing its child's start for now, and keeps it trying (#865)", async () => {
   const harness = await createTestAppHarness(), service = cloudroom(harness.deps);
   const { project } = seedProjectWithSource(harness.deps, { hostId: seedHostSession(harness.deps).host.id });
@@ -1980,7 +2059,7 @@ it("tells a Cloud parent once when Core keeps refusing its child's start for now
       vi.spyOn(Date, "now").mockReturnValue(now + after);
       hold = Boolean(archive);
       if (unarchive) unarchiveThread(harness.db, harness.hub, id);
-      const started = (service as unknown as { deliver(id: string): Promise<void> }).deliver(id);
+      const started = (service as unknown as { delivery: { deliver(id: string): Promise<void> } }).delivery.deliver(id);
       if (archive) { await expect.poll(() => held, { interval: 5 }).not.toBeNull(); archiveThread(harness.db, harness.hub, id); held!(); }
       await expect(started).rejects.toThrow();
       await new Promise(resolve => setImmediate(resolve));

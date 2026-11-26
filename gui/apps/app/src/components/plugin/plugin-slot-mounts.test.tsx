@@ -6,7 +6,7 @@ import {
   Routes,
   useNavigate,
   useParams,
-} from "react-router-dom";
+} from "react-router";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   act,
@@ -24,7 +24,7 @@ import type {
   PluginNewThreadPanelProps,
   PluginThreadPanelProps,
 } from "@get-bb/plugin-sdk";
-import { createPluginPanelFixedPanelTab } from "@/lib/fixed-panel-tabs-state";
+import { createPluginPanelFixedPanelTab } from "@/components/right-panel/store/tab-model";
 import {
   resetPluginSlotStoreForTest,
   setPluginSlotRegistrations,
@@ -74,7 +74,7 @@ import {
   usePluginPanelActions,
   type OpenPluginPanelArgs,
 } from "./PluginPanelActions";
-import { NewTabActions } from "@/components/secondary-panel/NewTabActions";
+import { NewTabActions } from "@/components/right-panel/tabs/new-tab";
 import { buildFileOpenerPanelTab } from "./file-opener-tabs";
 import { splitLayoutAtom } from "@/lib/split-layout/atoms";
 import type { PromptDraftState } from "@cloudroom/client-core";
@@ -1459,20 +1459,20 @@ describe("PluginNavSidebarItems + PluginPanelView", () => {
       </MemoryRouter>,
     );
     expect(
-      document.head.querySelector('link[data-bb-plugin-css="demo"]'),
+      document.head.querySelector('link[data-room-plugin-css="demo"]'),
     ).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Leave panel" }));
     await act(async () => {});
     expect(screen.getByText("home")).toBeDefined();
     expect(
-      document.head.querySelector('link[data-bb-plugin-css="demo"]'),
+      document.head.querySelector('link[data-room-plugin-css="demo"]'),
     ).not.toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_500);
     });
     expect(
-      document.head.querySelector('link[data-bb-plugin-css="demo"]'),
+      document.head.querySelector('link[data-room-plugin-css="demo"]'),
     ).toBeNull();
   });
 
@@ -1719,20 +1719,20 @@ describe("plugin panel shared title bar and full-bleed body", () => {
       screen.getByRole("button", { name: "Toggle sidebar" }),
     ).toBeDefined();
     expect(
-      document.head.querySelector('link[data-bb-plugin-css="demo"]'),
+      document.head.querySelector('link[data-room-plugin-css="demo"]'),
     ).not.toBeNull();
     expect(screen.queryByTestId("plugin-panel-body")).toBeNull();
 
     view.unmount();
     await act(async () => {});
     expect(
-      document.head.querySelector('link[data-bb-plugin-css="demo"]'),
+      document.head.querySelector('link[data-room-plugin-css="demo"]'),
     ).not.toBeNull();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_500);
     });
     expect(
-      document.head.querySelector('link[data-bb-plugin-css="demo"]'),
+      document.head.querySelector('link[data-room-plugin-css="demo"]'),
     ).toBeNull();
   });
 

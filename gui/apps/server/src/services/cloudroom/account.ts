@@ -8,8 +8,8 @@ import { ApiError } from "../../errors.js";
 import { cloudroom, configuredWebsite, trustedWebsite } from "./commands.js";
 import { cancelClaudeToken } from "./claude-token.js";
 import { cancelGithubLogin } from "./github-login.js";
-import { macAccess, macAccessSupported, supportedMacAccessLevels } from "./previews.js";
-import { hasMacCodexLogin } from "./sandboxes.js";
+import { macAccess, supportedMacAccessLevels } from "./previews.js";
+import { hasMacCodexLogin, macGithubLogin } from "./sandboxes.js";
 import { copyLogins } from "./sync.js";
 import { linkInstall, reportSignInFailed } from "./setup-telemetry.js";
 
@@ -53,6 +53,9 @@ export function cloudroomAccount(deps: Deps) {
   return service;
 }
 
+/** The system of the computer this server runs on, whose access the app saves, not the one viewing it (#958). */
+const computerOs = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
+
 export class CloudroomAccountService {
   private pending: Pending | null = null;
   private error: string | null = null;
@@ -62,7 +65,18 @@ export class CloudroomAccountService {
   async status() {
     const status = await cloudroom(this.deps).status();
     const macAccessLevel = await macAccess(this.deps);
-    return { ...status, macAccess: macAccessLevel === null ? null : macAccessLevel !== "off", macAccessLevel, macAccessSupported, macAccessLevels: supportedMacAccessLevels, copyLogins: await copyLogins(this.deps), localLogins: { codex: await hasMacCodexLogin() }, signingIn: this.pending !== null, signInError: this.error };
+    const [codex, github] = await Promise.all([hasMacCodexLogin(), macGithubLogin()]);
+    return {
+      ...status,
+      macAccess: macAccessLevel === null ? null : macAccessLevel !== "off",
+      macAccessLevel,
+      macAccessLevels: supportedMacAccessLevels,
+      computerOs,
+      copyLogins: await copyLogins(this.deps),
+      localLogins: { codex, github: github.found, ...(github.user ? { githubUser: github.user } : {}) },
+      signingIn: this.pending !== null,
+      signInError: this.error,
+    };
   }
 
 
@@ -138,6 +152,9 @@ export class CloudroomAccountService {
         } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
         const handoff = handoffSchema.parse(JSON.parse(Buffer.concat(chunks).toString("utf8")));
         abort.signal.throwIfAborted();
+        // A GitHub login still waiting was started for the account signed in until now: another account ends it,
+        // or its card would show the old account's code and the login would be saved there.
+        if ((await cloudroom(this.deps).sandboxes.account().catch(() => null))?.userId !== handoff.account.id) cancelGithubLogin();
         await cloudroom(this.deps).configure(handoff.connection ? { ...handoff.connection, projectId: input.projectId } : null, handoff.account, abort.signal, origin.origin, handoff.sandboxes?.token);
         linkInstall();
         reply(200, "You’re done here. Everything else happens in the Cloudroom app.");

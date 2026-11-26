@@ -14,13 +14,27 @@ import glob, hashlib, io, json, locale, os, re, sqlite3, sys, time
 from collections import Counter, defaultdict
 
 H = os.path.expanduser("~")
-SECRET = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----"
+# A PEM header or footer may wrap onto the next line ("-----BEGIN RSA\nPRIVATE KEY-----").
+SECRET = re.compile(r"-----BEGIN\s[A-Z\s]*PRIVATE\s+KEY-----.*?-----END\s[A-Z\s]*PRIVATE\s+KEY-----"
                     r"|(sk-[A-Za-z0-9_\-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}"
                     r"|xox[abpr]-[A-Za-z0-9\-]{10,}|eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}|\b[A-Za-z0-9_\-]{40,}\b)"
-                    r"|AIza[0-9A-Za-z_\-]{35}|\b[rsp]k_(?:live|test)_[0-9A-Za-z]{16,}|\bBearer\s+[A-Za-z0-9._~+/\-]{12,}=*")
+                    r"|AIza[0-9A-Za-z_\-]{35}|\b[rsp]k_(?:live|test)_[0-9A-Za-z]{16,}|\bBearer\s+[A-Za-z0-9._~+/\-]{12,}=*", re.S)
 URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.\-]*://[^\s:/@]+:)[^\s@/]+(@)", re.I)
+# English labels; their value may still sit on the next line ("password:\nHunter22!"), as before #2478.
 SECRET_VALUE = re.compile(r"(?i)(\b[\w.\-]*(?:passw(?:or)?d|pwd|secret|token|api[_\-]?key|access[_\-]?key|auth|credential)s?[\w.\-]*[\"']?\s*[:=]\s*[\"']?)"
                           r"(?!\[masked\])[^\s\"'&,;]{6,}")
+# Password labels in common languages. LINE_VALUE and SPACED_PASSWORD mask a value on the label's own line only (#2478).
+PASSWORD = r"passw(?:or)?d|passwort|kennwort|(?<![a-z])pw(?![a-z])|mot de passe|contrase[ñn]a|(?:senha|has[łl]o|heslo)(?![a-z])|wachtwoord|пароль|密码|パスワード"
+VALUE = r"[^\s\"'&,;，。、；]"
+# A value that looks like a secret: it has a digit or a symbol inside a word.
+SHAPE = rf"{VALUE}*?(?:\d|\w[^\w\s\"'&,;，。、；./\-]\w)"
+# A whole word that holds a label and ends in : or =. Checking the : or = first keeps plain words fast.
+# Unquoted CJK text without that shape is a sentence ("密码：修改后无法登录"), not a secret.
+LINE_VALUE = re.compile(rf"(?i)((?<![\w.\-])(?=[\w.\-]*[\"']? ?[:=：])(?=[\w.\-]*?(?:{PASSWORD}|(?<![a-z])passe?(?![a-z])|pwd|secret|token|api[_\-]?key|access[_\-]?key|auth|credential))"
+                        rf"[\w.\-]*[\"']? ?[:=：] ?[\"']?)(?!\[masked\])(?!(?<![\"'])(?=[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af])(?!{SHAPE})){VALUE}{{6,}}")
+# A password label and a space, then a value with a digit or an inner symbol. Never a key ("pw DB2_PASS: x") or a word holding [masked].
+SPACED_PASSWORD = re.compile(rf"(?i)(\b(?:{PASSWORD}) [\"']?)(?={SHAPE})(?!{VALUE}*\[masked\])"
+                             rf"{VALUE}{{6,}}(?!{VALUE})(?<![:=：])(?![\"']? ?[:=：])")
 NOISE = re.compile(r"\[MESSAGE FROM NON-USER SOURCE - NOT USER INPUT\]\s*Automatic Cloudroom note: this session has started or resumed\. Messages after this note come from the user\."
                    r"|<system-reminder>.*?</system-reminder>|<(local-)?command-[a-z-]+>.*?</(local-)?command-[a-z-]+>"
                    r"|<environment_context>.*?</environment_context>|<user_instructions>.*?</user_instructions>"
@@ -32,25 +46,53 @@ AUTO = ["Loop note", "room-cli loop report", "<webhook_events>", "[Local fork]",
 
 def clean(text):
     text = NOISE.sub(" ", text or "")
-    text = SECRET.sub("[masked]", re.sub(r"\s+", " ", text))
-    return SECRET_VALUE.sub(r"\1[masked]", URL_PASSWORD.sub(r"\1[masked]\2", text)).strip()
+    # One space per gap, but a line break stays a line break until the end, so a label's value never comes from the next line.
+    text = re.sub(r"\s+", lambda m: "\n" if "\n" in m.group() else " ", text)
+    text = URL_PASSWORD.sub(r"\1[masked]\2", SECRET.sub("[masked]", text))
+    # Every rule looks at the same text and all values they find are masked, so one rule's match can't hide another's value.
+    out, end = "", 0
+    for a, b in sorted((m.end(1), m.end()) for rule in (SECRET_VALUE, LINE_VALUE, SPACED_PASSWORD) for m in rule.finditer(text)):
+        if a >= end:
+            out += text[end:a] + "[masked]"
+        end = max(end, b)
+    return (out + text[end:]).replace("\n", " ").strip()
 
 
 def cut(text, n):
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+UNREADABLE = []  # chat files we could not read: skipped and counted, never the end of an agent's chats (#2512)
+
+
+def recent(paths, cutoff):
+    """(path, mtime) of the chat files changed since cutoff."""
+    for path in paths:
+        if os.name == "nt" and not path.startswith("\\\\"):  # Windows can't read a path over 260 characters (MAX_PATH) without this prefix
+            path = "\\\\?\\" + os.path.abspath(path)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            UNREADABLE.append(path)
+            continue
+        if mtime >= cutoff:
+            yield path, mtime
+
+
 def lines(path, keep=None, skip=None):
-    with open(path, "rb") as f:
-        for raw in f:
-            if keep and not any(k in raw for k in keep):
-                continue
-            if skip and any(k in raw for k in skip):
-                continue
-            try:
-                yield json.loads(raw)
-            except Exception:
-                pass
+    try:
+        with open(path, "rb") as f:
+            for raw in f:
+                if keep and not any(k in raw for k in keep):
+                    continue
+                if skip and any(k in raw for k in skip):
+                    continue
+                try:
+                    yield json.loads(raw)
+                except Exception:
+                    pass
+    except OSError:
+        UNREADABLE.append(path)
 
 
 def iso(ts):
@@ -87,9 +129,8 @@ def record(agent, sid, path, start, cwd, title, users, reply):
 
 
 def claude(cutoff):
-    for path in glob.glob(f"{H}/.claude/projects/*/*.jsonl"):
-        if os.path.basename(path).startswith("agent-") or os.path.getmtime(path) < cutoff:
-            continue
+    paths = [p for p in glob.glob(f"{H}/.claude/projects/*/*.jsonl") if not os.path.basename(p).startswith("agent-")]
+    for path, _ in recent(paths, cutoff):
         users, reply, cwd, start, title = [], None, None, None, None
         for l in lines(path, keep=[b'"user"', b'"assistant"', b'"summary"'], skip=[b'"tool_result"', b'"tool_use"']):
             start = start or parse_ts(l.get("timestamp"))
@@ -122,9 +163,7 @@ def claude(cutoff):
 
 def codex(cutoff):
     files = glob.glob(f"{H}/.codex/sessions/**/rollout-*.jsonl", recursive=True) + glob.glob(f"{H}/.codex/archived_sessions/**/rollout-*.jsonl", recursive=True)
-    for path in files:
-        if os.path.getmtime(path) < cutoff:
-            continue
+    for path, _ in recent(files, cutoff):
         users, reply, cwd, start, sid, origin = [], None, None, None, None, None
         for l in lines(path, keep=[b"session_meta", b"user_message", b"agent_message", b"UserMessage", b"AgentMessage"]):
             p = l.get("payload") or {}
@@ -162,9 +201,7 @@ def text_of(content):
 
 
 def pi(cutoff):
-    for path in glob.glob(f"{H}/.pi/agent/sessions/**/*.jsonl", recursive=True):
-        if os.path.getmtime(path) < cutoff:
-            continue
+    for path, mtime in recent(glob.glob(f"{H}/.pi/agent/sessions/**/*.jsonl", recursive=True), cutoff):
         users, reply, cwd, start, sid, title = [], None, None, None, None, None
         for l in lines(path):
             if l.get("type") == "session":
@@ -177,7 +214,7 @@ def pi(cutoff):
                     users.append(text_of(m.get("content")))
                 elif m.get("role") == "assistant":
                     reply = text_of(m.get("content")) or reply
-        r = record("pi", sid or path, path, start or os.path.getmtime(path), cwd, title, users, reply)
+        r = record("pi", sid or path, path, start or mtime, cwd, title, users, reply)
         if r and r["ts"] >= cutoff:
             yield r
 
@@ -264,6 +301,7 @@ def cmd_index(out, days=90):
     keep = kept(chats)
     repeated = Counter(cut(c["first"], 100) for c in chats if c["auto"] and c["why"] == "repeated template prompt")
     stats = {"days": days, "seconds": round(time.time() - t0, 1), "chats": len(chats), "kept": len(keep), "by_agent": dict(counts),
+             "skipped_files": len(UNREADABLE),
              "auto": Counter(c["why"] for c in chats if c["auto"]), "kept_chars": sum(len(" ".join(c["user"])) for c in keep),
              "first": min((c["start"] for c in chats), default=None), "last": max((c["start"] for c in chats), default=None),
              "already_automated": repeated.most_common(15)}

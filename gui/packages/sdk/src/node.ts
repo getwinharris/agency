@@ -115,6 +115,7 @@ export {
   createRequestTimeoutFetch,
   DEFAULT_ROOM_REQUEST_TIMEOUT_MS as DEFAULT_BB_REQUEST_TIMEOUT_MS,
 };
+export { linuxSandboxRefusedMessage } from "./response.js";
 export { RoomHttpError as BbHttpError, RoomRequestTimeoutError as BbRequestTimeoutError } from "./response.js";
 export {
   pluginMutationResponseSchema,
@@ -125,6 +126,7 @@ export { createGuideArea } from "./areas/guide.js";
 export {
   DEFAULT_THREAD_WAIT_POLL_INTERVAL_MS,
   DEFAULT_THREAD_WAIT_TIMEOUT_MS,
+  retryConnectionReset,
   ThreadWaitTimeoutError,
   ThreadWaitUnreachableError,
 } from "./areas/threads.js";

@@ -98,6 +98,7 @@ signals it, so a stale file left by a crash cannot stop an unrelated process.
 | `BB_TRANSCRIPTION`             | `config.json`                                      | Optional                | Voice transcription model in `<service>/<model>` format: a plugin-registered AI service (`codex` with the codex plugin; audio up to 5MB) or `openai/<model>` with `OPENAI_API_KEY`. Defaults to `codex/gpt-transcribe`.                                                                                                                                                                                        |
 | `BB_MARKETPLACE_URL`           | `env.json`, or environment                         | Startup-only testing    | Manifest URL of the reserved `bb-community` plugin marketplace. It defaults to `https://getbb.app/marketplace/v2/marketplace.json`. If the default v2 request returns 404, the server requests v1. Set another URL to test catalog refreshes. The server requests that URL without fallback. It changes only `bb-community`. Add other marketplaces with `bb marketplace add`. Restart the app after a change. |
 | `BB_SERVER_URL`                | `config.json`                                      | Remote CLI/host use     | Server URL for standalone `bb` CLI and `host-daemon` commands on the current machine. The CLI defaults to `http://127.0.0.1:38886` when unset.                                                                                                                                                                                                                                                                 |
+| `BB_ALLOW_INSECURE_SERVER_URL` | `env.json`, or environment                         | Compatibility only      | Set to `1` to allow a non-loopback `http://` server URL: on the server, for machine install commands; on a machine, for enrollment and its host daemon. Keys and session traffic then travel unencrypted, so use it only on a trusted network. Without it they refuse. |
 | `BB_SERVER_BIND_HOST`          | `env.json`, environment, or `--server-bind-host`   | Startup-only            | Server listener host. Defaults to `127.0.0.1`; accepts only `127.0.0.1` or `0.0.0.0`. A full launcher or desktop app restart is required; until then, a previous `0.0.0.0` listener remains exposed.                                                                                                                                                                        |
 | `BB_SERVER_PORT`               | `env.json`, environment, or `--server-port`        | Startup-only            | HTTP listener port. Defaults to `38886`. A full launcher or desktop app restart is required after a persistent set or unset.                                                                                                                                                                                                                                                                                   |
 | `BB_HOST_DAEMON_PORT`          | `env.json`, environment, or `--host-daemon-port`   | Startup-only            | Local host-daemon API port. Defaults to `38887`. A full launcher or desktop app restart is required after a persistent set or unset.                                                                                                                                                                                                                                                                           |
@@ -232,8 +233,9 @@ is no setting. See [Worktrees](worktrees.md#cleanup).
 
 Settings → Agents → Harness lists every registered agent provider in picker order:
 the default first, then the providers you started the most threads with in the
-last 30 days, then the rest in plugin install order. The order is not set by
-hand. `defaultProviderId` is the provider new threads use when neither the
+last 72 hours, then the rest in plugin install order. Drag a row to set your own
+order instead (`customProviderOrder`; Picker order → Most used, or `[]`, goes
+back). `defaultProviderId` is the provider new threads use when neither the
 caller nor the project chose one (`null` means the first available provider in
 picker order). Set it with `bb settings general defaultProviderId claude-code`
 (or `null`).
@@ -382,6 +384,11 @@ or an open picker; unrelated editable controls retain their Option-composed
 character input. A configured app shortcut takes precedence in editable
 controls; when no matching command handles a chord, the control retains its
 native behavior.
+
+In the terminal, app shortcuts that use `Command`, `Alt`, or `Ctrl+Shift` win
+over the shell. Plain keys, Escape, and `Ctrl+letter` always reach the shell,
+so on Windows and Linux only `Mod+Shift` shortcuts work there. `Mod+W` never
+archives the thread from the terminal.
 
 The desktop application menu uses the same resolved bindings for New Thread,
 New Window, New Tab, Archive Thread, Close, and Settings. There is no separate
@@ -689,7 +696,7 @@ client wrote first, so a stale window cannot silently clobber a newer value.
 | `sidebar.navigationProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `sidebar.threadListProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `appearance.theme`                | `light`, `dark`, or `system` (default)              |
-| `defaults.startingMachine`        | `last` (default: where the project's last new thread started) or `cloud` |
+| `defaults.startingMachine`        | `last` (default: Cloud, except a project where Local was picked in the last 24 hours) or `cloud` |
 | `defaults.showUltraEfforts`       | `true` adds Claude Ultracode and Codex Ultra to the effort menu (default `false`) |
 
 By project (`project`) is the default for `sidebar.organizationMode` when no
@@ -801,8 +808,8 @@ persistently restores undimmed splits.
 
 ## Accounts
 
-The builtin Accounts plugin is always on (ADR 0194). Connect up to 10 Claude
-Code and 10 Codex subscriptions at the top of Settings → Agents → Claude Code
+The builtin Accounts plugin is always on (ADR 0194). Connect up to 30 Claude
+Code and 30 Codex subscriptions at the top of Settings → Agents → Claude Code
 or Codex. The machine's own CLI login is the first entry and is never copied, so
 the CLI and Cloudroom never refresh the same token.
 
@@ -1115,7 +1122,8 @@ spec tracks the newest compatible stable release, ranges track within the
 range, dist-tags track the tag, and exact versions are pinned. A bare HTTP(S)
 Git repository URL or `git:<url>[@<ref|semver-range>]` requires `git`. Git
 URLs must not embed a username, password, or token; private repositories sign
-in through Git's credential helper. An
+in through Git's credential helper. A marketplace listing's Git URL login is
+dropped. An
 omitted ref tracks the repository's default branch, explicit branches track
 their head, and tags and commits are pinned. A semver range
 (`git:<url>@^1.2.0`, or `@semver:<range>` to state the intent explicitly)
@@ -1291,7 +1299,11 @@ agent configuration is next assembled, not retroactively to existing text.
 
 Machines settings expose **Server URL reachable by machines** (`machineServerUrl`)
 and **Default machine access** (`defaultMachineAccess`). The URL must be HTTP
-or HTTPS without embedded credentials. An unset URL falls back to
+or HTTPS without embedded credentials. A non-loopback `http://` URL would send
+machine keys unencrypted, so adding a machine fails unless the server's
+`env.json` sets `BB_ALLOW_INSECURE_SERVER_URL=1` (trusted networks only). Its
+install commands then pass the opt-in on, and the machine saves it in its own
+`env.json`. An unset URL falls back to
 `BB_EXTERNAL_URL`. The URL input appears when Manual is selected. An unset access provider selects
 bb connect, even when unpaired; Machines settings links to its setup. Choose
 Manual (`direct`) explicitly to use your own URL. An explicit provider must
@@ -1400,7 +1412,8 @@ while no builds are running. See [build performance](build-performance.md) for
 its identity, portability, and verification contract.
 
 Usage telemetry can be disabled in Settings → General → Privacy & diagnostics → Share usage data and setup errors,
-or with `bb settings general telemetryEnabled false`. The saved server-wide preference
+or with `room-cli settings general telemetryEnabled false`. The saved server-wide preference
 takes effect immediately and persists across restarts. SDK callers can use
-`system.updateGeneralSettings` with `telemetryEnabled`. `BB_TELEMETRY=false`
-always disables telemetry, even when the saved preference is enabled.
+`system.updateGeneralSettings` with `telemetryEnabled`. `CLOUDROOM_TELEMETRY=false`,
+`BB_TELEMETRY=false`, or `DO_NOT_TRACK=1` always disables telemetry, even when the saved
+preference is enabled. Details: https://cloudroom.dev/privacy.

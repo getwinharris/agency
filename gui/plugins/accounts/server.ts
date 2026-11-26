@@ -12,6 +12,7 @@ import {
   type ClaudeUsage,
   localClaudeAccount,
   profileAccount,
+  profilePlan,
   profileUsage,
   signOut,
   tokenOrganization,
@@ -42,6 +43,15 @@ import {
   type Provider,
   type UsageWindow,
 } from "./src/contract.js";
+import {
+  AGY_FILE_LOGIN,
+  AGY_TOKEN,
+  AntigravityLogin,
+  agyUsage,
+  isAgyCode,
+  placeAgyLogin,
+  readAgyLogin,
+} from "./src/antigravity.js";
 import { afterUsage, limitMark, limitMarkSchema } from "./src/limit-mark.js";
 import { limitedThreads } from "./src/limited-threads.js";
 import { accountTelemetry, errorCode, type AddKind } from "./src/telemetry.js";
@@ -72,7 +82,7 @@ const storedSchema = z.object({
 });
 type Stored = z.infer<typeof storedSchema>;
 // Providers whose accounts this Mac stores, in the order the user set. Codex accounts live on the website (ADR 0195).
-type Ordered = "claude-code" | "acp-cursor";
+type Ordered = "claude-code" | "acp-cursor" | "acp-antigravity";
 const secretSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
@@ -101,15 +111,6 @@ type Usage = {
   at: number;
 };
 
-// What the usage bars show: each one's name, whole percent, and reset time to the minute.
-const bars = (windows: UsageWindow[] = []) =>
-  windows
-    .map(
-      (window) =>
-        `${window.label}:${Math.round(window.usedPercent)}:${Math.round((window.resetsAt ?? 0) / 60_000)}`,
-    )
-    .join();
-
 export default async function plugin(room: BbPluginApi) {
   const kv = room.storage.kv;
   const telemetry = accountTelemetry(room);
@@ -123,6 +124,16 @@ export default async function plugin(room: BbPluginApi) {
   const secretPath = (id: string) => path.join(secretsDir, `${id}.json`);
   const profilesDir = path.join(path.dirname(secretsDir), "profiles");
   const profilePath = (profile: string) => path.join(profilesDir, profile);
+  // Each added Antigravity account's own HOME, holding its login (src/antigravity.ts). Named by the account's id.
+  const agyDir = path.join(path.dirname(secretsDir), "antigravity");
+  const agyHome = (id: string) => path.join(agyDir, id);
+  const readAgy = (id: string) => fs.readFile(path.join(agyHome(id), AGY_TOKEN), "utf8");
+  const agyLogin = new AntigravityLogin();
+  // Sign-ins in progress: the new account's id, and when the add began (telemetry).
+  const agyAdds = new Map<string, { id: string; startedAt: number }>();
+  room.onDispose(() => agyLogin.stopAll());
+  // A read said this computer's agy is signed out (or gone). Not set before the first read or by a failed one.
+  let agyMacSignedOut = false;
   const dropProfile = async (profile: string) => {
     if (stillNamed("profile", profile)) return;
     try {
@@ -165,8 +176,9 @@ export default async function plugin(room: BbPluginApi) {
     .object({
       "claude-code": z.array(z.string()),
       "acp-cursor": z.array(z.string()).default([LOCAL]),
+      "acp-antigravity": z.array(z.string()).default([LOCAL]),
     })
-    .catch({ "claude-code": [LOCAL], "acp-cursor": [LOCAL] })
+    .catch({ "claude-code": [LOCAL], "acp-cursor": [LOCAL], "acp-antigravity": [LOCAL] })
     .parse(await kv.get("order:v1"));
   const limits = z
     .record(z.string(), limitMarkSchema)
@@ -230,6 +242,8 @@ export default async function plugin(room: BbPluginApi) {
   // `inCloud` is the account Cloud last confirmed. `cloudStale`: it has a newer token to upload.
   let cloudStale = z.boolean().catch(false).parse(await kv.get("cloud-stale:v1"));
   let cloudPending: string | null = null;
+  // Counts stale marks, so an upload that started before a mark doesn't clear it.
+  let staleMarks = 0;
   let cloudQueue: Promise<unknown> = Promise.resolve();
   // Before Cursor accounts, Cloud used a copy of the Mac's own Cursor login.
   let cursorInCloud = z.string().catch(LOCAL).parse(await kv.get("cursor-cloud:v1"));
@@ -243,7 +257,13 @@ export default async function plugin(room: BbPluginApi) {
         .parse(await kv.get("usage:v1")),
     ).map(([id, windows]) => [
       id,
-      { windows, credits: null, error: null, signInAgain: false, at: 0 },
+      {
+        windows: windows.map((window) => ({ ...window, checkedAt: window.checkedAt ?? 0 })),
+        credits: null,
+        error: null,
+        signInAgain: false,
+        at: 0,
+      },
     ]),
   );
   // Background work never throws: outside a request, an unhandled error stops the whole server. Once this run is
@@ -301,6 +321,9 @@ export default async function plugin(room: BbPluginApi) {
     thread.providerId === "claude-code" &&
     thread.executionTarget !== "cloud" &&
     ownLogin.has(thread.id);
+  // Cloud keeps its own Antigravity login, so no account here runs or limits a Cloud Antigravity thread.
+  const cloudAgy = (thread: { providerId: string; executionTarget?: string } | null) =>
+    thread?.providerId === "acp-antigravity" && thread.executionTarget === "cloud";
   let thisComputer: Promise<string | null> | undefined;
   const onAnotherMachine = async (hostId: string | undefined) => {
     thisComputer ??= room.sdk.system.config().then(
@@ -318,11 +341,21 @@ export default async function plugin(room: BbPluginApi) {
   );
   const adding = new Map<string, Adding>();
   // An unreadable record may own any folder, so none is dropped then.
-  if (unreadable.length === 0)
+  if (unreadable.length === 0) {
     void fs.readdir(profilesDir).then(
       (found) => Promise.all(found.map(dropProfile)),
       () => {},
     );
+    void fs.readdir(agyDir).then(
+      (found) =>
+        Promise.all(
+          found
+            .filter((id) => !stillNamed("id", id))
+            .map((id) => fs.rm(agyHome(id), { recursive: true, force: true })),
+        ),
+      () => {},
+    );
+  }
   let codexInUse = LOCAL;
   let codexAccounts = 0;
   // Codex accounts are known once the website's list was read (the usage box reads it).
@@ -342,6 +375,7 @@ export default async function plugin(room: BbPluginApi) {
       resumed: Promise.all([
         noteInUse("claude-code", current("claude-code")),
         noteInUse("acp-cursor", current("acp-cursor")),
+        noteInUse("acp-antigravity", current("acp-antigravity")),
       ]),
     };
   };
@@ -373,7 +407,9 @@ export default async function plugin(room: BbPluginApi) {
       ...(kept.includes(LOCAL) ? [] : [LOCAL]),
     ];
     // A hidden Mac login leaves the order, so it comes back last.
-    if (provider === "claude-code" && saved.length > 0 && !macShown())
+    const hidden =
+      provider === "claude-code" ? !macShown() : provider === "acp-antigravity" && agyMacSignedOut;
+    if (saved.length > 0 && hidden)
       order[provider] = order[provider].filter((id) => id !== LOCAL);
     return order[provider];
   };
@@ -407,7 +443,9 @@ export default async function plugin(room: BbPluginApi) {
       ? codexView()
       : provider === "acp-cursor"
         ? cursorView()
-        : claudeView();
+        : provider === "acp-antigravity"
+          ? antigravityView()
+          : claudeView();
   const accountName = async (provider: Provider, id: string) => {
     const view = (await views(provider).catch(() => [])).find((entry) => entry.id === id);
     return (
@@ -434,6 +472,7 @@ export default async function plugin(room: BbPluginApi) {
   const inUse: Partial<Record<Provider, string>> = {
     "claude-code": current("claude-code"),
     "acp-cursor": current("acp-cursor"),
+    "acp-antigravity": current("acp-antigravity"),
   };
   const noteInUse = async (provider: Provider, id: string) => {
     const before = inUse[provider];
@@ -466,6 +505,7 @@ export default async function plugin(room: BbPluginApi) {
     return run;
   };
   const followOnce = async (connect: boolean): Promise<string | null> => {
+    const marks = staleMarks;
     const id = current("claude-code");
     const account = accounts.find((entry) => entry.id === id);
     if (id === inCloud && !cloudStale) return null;
@@ -487,9 +527,10 @@ export default async function plugin(room: BbPluginApi) {
       if (status.state !== "connected")
         return "Claude isn't connected in Cloud.";
       inCloud = id;
-      cloudStale = false;
+      // A mark made during the upload (say a new plan) still needs its own upload.
+      if (staleMarks === marks) cloudStale = false;
       await kv.set("cloud:v1", id);
-      await kv.set("cloud-stale:v1", false);
+      await kv.set("cloud-stale:v1", cloudStale);
       return null;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -500,6 +541,7 @@ export default async function plugin(room: BbPluginApi) {
     }
   };
   const markStale = async () => {
+    staleMarks++;
     cloudStale = true;
     await kv.set("cloud-stale:v1", true);
   };
@@ -527,6 +569,29 @@ export default async function plugin(room: BbPluginApi) {
     }
   };
 
+  // agy reads the account in use's login from one file; this computer's own login needs none (src/antigravity.ts).
+  // Every folder on disk counts as ours, so a removed account's login still gets replaced. One at a time.
+  let agyQueue: Promise<unknown> = Promise.resolve();
+  const placeAgy = (): Promise<void> => {
+    const run = agyQueue.then(async () => {
+      const id = current("acp-antigravity");
+      const grants = await Promise.all(
+        (await fs.readdir(agyDir).catch(() => [])).map((entry) =>
+          readAgy(entry).then(
+            (text) => readAgyLogin(text).grant,
+            () => null,
+          ),
+        ),
+      );
+      await placeAgyLogin(
+        id === LOCAL ? null : await readAgy(id),
+        new Set(grants.filter((grant) => grant !== null)),
+      );
+    });
+    agyQueue = run.catch(() => {});
+    return run;
+  };
+
   type ReadMode = "free" | "reply" | "failure";
   const readAccountUsage = async (
     account: Stored | typeof LOCAL,
@@ -540,6 +605,11 @@ export default async function plugin(room: BbPluginApi) {
     }
     if (account.provider === "acp-cursor")
       return { windows: await cursorUsage(await readCursorKey(account)), credits: null };
+    if (account.provider === "acp-antigravity") {
+      const read = await agyUsage(agyHome(account.id));
+      account.plan = read.plan ?? account.plan;
+      return { windows: read.windows, credits: null };
+    }
     const profile = account.profile ? profilePath(account.profile) : undefined;
     if (mode === "free" || mode === "failure") return profile ? profileUsage(profile) : null;
     return claudeUsage(
@@ -604,13 +674,18 @@ export default async function plugin(room: BbPluginApi) {
           (!read.reportedModels || read.reportedModels.includes(window.model)) &&
           !read.windows.some((next) => next.label === window.label),
       );
-      const windows = [...read.windows, ...kept];
+      // A bar this read returned is checked now, unless it's the last read's, kept through a short error.
+      const now = Date.now();
+      const windows = [
+        ...read.windows.map((window) => ({ ...window, checkedAt: window.checkedAt ?? now })),
+        ...kept,
+      ];
       usage.set(id, {
         windows,
         credits: read.credits,
         error: null,
         signInAgain: false,
-        at: Date.now(),
+        at: now,
       });
       const next = mark === undefined ? undefined : afterUsage(mark, read, mode === "failure");
       if (next !== mark) {
@@ -620,14 +695,10 @@ export default async function plugin(room: BbPluginApi) {
         } else if (next !== undefined) limits[key] = next;
         await kv.set("limits:v1", limits);
       }
-      if (!local && JSON.stringify(windows) !== JSON.stringify(previous?.windows))
-        await saveUsage();
-      if (
-        next !== mark ||
-        previous?.error ||
-        !read.credits !== !previous?.credits ||
-        bars(windows) !== bars(previous?.windows)
-      )
+      // Exact, check time included: every read is saved, and open pages never grey a bar the server just read.
+      const moved = JSON.stringify(windows) !== JSON.stringify(previous?.windows);
+      if (!local && moved) await saveUsage();
+      if (next !== mark || previous?.error || !read.credits !== !previous?.credits || moved)
         room.realtime.publish(ACCOUNTS_CHANGED, {});
     };
     const done: Promise<void> = load().finally(() => {
@@ -647,7 +718,10 @@ export default async function plugin(room: BbPluginApi) {
       readMacUsage() ? refreshUsage(LOCAL, force) : undefined,
       ...accounts
         .filter(
-          (account) => account.provider === "acp-cursor" || account.id === current("claude-code"),
+          (account) =>
+            account.provider === "acp-cursor" ||
+            account.id === current("claude-code") ||
+            account.id === current("acp-antigravity"),
         )
         .map((account) => refreshUsage(account, force)),
     ]);
@@ -656,9 +730,10 @@ export default async function plugin(room: BbPluginApi) {
   const refreshIdle = async (fill = false) => {
     for (const account of accounts) {
       if (disposed) return;
+      // Antigravity's read runs agy for a few seconds, so its other accounts are read hourly too.
       if (
-        account.provider !== "claude-code" ||
-        account.id === current("claude-code") ||
+        (account.provider !== "claude-code" && account.provider !== "acp-antigravity") ||
+        account.id === current(account.provider) ||
         !accounts.includes(account)
       )
         continue;
@@ -689,7 +764,10 @@ export default async function plugin(room: BbPluginApi) {
   const timer = setInterval(() => {
     background(refreshAll());
     background(telemetry.daily(snapshot));
-    if (++ticks % IDLE_USAGE_TICKS === 0) background(refreshIdle());
+    if (++ticks % IDLE_USAGE_TICKS === 0) {
+      background(refreshIdle());
+      background(refreshPlans());
+    }
     if (cloudStale) void followInCloud(false);
   }, USAGE_EVERY_MS);
   if (cloudStale) void followInCloud(false);
@@ -697,17 +775,60 @@ export default async function plugin(room: BbPluginApi) {
   room.onDispose(() => clearInterval(timer));
   background(refreshAll());
   background(refreshIdle(true));
-  // Accounts saved before plan tiers were read learn theirs once, so Ultra shows as Ultra.
-  void Promise.all(
-    accounts
-      .filter((entry) => entry.provider === "claude-code" && entry.profile && entry.tier === undefined)
-      .map(async (entry) => {
-        const found = await profileAccount(profilePath(entry.profile!)).catch(() => null);
-        if (!found) return false;
-        entry.tier = found.tier;
-        return true;
-      }),
-  ).then((read) => (read.includes(true) ? changed() : undefined));
+  if (current("acp-antigravity") !== LOCAL) background(placeAgy());
+  // Plans change on Claude's side, and `claude auth status` keeps the one a login signed in with (#2534). So each full
+  // login's plan is read live at start and hourly, with no reply. Accounts saved before plan tiers were read fall back
+  // to `claude auth status` once, so Ultra shows as Ultra. A changed plan Cloud runs on is sent to Cloud again.
+  const refreshPlans = async () => {
+    let moved = false;
+    for (const entry of accounts) {
+      if (disposed) return;
+      if (entry.provider !== "claude-code" || !entry.profile) continue;
+      const dir = profilePath(entry.profile);
+      const found =
+        (await profilePlan(dir).catch(() => null)) ??
+        (entry.tier === undefined
+          ? await profileAccount(dir).catch(() => null)
+          : null);
+      const plan = found?.plan ?? entry.plan;
+      if (
+        !found ||
+        !accounts.includes(entry) ||
+        (entry.org && "org" in found && found.org && found.org !== entry.org) ||
+        (plan === entry.plan && found.tier === entry.tier)
+      )
+        continue;
+      const planMoved = plan !== entry.plan;
+      entry.plan = plan;
+      entry.tier = found.tier;
+      moved = true;
+      if (planMoved && (entry.id === inCloud || entry.id === cloudPending)) await markStale();
+    }
+    // The Mac's own login approved for Cloud, while Cloud runs on it and its usage is read anyway.
+    await refreshMac();
+    const approved = macCloud;
+    const onMac = () => inCloud === LOCAL || cloudPending === LOCAL;
+    if (approved && onMac() && macCloudReady() && readMacUsage()) {
+      const found = await profilePlan().catch(() => null);
+      // The terminal login may have changed during the read: only the approved login's plan counts.
+      if (
+        found &&
+        found.plan !== approved.plan &&
+        (!approved.org || found.org === approved.org) &&
+        macCloud === approved &&
+        macCloudReady() &&
+        onMac() &&
+        !disposed
+      ) {
+        macCloud = { ...approved, plan: found.plan };
+        await kv.set("mac-cloud:v1", macCloud);
+        await markStale();
+        moved = true;
+      }
+    }
+    if (moved) await changed();
+  };
+  background(refreshPlans());
 
   // Adding never switches accounts: the one in use stays in use.
   const add = async (
@@ -777,6 +898,7 @@ export default async function plugin(room: BbPluginApi) {
         needsSignIn: false,
         limitedLogin:
           provider === "claude-code" && account !== undefined && !account.profile,
+        signedOut: id in loginFailed || measured?.signInAgain === true,
       };
     });
   };
@@ -807,12 +929,101 @@ export default async function plugin(room: BbPluginApi) {
       cursorLocal = { email: await localCursorEmail(), at: Date.now() };
     return rows("acp-cursor", cursorLocal.email);
   };
+  // This Mac's Antigravity subscription, shown in Settings → Agents → Accounts only while connected (David, 2026-11-21).
+  let antigravityLocal: {
+    at: number;
+    connected: boolean;
+    email: string | null;
+    plan: string | null;
+    windows: UsageWindow[];
+  } = { at: 0, connected: false, email: null, plan: null, windows: [] };
+  let antigravityLocalReading: Promise<void> | null = null;
+  const refreshAntigravityLocal = (force = false): Promise<void> => {
+    if (antigravityLocalReading) return antigravityLocalReading;
+    if (!force && antigravityLocal.at > 0 && Date.now() - antigravityLocal.at < USAGE_EVERY_MS)
+      return Promise.resolve();
+    const run = (async () => {
+      const response = await room.sdk.system
+        .usageLimits({ providerId: "acp-antigravity" })
+        .catch(() => null);
+      const now = Date.now();
+      if (response === null) {
+        antigravityLocal = { ...antigravityLocal, at: now };
+        return;
+      }
+      const usage = response["acp-antigravity"];
+      const next =
+        usage?.status === "ok"
+          ? {
+              at: now,
+              connected: true,
+              email: usage.accountEmail ?? null,
+              plan: usage.planLabel ?? null,
+              windows: usage.windows
+                .filter(
+                  (window) =>
+                    !/\b3p\b/iu.test(window.label) || window.usedPercent > 0,
+                )
+                .map((window) => ({
+                  label: window.label,
+                  usedPercent: window.usedPercent,
+                  resetsAt: Date.parse(window.resetsAt ?? "") || null,
+                  checkedAt: now,
+                })),
+            }
+          : usage?.status === "error"
+            ? { ...antigravityLocal, at: now }
+            : { at: now, connected: false, email: null, plan: null, windows: [] };
+      const moved =
+        next.connected !== antigravityLocal.connected ||
+        next.email !== antigravityLocal.email ||
+        next.plan !== antigravityLocal.plan ||
+        JSON.stringify(next.windows) !== JSON.stringify(antigravityLocal.windows);
+      antigravityLocal = next;
+      const signedOut = usage?.status !== "ok" && usage?.status !== "error";
+      if (signedOut !== agyMacSignedOut) {
+        agyMacSignedOut = signedOut;
+        await changed();
+      } else if (moved) room.realtime.publish(ACCOUNTS_CHANGED, {});
+    })().finally(() => {
+      if (antigravityLocalReading === run) antigravityLocalReading = null;
+    });
+    antigravityLocalReading = run;
+    return run;
+  };
+  // "This Mac" shows only while this computer's agy is signed in; added accounts always show.
+  const antigravityView = async (refresh = false): Promise<AccountView[]> => {
+    if (refresh || antigravityLocal.at === 0) await refreshAntigravityLocal(refresh);
+    else background(refreshAntigravityLocal());
+    const now = Date.now();
+    return rows("acp-antigravity", antigravityLocal.email).flatMap((row) =>
+      row.id !== LOCAL
+        ? [row]
+        : antigravityLocal.connected
+          ? [
+              {
+                ...row,
+                plan: antigravityLocal.plan,
+                windows: antigravityLocal.windows.map((window) =>
+                  window.resetsAt !== null && window.resetsAt <= now
+                    ? { ...window, usedPercent: 0, resetsAt: null }
+                    : window,
+                ),
+              },
+            ]
+          : [],
+    );
+  };
   // This computer's own login, read now, so a rename never names the login before it.
   const thisLogin = async (provider: Provider): Promise<string | null> => {
     if (provider === "codex") return localCodexEmail();
     if (provider === "claude-code") {
       await refreshMac();
       return macLogin();
+    }
+    if (provider === "acp-antigravity") {
+      await refreshAntigravityLocal(true);
+      return antigravityLocal.connected ? antigravityLocal.email : null;
     }
     cursorLocal = { email: await localCursorEmail(), at: Date.now() };
     return cursorLocal.email;
@@ -883,12 +1094,14 @@ export default async function plugin(room: BbPluginApi) {
         windows: codexLocal.windows,
         needsSignIn: false,
         limitedLogin: false,
+        signedOut: false,
       },
       ...list.accounts.map((account) => ({
         ...account,
         limitedUntil: limitedUntil("codex", account.id),
         needsSignIn: false,
         limitedLogin: false,
+        signedOut: false,
       })),
     ];
   };
@@ -955,6 +1168,9 @@ export default async function plugin(room: BbPluginApi) {
     existing.profile = state.profile;
     existing.org = account.orgId;
     if (old) void dropProfile(old);
+    // The new login replaces the rejected one: its error clears now, not at the next usage read.
+    const seen = usage.get(existing.id);
+    if (seen?.signInAgain) usage.set(existing.id, { ...seen, error: null, signInAgain: false });
     await noteLoginFailed(existing.id, undefined);
     // Cloud gets the new token on its next follow, even after a restart.
     if (existing.id === inCloud) await markStale();
@@ -1018,6 +1234,61 @@ export default async function plugin(room: BbPluginApi) {
     background(refreshUsage(account, true));
   };
 
+  // Each Antigravity account signs in with Google in its own HOME, so its login never touches this computer's.
+  const agyCount = () => accounts.filter((account) => account.provider === "acp-antigravity").length;
+  const startAntigravity = async () => {
+    if (agyCount() >= MAX_ACCOUNTS)
+      throw new Error(`You can connect up to ${MAX_ACCOUNTS} accounts per provider.`);
+    const id = randomUUID();
+    await fs.mkdir(agyHome(id), { recursive: true, mode: 0o700 });
+    try {
+      const started = await agyLogin.start(agyHome(id));
+      agyAdds.set(started.sessionId, { id, startedAt: Date.now() });
+      return started;
+    } catch (error) {
+      await fs.rm(agyHome(id), { recursive: true, force: true });
+      throw error;
+    }
+  };
+  // Adding never switches accounts. The same Google account twice is refused: Remove it first to sign in again.
+  const completeAntigravity = async (sessionId: string, code: string) => {
+    const id = agyAdds.get(sessionId)?.id;
+    if (!id) throw new Error("This sign-in expired. Start again.");
+    // A mistyped code keeps the sign-in open, so the user can paste again.
+    if (!isAgyCode(code)) throw new Error("Paste the code Google showed.");
+    try {
+      const { login } = await agyLogin.complete(sessionId, code);
+      if (!agyAdds.has(sessionId)) throw new Error("This sign-in was cancelled.");
+      const { email } = readAgyLogin(login);
+      if (
+        email !== null &&
+        accounts.some((entry) => entry.provider === "acp-antigravity" && entry.email === email)
+      )
+        throw new Error(`${email} is already added.`);
+      if (agyCount() >= MAX_ACCOUNTS)
+        throw new Error(`You can connect up to ${MAX_ACCOUNTS} accounts per provider.`);
+      const account: Stored = {
+        id,
+        provider: "acp-antigravity",
+        email,
+        plan: null,
+        accountKey: null,
+        createdAt: Date.now(),
+      };
+      accounts = [...accounts, account];
+      agyAdds.delete(sessionId);
+      ids("acp-antigravity");
+      await changed();
+      background(refreshUsage(account, true));
+    } catch (error) {
+      agyAdds.delete(sessionId);
+      agyLogin.cancel(sessionId);
+      if (!accounts.some((entry) => entry.id === id))
+        await fs.rm(agyHome(id), { recursive: true, force: true });
+      throw error;
+    }
+  };
+
   const remove = async (provider: Provider, id: string) => {
     stored(id);
     delete limits[limitKey(provider, id)];
@@ -1030,6 +1301,13 @@ export default async function plugin(room: BbPluginApi) {
     accounts = accounts.filter((account) => account.id !== id);
     if (removed?.profile) void dropProfile(removed.profile);
     order[provider] = order[provider].filter((entry) => entry !== id);
+    if (removed?.provider === "acp-antigravity") {
+      // The next account goes in use before this one's folder, and with it its login, is gone.
+      await placeAgy().catch((error: unknown) =>
+        room.log.warn(`Antigravity login not switched: ${error instanceof Error ? error.message : String(error)}`),
+      );
+      await fs.rm(agyHome(id), { recursive: true, force: true });
+    }
     usage.delete(id);
     await noteLoginFailed(id, undefined);
     await dropSecret(id);
@@ -1104,6 +1382,11 @@ export default async function plugin(room: BbPluginApi) {
       await codexResumed;
       return { following: null };
     }
+    if (provider === "acp-antigravity" && id === LOCAL) {
+      await refreshAntigravityLocal(true);
+      if (!antigravityLocal.connected)
+        throw new Error("Sign in to Antigravity on this Mac first: run `agy`.");
+    }
     if (provider === "claude-code" && id === LOCAL) {
       if (!(await refreshMac()))
         throw new Error(
@@ -1119,9 +1402,21 @@ export default async function plugin(room: BbPluginApi) {
           "Sign in to Cursor on this Mac first: run `cursor-agent login`.",
         );
     }
+    const before = [...order[provider]];
     move(id, 0, provider);
+    // Cloud keeps its own Antigravity login for now (docs/scopes/multiple-subscriptions.md, 35).
+    if (provider === "acp-antigravity")
+      await placeAgy().catch((error: unknown) => {
+        order[provider] = before;
+        throw error;
+      });
     const follow = await changed(true);
-    const following = provider === "acp-cursor" ? follow.cursor : follow.cloud;
+    const following =
+      provider === "acp-cursor"
+        ? follow.cursor
+        : provider === "acp-antigravity"
+          ? null
+          : follow.cloud;
     const account = accounts.find((entry) => entry.id === id);
     if (account) background(refreshUsage(account, true));
     else if (provider === "claude-code" && id === LOCAL && mac) background(refreshUsage(LOCAL, true));
@@ -1135,7 +1430,11 @@ export default async function plugin(room: BbPluginApi) {
     accountsRpcContract,
     {
       "accounts.list": ({ provider, refresh }) =>
-        provider === "claude-code" && refresh ? claudeView(true) : views(provider),
+        provider === "claude-code" && refresh
+          ? claudeView(true)
+          : provider === "acp-antigravity"
+            ? antigravityView(Boolean(refresh))
+            : views(provider),
       "accounts.use": async ({ provider, id, cloud, threadId, where }) => {
         const startedAt = Date.now();
         // Read before the switch changes them.
@@ -1143,8 +1442,7 @@ export default async function plugin(room: BbPluginApi) {
           provider,
           where: where ?? null,
           to: id === LOCAL ? ("this_mac" as const) : ("added" as const),
-          accounts:
-            provider === "codex" ? codexAccounts + 1 : ids(provider).length,
+          accounts: provider === "codex" ? codexAccounts + 1 : ids(provider).length,
           target_at_limit: limitedUntil(provider, id) !== null,
           waiting_threads:
             limited.waiting(provider) +
@@ -1200,6 +1498,11 @@ export default async function plugin(room: BbPluginApi) {
           order[provider] = before;
           throw new Error(MAC_NEEDS_CLOUD);
         }
+        if (provider === "acp-antigravity")
+          await placeAgy().catch((error: unknown) => {
+            order[provider] = before;
+            throw error;
+          });
         await changed(true);
         return null;
       },
@@ -1269,7 +1572,9 @@ export default async function plugin(room: BbPluginApi) {
           await codex({ action: "rename", id: stored(id), name });
           return null;
         }
-        const account = accounts.find((entry) => entry.id === id);
+        const account = accounts.find(
+          (entry) => entry.provider === provider && entry.id === id,
+        );
         if (!account) throw new Error("This account is no longer connected.");
         account.name = name.trim() || null;
         await changed();
@@ -1315,7 +1620,22 @@ export default async function plugin(room: BbPluginApi) {
             return { status: "complete" as const, message: null, authorizeUrl: null };
           }
           if (!state.account) {
-            state.account = await profileAccount(profilePath(state.profile!));
+            const signedIn = await profileAccount(profilePath(state.profile!));
+            // A plain add of an account already here would only refresh it, and no row appears (#2547).
+            if (
+              !state.replace &&
+              accounts.some(
+                (entry) =>
+                  entry.provider === "claude-code" &&
+                  signedIn.orgId !== null &&
+                  entry.org === signedIn.orgId &&
+                  entry.email === signedIn.email,
+              )
+            )
+              throw new Error(
+                `${signedIn.email ?? "This Claude account"} is already added. Sign out of claude.ai or use a private window, then try again.`,
+              );
+            state.account = signedIn;
             const next = await claudeLogin.start();
             state.login = next.sessionId;
             state.url = next.authorizeUrl;
@@ -1344,6 +1664,37 @@ export default async function plugin(room: BbPluginApi) {
         } finally {
           state.busy = false;
         }
+      },
+      "antigravity.start": async () => {
+        const add = { kind: "new" as const, startedAt: Date.now() };
+        telemetry.add("acp-antigravity", add, "started", "login");
+        try {
+          return await startAntigravity();
+        } catch (error) {
+          telemetry.add("acp-antigravity", add, "failed", "login", error);
+          throw error;
+        }
+      },
+      "antigravity.complete": async ({ sessionId, code }) => {
+        const add = {
+          kind: "new" as const,
+          startedAt: agyAdds.get(sessionId)?.startedAt ?? Date.now(),
+        };
+        try {
+          await completeAntigravity(sessionId, code);
+        } catch (error) {
+          telemetry.add("acp-antigravity", add, "failed", "login", error);
+          throw error;
+        }
+        telemetry.add("acp-antigravity", add, "done", "login");
+        return null;
+      },
+      "antigravity.cancel": async ({ sessionId }) => {
+        const id = agyAdds.get(sessionId)?.id;
+        agyAdds.delete(sessionId);
+        agyLogin.cancel(sessionId);
+        if (id) await fs.rm(agyHome(id), { recursive: true, force: true });
+        return null;
       },
       // Cursor's one step is the key, so it sends no `started`.
       "cursor.add": async ({ apiKey }) => {
@@ -1462,6 +1813,35 @@ export default async function plugin(room: BbPluginApi) {
     },
   );
 
+  // An added Antigravity account runs agy in file-login mode, reading the login placeAgy put in place.
+  room.providers.experimental_contributeEnv(
+    "acp-antigravity",
+    async (context: { threadId?: string; hostId?: string }) => {
+      const id = current("acp-antigravity");
+      // Another machine runs on its own agy login: the account's file is only on this computer.
+      if (await onAnotherMachine(context.hostId)) return [];
+      noteThreadAccount(await newTurn(context.threadId), "acp-antigravity", id);
+      if (id === LOCAL) return [];
+      // A login that can't be put in place (another one sits in its file) leaves the turn on this computer's own.
+      const placed = await placeAgy().then(
+        () => true,
+        (error: unknown) => {
+          room.log.warn(`Antigravity account not used: ${error instanceof Error ? error.message : String(error)}`);
+          return false;
+        },
+      );
+      if (!placed) return [];
+      const account = accounts.find((entry) => entry.id === id);
+      const reason = `Cloudroom account ${account?.email ?? id}`;
+      // The account's id changes the env on every switch, so a running agy restarts on the new login.
+      return Object.entries({ ...AGY_FILE_LOGIN, CLOUDROOM_ANTIGRAVITY_ACCOUNT: id }).map(([name, value]) => ({
+        name,
+        value,
+        reason,
+      }));
+    },
+  );
+
   room.events.on("turn.failed", async (event) => {
     const category = event.errorInfo?.category;
     if (category !== "rate-limit" && category !== "unauthorized") return;
@@ -1486,7 +1866,7 @@ export default async function plugin(room: BbPluginApi) {
       return;
     }
     const provider = providerSchema.safeParse(thread?.providerId);
-    if (!provider.success) return;
+    if (!provider.success || cloudAgy(thread)) return;
     // The machine's own login hit its limit: no account here is limited, and no switch here moves the thread.
     if (onOwnLogin(thread)) return;
     // Local turns started before plugin startup have no known account. Cloud uses the selected login.
@@ -1548,7 +1928,7 @@ export default async function plugin(room: BbPluginApi) {
     const began = turnBegan.get(thread.id);
     turnBegan.delete(thread.id);
     const provider = providerSchema.safeParse(thread.providerId);
-    if (began === undefined || !provider.success || onOwnLogin(thread)) return;
+    if (began === undefined || !provider.success || cloudAgy(thread) || onOwnLogin(thread)) return;
     // A Local turn on an account's full login that began after the login failed, and ended fine: it works again.
     const observed = threadAccount.get(thread.id);
     const ran = observed?.key.startsWith(`${provider.data}:`) ? observed : undefined;

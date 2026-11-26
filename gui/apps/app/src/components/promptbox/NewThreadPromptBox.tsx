@@ -51,6 +51,7 @@ import {
 import { usePromptModePermissionDisplay } from "@/components/promptbox/usePromptModePermissionDisplay";
 import { PROMPT_PLACEHOLDER_HINT } from "@/components/promptbox/follow-up-placeholder";
 import { usePromptVoice } from "@/components/promptbox/usePromptVoice";
+import type { PromptDraftScope } from "@/hooks/usePromptDraftStorage";
 import {
   ProjectNudgeHint,
   useProjectNudge,
@@ -78,7 +79,12 @@ import {
   selectPrimaryHost,
   useHosts,
 } from "@/hooks/queries/host-queries";
-import { useSystemConfig } from "@/hooks/queries/system-queries";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  providerModelsRoute,
+  systemExecutionOptionsQueryOptions,
+  useSystemConfig,
+} from "@/hooks/queries/system-queries";
 import { useSystemMachineProviders } from "@/hooks/queries/machine-provider-queries";
 import { useHostDaemon } from "@/hooks/useHostDaemon";
 
@@ -152,6 +158,8 @@ interface NewThreadPromptBoxUIProps {
   pluginComposerHost?: PluginComposerHost | null;
   textEffects?: readonly ComposerTextEffectSource[];
   placeholder?: string;
+  /** The stored draft this box edits. Voice text lands there if the user leaves mid-transcription. */
+  voiceDraftScope?: PromptDraftScope;
 
   history: HistoryConfig;
   typeahead: TypeaheadConfig;
@@ -236,6 +244,7 @@ export const NewThreadPromptBoxUI = memo(function NewThreadPromptBoxUI({
   pluginComposerHost,
   textEffects,
   placeholder: placeholderOverride,
+  voiceDraftScope,
   history,
   typeahead,
   attachments,
@@ -257,7 +266,11 @@ export const NewThreadPromptBoxUI = memo(function NewThreadPromptBoxUI({
   const attachFiles = useCallback((files: File[]) => {
     promptBoxRef.current?.attachFiles(files);
   }, []);
-  const voice = usePromptVoice(promptBoxRef);
+  const voiceTarget = useMemo(
+    () => voiceDraftScope && { draftScope: voiceDraftScope },
+    [voiceDraftScope],
+  );
+  const voice = usePromptVoice(promptBoxRef, voiceTarget);
   const attachmentCount = attachments.items?.length ?? 0;
   const [composerLayout, setComposerLayout] =
     useState<ComposerView["layout"]>("expanded");
@@ -349,6 +362,26 @@ const DefaultNewThreadComposer = memo(function DefaultNewThreadComposer({
     () => promptBoxRef.current?.focus(),
     [promptBoxRef],
   );
+  const queryClient = useQueryClient();
+  const { environmentId, hostId, projectId } = execution.providerRouting ?? {};
+  // Shortcuts read the same cached list the model picker shows for that harness.
+  const loadModels = useCallback(
+    async (providerId: string) =>
+      (
+        await queryClient.fetchQuery(
+          systemExecutionOptionsQueryOptions({
+            ...providerModelsRoute(
+              queryClient,
+              { environmentId, hostId, projectId },
+              providerId,
+            ),
+            providerId,
+            writeLastKnown: false,
+          }),
+        )
+      ).models.map(({ model }) => model),
+    [environmentId, hostId, projectId, queryClient],
+  );
   const placeholder = placeholderOverride ?? NEW_THREAD_PROMPT_PLACEHOLDER;
   const placeholderHint =
     placeholderOverride === undefined && !isProjectlessPrompt
@@ -430,7 +463,7 @@ const DefaultNewThreadComposer = memo(function DefaultNewThreadComposer({
           execution.model.isLoading ||
           execution.model.loadFailed
             ? undefined
-            : promptModelShortcuts(execution)
+            : promptModelShortcuts(execution, { loadModels })
         }
         locationCommands={promptLocationCommands(
           modeConfig.environment,

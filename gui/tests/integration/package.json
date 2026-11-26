@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "vitest run --config vitest.config.ts",
     "test:smoke": "vitest run --config vitest.config.ts fake/smoke",
     "test:integration": "vitest run --config vitest.real-provider.config.ts",
@@ -20,16 +20,15 @@
     "@cloudroom/server": "workspace:*",
     "@cloudroom/server-contract": "workspace:*",
     "@cloudroom/test-helpers": "workspace:*",
-    "@hono/node-server": "^1.19.11",
-    "drizzle-orm": "^0.38.4",
+    "@hono/node-server": "^2.1.3",
+    "drizzle-orm": "^0.45.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@cloudroom/tsconfig": "workspace:*",
     "@types/node": "^22.0.0",
-    "better-sqlite3": "12.10.0",
+    "better-sqlite3": "13.0.3",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-7": "npm:typescript@^7.0.2",
     "vitest": "^4.1.1"
   }
 }

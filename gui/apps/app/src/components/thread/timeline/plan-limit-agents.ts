@@ -60,11 +60,14 @@ export function findLatestPlanLimitRowId(
     if (last.planLimitAccountSwitch) return null;
     if (last.planLimitSwitch)
       return last.planLimitSwitch.resend ? last.id : null;
-    return last.planLimit && !running ? last.id : null;
+    return (last.planLimit || last.refusal) && !running ? last.id : null;
   }
 }
 
 const SIGNED_OUT = new Set(["not_installed", "unauthenticated", "expired"]);
+/** Cloudroom's own agent (plugins/provider-cloudroom-agent, docs/scopes/cloudroom-agent.md). It needs no plan of the
+ *  user's, so the card offers it with a button of its own, beside the agents they already pay for. */
+export const CLOUDROOM_AGENT_ID = "cloudroom-agent";
 
 /** Every other signed-in agent this thread can switch to, each on its matching model, the Claude ↔ Codex pair first. */
 export function usePlanLimitAgents(threadId: string) {
@@ -125,6 +128,25 @@ export function usePlanLimitAgents(threadId: string) {
         .at(-1) || ""
     );
   };
+  /** The full window that resets last names the limit: "5-hour limit", "weekly limit", else "plan limit". */
+  const selfLimit = (() => {
+    const limits = usage[providerId];
+    if (limits?.status !== "ok") return "plan limit";
+    const label =
+      limits.windows
+        .filter(
+          (window) =>
+            window.usedPercent >= 100 &&
+            (typeof window.model !== "string" ||
+              currentModel.toLowerCase().includes(window.model)),
+        )
+        .sort((a, b) => (a.resetsAt ?? "").localeCompare(b.resetsAt ?? ""))
+        .at(-1)?.label ?? "";
+    if (/^(five-hour|5 hours)/iu.test(label)) return "5-hour limit";
+    if (/^weekly/iu.test(label)) return "weekly limit";
+    if (/^daily/iu.test(label)) return "daily limit";
+    return "plan limit";
+  })();
   const paired = (id: string) => sameLevelModel("", providerId, id) !== null;
   const agents = others
     .flatMap((provider, index): PlanLimitAgent[] => {
@@ -169,8 +191,14 @@ export function usePlanLimitAgents(threadId: string) {
     .sort(
       (a, b) => Number(paired(b.providerId)) - Number(paired(a.providerId)),
     );
+  const ownIndex = others.findIndex(
+    (provider) => provider.id === CLOUDROOM_AGENT_ID,
+  );
+  const own = agents.find((agent) => agent.providerId === CLOUDROOM_AGENT_ID);
+  const planAgents = agents.filter((agent) => agent !== own);
   return {
     thread,
+    environmentId,
     model: currentModel,
     self: self
       ? {
@@ -180,7 +208,15 @@ export function usePlanLimitAgents(threadId: string) {
         }
       : null,
     selfResetsAt: resetOf(providerId, currentModel),
-    agents,
+    selfLimit,
+    reasoningLevel: currentReasoning ?? null,
+    permissionMode: isCloud ? null : (local.data?.permissionMode ?? null),
+    agents: planAgents,
+    /** Cloudroom Agent, once the thread's own model is known: the switch keeps its reasoning level. */
+    cloudroomAgent: currentModelLoaded ? (own ?? null) : null,
+    /** Its plugin is on, but the agent is not installed on this computer yet: the card installs it first. */
+    cloudroomAgentMissing:
+      catalogs[ownIndex]?.data?.modelLoadError?.code === "missing_executable",
     // The agent list, the thread's model, every agent's models, and usage: before then, `agents` can be short.
     agentsLoaded:
       current.isFetched &&
@@ -188,7 +224,7 @@ export function usePlanLimitAgents(threadId: string) {
       !usageLoading &&
       catalogs.every((query) => !query.isPending),
     primary: currentModelLoaded
-      ? (agents.find((agent) => agent.resetsAt === null) ?? null)
+      ? (planAgents.find((agent) => agent.resetsAt === null) ?? null)
       : null,
   };
 }

@@ -52,6 +52,7 @@ pub fn router(manager: Arc<Manager>, token: String) -> Router {
         .route("/v1/accounts/cursor/switched", post(cursor_switched))
         .route("/v1/accounts/codex/cancel", post(codex_cancel))
         .route("/v1/workspaces/{id}", get(workspace))
+        .route("/v1/workspaces/{id}/alive", post(workspace_alive))
         .route("/v1/settings", get(crate::sync::settings))
         .route("/v1/sync", post(crate::sync::check_in))
         .route("/v1/sync/{id}", get(crate::sync::scan))
@@ -549,6 +550,10 @@ impl IntoResponse for session::Error {
                 let body = json!({"error": message, "code": "request_rejected"});
                 return (StatusCode::CONFLICT, Json(body)).into_response();
             }
+            Self::NeverStarted(message) => {
+                let body = json!({"error": message, "code": "never_started"});
+                return (StatusCode::CONFLICT, Json(body)).into_response();
+            }
             Self::Effort(_) => {
                 let body = json!({"error": self.message(), "code": "invalid_reasoning_effort"});
                 return (StatusCode::CONFLICT, Json(body)).into_response();
@@ -611,6 +616,7 @@ impl IntoResponse for session::Error {
             "extra credits are off for loops" => "plan_credits",
             "Codex account could not be verified" => "codex_auth_unavailable",
             "connect Cursor before starting cloud work" => "cursor_auth_required",
+            crate::runtime::antigravity::SIGN_IN => "antigravity_auth_required",
             "Cursor account could not be verified" => "cursor_auth_unavailable",
             "close Cursor sessions before changing the cloud login" => "cursor_auth_busy",
             "finish active Codex work before signing in" => "codex_auth_busy",
@@ -669,6 +675,30 @@ async fn workspace(
 ) -> impl IntoResponse {
     match manager.workspaces.get(&id) {
         Ok(Some(workspace)) => (StatusCode::OK, Json(json!(workspace))),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"workspace not found"})),
+        ),
+        Err(error) => (
+            StatusCode::CONFLICT,
+            Json(json!({"error":format!("workspace unavailable: {error}")})),
+        ),
+    }
+}
+
+/// The app's project copy heartbeat for `room-cli files wait` (#2168). Like Mac helper reports, good ones stay local.
+async fn workspace_alive(
+    State(manager): State<Arc<Manager>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match manager.workspaces.get(&id) {
+        Ok(Some(workspace)) => match manager.workspaces.alive(&workspace).await {
+            Ok(()) => (StatusCode::ACCEPTED, Json(json!({}))),
+            Err(error) => (
+                StatusCode::CONFLICT,
+                Json(json!({"error":format!("heartbeat failed: {error}")})),
+            ),
+        },
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(json!({"error":"workspace not found"})),
@@ -1033,26 +1063,42 @@ async fn start(
         return Ok((status, Json(answer)));
     }
     if let Some(fork) = body.fork {
-        if body.parent_session.is_some()
+        let disallowed_shared = body.parent_session.is_some()
             || body.prompt.is_some()
             || body.title.is_some()
-            || body.model.is_some()
-            || body.reasoning.is_some()
             || body.workspace.is_some()
             || body.workspace_name.is_some()
-            || body.provider.is_some()
             || body.command_guard_enabled.is_some()
             || body.strip_ai_co_authors.is_some()
             || body.system_prompt.is_some()
-            || body.parent_thread.is_some()
-            || body.thread_id.is_some()
-            || body.project_id.is_some()
-        {
-            return Err(session::Error::Conflict(
-                "a side chat takes only harness and fork",
-            ));
+            || body.parent_thread.is_some();
+        let disallowed_copy = !fork.fresh
+            && (body.model.is_some()
+                || body.reasoning.is_some()
+                || body.provider.is_some()
+                || body.thread_id.is_some()
+                || body.project_id.is_some());
+        if disallowed_shared || disallowed_copy {
+            return Err(session::Error::Conflict(if fork.fresh {
+                "a fresh side chat inherits its source's folder and settings"
+            } else {
+                "a side chat takes only harness and fork"
+            }));
         }
-        let (id, receipt) = manager.fork(body.request_id, body.harness, fork).await?;
+        let (id, receipt) = manager
+            .fork(
+                body.request_id,
+                body.harness,
+                fork,
+                session::ForkOptions {
+                    model: body.model,
+                    reasoning: body.reasoning,
+                    provider: body.provider,
+                    thread_id: body.thread_id,
+                    project_id: body.project_id,
+                },
+            )
+            .await?;
         return Ok(accepted(&manager, &id, receipt));
     }
     if let Some(parent) = body.parent_session {
@@ -1087,6 +1133,7 @@ async fn start(
             title,
             prompt,
             service_tier: None,
+            pin: false,
         };
         let (id, receipt) = manager
             .spawn_child(&parent, &body.request_id, spawn)
@@ -1282,8 +1329,22 @@ async fn prompt(
             .await?;
         manager.check_prompt_service_tier(&id, body.service_tier.as_deref())?;
     }
-    let receipt = manager.command(&id, body.request_id, "prompt", input)?;
+    let receipt = manager
+        .command(&id, body.request_id, "prompt", input)
+        .map_err(|error| preserve_start_failure(&manager, &id, error))?;
     Ok(accepted(&manager, &id, receipt))
+}
+
+fn preserve_start_failure(manager: &Manager, id: &str, error: session::Error) -> session::Error {
+    match (&error, manager.failed_start_reason(id)) {
+        (session::Error::Conflict(session::GONE), Some(why))
+            if why == crate::runtime::antigravity::SIGN_IN =>
+        {
+            session::Error::Conflict(crate::runtime::antigravity::SIGN_IN)
+        }
+        (session::Error::Conflict(session::GONE), Some(why)) => session::Error::NeverStarted(why),
+        _ => error,
+    }
 }
 
 async fn edit(
@@ -1392,12 +1453,14 @@ async fn steer(
             "prompt must contain 1-262144 bytes of text",
         ));
     }
-    let receipt = manager.command(
-        &id,
-        body.request_id,
-        "steer",
-        json!({"target_request_id":body.target_request_id,"text":body.text}),
-    )?;
+    let receipt = manager
+        .command(
+            &id,
+            body.request_id,
+            "steer",
+            json!({"target_request_id":body.target_request_id,"text":body.text}),
+        )
+        .map_err(|error| preserve_start_failure(&manager, &id, error))?;
     Ok(accepted(&manager, &id, receipt))
 }
 

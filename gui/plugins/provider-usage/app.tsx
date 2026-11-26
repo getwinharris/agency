@@ -83,6 +83,7 @@ let storeSnapshot: UsageStoreSnapshot = {
 let activeRefreshCount = 0;
 let lastMachineId: string | null = null;
 let lastPlan: PlanSummary | null = null;
+let lastPlanAt = 0;
 
 function updateStore(next: UsageStoreSnapshot): void {
   storeSnapshot = next;
@@ -222,8 +223,12 @@ function UsageBlocks({ usedPercent }: { usedPercent: number }) {
 
 /** A row's short label. A model's weekly row ("Weekly · Fable") reads "7d fable"; narrow cards drop its "7d". */
 function rowLabel(label: string): { prefix: string | null; label: string } {
+  const fiveHourModel = /^Five-hour · (.+)$/u.exec(label)?.[1];
+  if (fiveHourModel) return { prefix: "5h", label: fiveHourModel };
   const model = /^Weekly · (.+)$/u.exec(label)?.[1];
   if (model) return { prefix: "7d", label: model };
+  const planModel = /^Plan · (.+)$/u.exec(label)?.[1];
+  if (planModel) return { prefix: "plan", label: planModel };
   return {
     prefix: null,
     label: label
@@ -313,17 +318,16 @@ function PlanUsage({ plan }: { plan: PlanSummary }) {
         <span className="min-w-0 flex-1 truncate text-subtle-foreground">
           {plan.plan}
         </span>
-        {/* Paid plans buy credit packs or upgrade on the billing page (ADR 0317). */}
-        {plan.plan === "free" ? null : (
-          <UrlLink
-            href={BILLING_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto shrink-0 border border-primary/60 px-1.5 leading-5 text-primary-text no-underline hover:bg-primary/10"
-          >
-            + buy more
-          </UrlLink>
-        )}
+        {/* Every plan can buy extra credits or upgrade on the billing page (ADR 20261112-235440). */}
+        <UrlLink
+          href={BILLING_URL}
+          target="_blank"
+          rel="noreferrer"
+          onClick={() => { lastPlanAt = 0; }}
+          className="ml-auto shrink-0 border border-primary/60 px-1.5 leading-5 text-primary-text no-underline hover:bg-primary/10"
+        >
+          + buy more
+        </UrlLink>
       </h2>
       {plan.meters.map((meter, index) => (
         <p
@@ -358,9 +362,11 @@ function PlanUsage({ plan }: { plan: PlanSummary }) {
 function UsageWindow({
   window,
   last,
+  trailing,
 }: {
   window: UsageWindowValue;
   last: boolean;
+  trailing?: React.ReactNode;
 }) {
   const [showReset, setShowReset] = useState(false);
   const reset = formatUsageReset(window.resetsAt);
@@ -372,10 +378,13 @@ function UsageWindow({
         " / " +
         formatUsdCents(window.cost.limitUsdCents, false);
   const { prefix, label } = rowLabel(window.label);
-  return (
+  const row = (
     <button
       type="button"
-      className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+      className={cn(
+        "block rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        trailing ? "min-w-0 flex-1" : "w-full",
+      )}
       title={`${window.label} · ${reset ?? "Reset time not reported"}`}
       aria-label={`${window.label}: ${value}. ${reset ?? "Reset time not reported"}`}
       aria-expanded={showReset}
@@ -395,6 +404,13 @@ function UsageWindow({
         </span>
       ) : null}
     </button>
+  );
+  if (!trailing) return row;
+  return (
+    <div className="flex items-start">
+      {row}
+      {trailing}
+    </div>
   );
 }
 
@@ -512,12 +528,32 @@ function TerminalSignIn({ label, providerId, signIn }: { label: string; provider
 /** Sign-in runs on the computer running Cloudroom, so other machines and stored accounts keep their hint. */
 type UsageSignIn = { hostId: string; onSignedIn: () => void };
 
+/** Antigravity's and Cursor's third-party model limits fold under a chevron (Cursor: F#5982). */
+const COLLAPSIBLE_EXTRA = new Set(["acp-antigravity", "acp-cursor"]);
+
+function isExtraWindow(label: string): boolean {
+  return /\b3p\b/iu.test(label);
+}
+
 function ProviderUsageBody({ provider, signIn }: { provider: UsageProvider; signIn?: UsageSignIn | undefined }) {
+  const [showExtra, setShowExtra] = useState(false);
   const usage = provider.usage;
   if (usage === null) return <UsageNote>Usage not reported.</UsageNote>;
   switch (usage.status) {
-    case "ok":
-      return usage.windows.length === 0 ? (
+    case "ok": {
+      const hasCollapsibleExtra =
+        COLLAPSIBLE_EXTRA.has(provider.providerId) &&
+        usage.windows.some((window) => isExtraWindow(window.label));
+      const primaryWindows = hasCollapsibleExtra
+        ? usage.windows.filter((window) => !isExtraWindow(window.label))
+        : usage.windows;
+      const shownWindows =
+        hasCollapsibleExtra && !showExtra ? primaryWindows : usage.windows;
+      const toggleAnchorLabel =
+        hasCollapsibleExtra && primaryWindows.length > 0
+          ? primaryWindows[primaryWindows.length - 1]!.label
+          : null;
+      return shownWindows.length === 0 ? (
         usage.credits ? (
           <CreditsNote detail={usage.credits.detail} />
         ) : (
@@ -525,16 +561,43 @@ function ProviderUsageBody({ provider, signIn }: { provider: UsageProvider; sign
         )
       ) : (
         <div>
-          {usage.windows.map((window, index) => (
+          {shownWindows.map((window, index) => (
             <UsageWindow
               key={window.label}
               window={window}
-              last={!usage.credits && index === usage.windows.length - 1}
+              last={!usage.credits && index === shownWindows.length - 1}
+              trailing={
+                toggleAnchorLabel === window.label ? (
+                  <button
+                    type="button"
+                    aria-label={
+                      showExtra
+                        ? "Hide third-party limits"
+                        : "Show third-party limits"
+                    }
+                    aria-expanded={showExtra}
+                    title={
+                      showExtra
+                        ? "Hide third-party model limits"
+                        : "Show third-party model limits"
+                    }
+                    onClick={() => setShowExtra((open) => !open)}
+                    className="ml-1 mt-[1px] flex size-4 shrink-0 items-center justify-center rounded text-subtle-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  >
+                    <Icon
+                      name={showExtra ? "ChevronUp" : "ChevronDown"}
+                      aria-hidden="true"
+                      className="size-3"
+                    />
+                  </button>
+                ) : undefined
+              }
             />
           ))}
           {usage.credits ? <CreditsNote detail={usage.credits.detail} /> : null}
         </div>
       );
+    }
     case "not_installed":
       return <UsageNote>Not installed on this machine.</UsageNote>;
     case "unauthenticated":
@@ -558,7 +621,12 @@ function accountName(account: UsageProvider): string | null {
 }
 
 /** Agents whose accounts live on Settings → Agents → Accounts (the Accounts plugin). */
-const ACCOUNT_AGENTS = new Set(["claude-code", "codex", "acp-cursor"]);
+const ACCOUNT_AGENTS = new Set([
+  "claude-code",
+  "codex",
+  "acp-cursor",
+  "acp-antigravity",
+]);
 
 /** A quiet grey "+" at the end of an agent's row: opens the Accounts page on that agent. */
 function AddAccountButton({
@@ -783,6 +851,8 @@ function TimeInCloudroom() {
 }
 
 const PLAN_RETRY_MS = 10_000;
+// Hovering the footer button mounts the card early, so a plan read this recently is reused instead of asking the website again.
+const PLAN_REUSE_MS = 60_000;
 const MONO_CLASS = "font-mono text-[10.5px] leading-[1.75]";
 const CARD_HEADER_CLASS =
   "mx-1.5 flex h-9 min-w-0 shrink-0 items-center gap-1 border-b border-sidebar-border pr-1 font-mono text-[10.5px] text-subtle-foreground";
@@ -803,13 +873,17 @@ function usePlanSummary(): [PlanSummary | null, () => void] {
       loadPlanSummary(controller.signal).then(
         (summary) => {
           lastPlan = summary;
+          lastPlanAt = Date.now();
           setPlan(summary);
           next(summary);
         },
         () => next(null),
       );
     };
-    load();
+    const age = Date.now() - lastPlanAt;
+    if (reloads === 0 && lastPlan !== null && age < PLAN_REUSE_MS)
+      timer = window.setTimeout(load, CARD_MAX_AGE_MS - age);
+    else load();
     return () => {
       controller.abort();
       if (timer !== null) window.clearTimeout(timer);
@@ -857,6 +931,13 @@ export function ProviderUsageStatusContent({
     >();
     for (const account of activeMachine?.providers ?? []) {
       if (account.usage?.status === "not_installed") continue;
+      // This computer's Antigravity login appears only while connected (David, 2026-11-21). Added accounts always do.
+      if (
+        account.providerId === "acp-antigravity" &&
+        (!account.accountId || account.accountId === "local") &&
+        account.usage?.status !== "ok"
+      )
+        continue;
       const group = groups.get(account.providerId);
       if (group) group.accounts.push(account);
       else
@@ -915,7 +996,8 @@ export function ProviderUsageStatusContent({
   }, []);
 
   return (
-    <div className="flex max-h-80 flex-col">
+    // Grows to fit every subscription; only a very short window scrolls the list (David, 2026-11-21).
+    <div className="flex max-h-[calc(100dvh-8rem)] flex-col">
       <div data-provider-usage-header="" className={CARD_HEADER_CLASS}>
         <div className="flex min-w-0 flex-1">
           <MachineSelector

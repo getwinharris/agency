@@ -30,6 +30,7 @@ import {
   ACCOUNTS_CHANGED,
   LOCAL,
   MAX_ACCOUNTS,
+  USAGE_STALE_MS,
   type AccountView,
   type Provider,
   type accountsRpcContract,
@@ -41,34 +42,49 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function until(timestamp: number): string {
-  const minutes = Math.max(1, Math.round((timestamp - Date.now()) / 60_000));
+// A time span: "5m", "2h 10m", "1d 6h".
+function span(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   return hours < 24
     ? `${hours}h ${minutes % 60}m`
     : `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
+const until = (timestamp: number) => span(timestamp - Date.now());
 
 function windowLabel(label: string): string {
   return label
     .replace("Five-hour limit", "5h")
+    .replace("Five-hour · ", "5h ")
     .replace("Weekly limit", "7d")
     .replace("Weekly · ", "7d ")
     .replace("Weekly", "7d")
     .replace("Plan usage", "Plan")
+    .replace("Plan · ", "Plan ")
     .replace("On-demand spend", "Spend");
 }
 
 // One line of an account's limits. `usedPercent` is null for a limit that was not read: it is unknown, not 0%.
-type Limit = { label: string; usedPercent: number | null; resetsAt: number | null };
+type Limit = {
+  label: string;
+  usedPercent: number | null;
+  resetsAt: number | null;
+  checkedAt?: number | null;
+};
 
-// The line: the limit's name, bar, percent used, and the time until it resets.
-function Meter({ label, usedPercent, resetsAt }: Limit) {
+// The line: the limit's name, bar, percent used, and the time until it resets. Greyed when no read confirmed it lately.
+// An old bar is a floor until its reset. Past it, or at 0%, nothing is known: it shows "–", not a guessed 0%.
+function Meter({ label, usedPercent, resetsAt, checkedAt }: Limit) {
   const used = usedPercent ?? 0;
   const hot = used >= 90;
+  const old = checkedAt != null && Date.now() - checkedAt > USAGE_STALE_MS;
+  const unknown = usedPercent === null || (old && used === 0 && resetsAt === null);
   return (
-    <div className="contents">
+    <div
+      className={cn("contents", old && "*:opacity-40")}
+      title={old ? (checkedAt ? `Last checked ${span(Date.now() - checkedAt)} ago` : "Last known usage") : undefined}
+    >
       <span>{windowLabel(label)}</span>
       <span className="h-[3px] overflow-hidden rounded-full bg-border">
         <span
@@ -78,9 +94,9 @@ function Meter({ label, usedPercent, resetsAt }: Limit) {
       </span>
       <span
         className={cn("text-right", hot && "text-warning-text")}
-        title={usedPercent === null ? "Not read yet" : undefined}
+        title={usedPercent === null ? "Not read yet" : unknown ? "Not checked lately" : undefined}
       >
-        {usedPercent === null ? "–" : `${Math.round(used)}%`}
+        {unknown ? "–" : `${Math.round(used)}%`}
       </span>
       <span
         className="whitespace-nowrap pl-1 text-subtle-foreground/75"
@@ -118,6 +134,7 @@ function AccountRow({
   onRename,
   onRemove,
   onSignInAgain,
+  signingIn,
 }: {
   account: AccountView;
   // The limits every row of this agent shows, in order, each as it looks when the account doesn't report it.
@@ -131,6 +148,8 @@ function AccountRow({
   onRename: (name: string) => void;
   onRemove: () => void;
   onSignInAgain?: () => void;
+  // A sign-in is already running in this list: Sign in again waits for it.
+  signingIn: boolean;
 }) {
   // The page can stay open past a reset, so a limit or a bar whose reset has passed clears here.
   const now = Date.now();
@@ -149,13 +168,18 @@ function AccountRow({
   // Every limit gets its own line, with the time until it resets. A limit this account doesn't report shows empty,
   // so every row has the same lines. An account with no usage read shows none.
   // "Resets in" alone shows only for a limit that lasts longer than every full bar.
+  // A 0% Claude left out was confirmed by the row's latest read, so it greys with the rest.
+  const newest = Math.max(...account.windows.map((window) => window.checkedAt ?? -1));
   const shown: Limit[] =
     account.windows.length === 0
       ? []
       : limits.map(
           (empty) =>
-            account.windows.find((window) => window.label === empty.label) ?? empty,
+            account.windows.find((window) => window.label === empty.label) ??
+            (empty.usedPercent === 0 && newest >= 0 ? { ...empty, checkedAt: newest } : empty),
         );
+  // How long ago this row's bars were last read, once that's too long; 0 for bars saved before reads were timed.
+  const checkedAgo = newest >= 0 && now - newest > USAGE_STALE_MS ? (newest ? now - newest : 0) : null;
   const full = shown.some(
     (window) =>
       Math.round(window.usedPercent ?? 0) >= 100 &&
@@ -262,6 +286,15 @@ function AccountRow({
                 In use
               </span>
             ) : null}
+            {checkedAgo !== null ? (
+              <span
+                className="flex shrink-0 items-center gap-1 rounded bg-foreground/10 px-1.5 text-xs font-medium leading-4 text-subtle-foreground"
+                title={checkedAgo ? `Usage last checked ${span(checkedAgo)} ago` : "Last known usage"}
+              >
+                <Icon name="Clock" className="size-3" />
+                {checkedAgo ? `${span(checkedAgo).split(" ")[0]} ago` : "Not recent"}
+              </span>
+            ) : null}
           </div>
         )}
         {detail ? (
@@ -269,7 +302,28 @@ function AccountRow({
             {detail}
           </div>
         ) : null}
-        {account.error && !account.limitedUntil ? (
+        {/* A dead login shows even at a limit: the limit only hides usage-read errors. One click opens the sign-in page. */}
+        {account.signedOut && onSignInAgain ? (
+          // Clicks here never pick the row: a greyed-out button lets clicks through to it.
+          <div
+            className="mt-1.5 flex w-fit items-center gap-2"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="text-xs text-warning-text" title={account.error ?? undefined}>
+              Signed out
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs [&_[data-icon-root]]:size-3"
+              disabled={signingIn}
+              onClick={onSignInAgain}
+            >
+              <Icon name="RotateCcw" />
+              Sign in again
+            </Button>
+          </div>
+        ) : account.error && !account.limitedUntil ? (
           <div className="truncate text-xs text-warning-text" title={account.error}>
             {account.error}
           </div>
@@ -277,6 +331,7 @@ function AccountRow({
         {account.limitedLogin && onSignInAgain ? (
           <button
             type="button"
+            disabled={signingIn}
             onClick={onSignInAgain}
             className="block max-w-full truncate text-left text-xs text-primary-text hover:underline"
           >
@@ -299,6 +354,7 @@ function AccountRow({
                 label={window.label}
                 usedPercent={window.usedPercent}
                 resetsAt={window.resetsAt}
+                checkedAt={window.checkedAt}
               />
             ))}
           </div>
@@ -330,7 +386,7 @@ function AccountRow({
             <Icon name="Edit" /> Rename
           </DropdownMenuItem>
           {onSignInAgain ? (
-            <DropdownMenuItem onSelect={onSignInAgain}>
+            <DropdownMenuItem disabled={signingIn} onSelect={onSignInAgain}>
               <Icon name="RotateCcw" /> Sign in again
             </DropdownMenuItem>
           ) : null}
@@ -371,6 +427,11 @@ function SignInRow({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [privacy] = usePrivacyMode();
+  // Privacy mode hides any email in the message ("<email> is already added"), not the whole message.
+  const shown = error?.replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, (email) =>
+    hideEmail(email, privacy),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -443,10 +504,16 @@ function SignInRow({
           className="size-4 shrink-0 animate-spin text-primary"
         />
       )}
-      <div className="min-w-0 flex-1 truncate text-muted-foreground">
+      {/* Errors wrap so the next step is never cut off; status text stays on one line. */}
+      <div
+        className={cn(
+          "min-w-0 flex-1 text-muted-foreground",
+          error ? "break-words" : "truncate",
+        )}
+      >
         {error ? (
-          <span className="text-destructive-text" title={error}>
-            {error}
+          <span className="text-destructive-text">
+            {shown}
           </span>
         ) : step === null ? (
           "Starting sign-in…"
@@ -561,7 +628,124 @@ function KeyRow({ rpc, close }: { rpc: Rpc; close: () => void }) {
   );
 }
 
-function AccountsSection({ provider, name }: { provider: Provider; name: string }) {
+/** Antigravity accounts sign in with Google like Cloud does: the link opens, and Google shows a code to paste back. */
+function CodeRow({ rpc, close }: { rpc: Rpc; close: () => void }) {
+  const navigate = useBbNavigate();
+  const [session, setSession] = useState<{ id: string; url: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Each try is a new sign-in; leaving the row cancels the open one.
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    let started: string | null = null;
+    rpc.call("antigravity.start", null).then(
+      (next) => {
+        started = next.sessionId;
+        if (cancelled) {
+          void rpc.call("antigravity.cancel", { sessionId: next.sessionId });
+          return;
+        }
+        setSession({ id: next.sessionId, url: next.authorizeUrl });
+        navigate.openUrl(next.authorizeUrl);
+      },
+      (cause: unknown) => !cancelled && setError(errorText(cause)),
+    );
+    return () => {
+      cancelled = true;
+      if (started) void rpc.call("antigravity.cancel", { sessionId: started });
+    };
+  }, [rpc, attempt]);
+  const retry = () => {
+    setSession(null);
+    setCode("");
+    setError(null);
+    setAttempt((count) => count + 1);
+  };
+  const add = () => {
+    if (!session) return;
+    setBusy(true);
+    setError(null);
+    rpc.call("antigravity.complete", { sessionId: session.id, code }).then(close, (cause: unknown) => {
+      const message = errorText(cause);
+      // A mistyped code keeps the sign-in open; any other error ends it.
+      if (!message.startsWith("Paste the code")) setSession(null);
+      setError(message);
+      setBusy(false);
+    });
+  };
+  return (
+    <div className="space-y-2 py-2.5 text-sm">
+      <div className="flex items-center gap-2">
+        <input
+          autoFocus
+          aria-label="Google sign-in code"
+          placeholder={session ? "Paste the code Google shows" : error ? "Sign-in ended" : "Starting sign-in…"}
+          value={code}
+          disabled={busy || !session}
+          onChange={(event) => setCode(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && code.trim()) add();
+            if (event.key === "Escape" && !busy) close();
+          }}
+          className="min-w-0 flex-1 rounded border border-border bg-transparent px-2 py-1 text-sm text-foreground outline-none focus:border-foreground/50"
+        />
+        {session || busy ? (
+          <Button size="sm" disabled={busy || !code.trim()} onClick={add}>
+            {busy ? "Signing in…" : "Add"}
+          </Button>
+        ) : error ? (
+          <Button size="sm" onClick={retry}>
+            Try again
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground"
+          aria-label="Cancel"
+          disabled={busy}
+          onClick={close}
+        >
+          <Icon name="X" />
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {error ? (
+          <span className="text-destructive-text">{error}</span>
+        ) : session ? (
+          <>
+            Sign in with the other Google account, then paste the code here.{" "}
+            <button
+              type="button"
+              onClick={() => navigate.openUrl(session.url)}
+              className="text-primary-text hover:underline"
+            >
+              Open sign-in again
+            </button>
+          </>
+        ) : (
+          "Opening Google sign-in…"
+        )}
+      </p>
+    </div>
+  );
+}
+
+function AccountsSection({
+  provider,
+  name,
+  hideWhenEmpty = false,
+  note,
+  onPresence,
+}: {
+  provider: Provider;
+  name: string;
+  hideWhenEmpty?: boolean;
+  note?: string | undefined;
+  onPresence?: ((present: boolean) => void) | undefined;
+}) {
   const rpc = useRpc<typeof accountsRpcContract>();
   const { providers } = useProviders();
   const [accounts, setAccounts] = useState<AccountView[] | null>(null);
@@ -577,8 +761,17 @@ function AccountsSection({ provider, name }: { provider: Provider; name: string 
   const load = useCallback(() => {
     rpc
       .call("accounts.list", { provider })
-      .then(setAccounts, (cause: unknown) => setError(errorText(cause)));
-  }, [provider, rpc]);
+      .then(
+        (list) => {
+          setAccounts(list);
+          onPresence?.(list.length > 0);
+        },
+        (cause: unknown) => {
+          setError(errorText(cause));
+          onPresence?.(false);
+        },
+      );
+  }, [provider, rpc, onPresence]);
   useEffect(load, [load]);
   useRealtime(ACCOUNTS_CHANGED, load);
   useEffect(() => {
@@ -649,6 +842,8 @@ function AccountsSection({ provider, name }: { provider: Provider; name: string 
   }, [loaded, provider]);
 
   const count = accounts?.filter((account) => account.id !== LOCAL).length ?? 0;
+  // Optional subscriptions (Antigravity) stay hidden unless connected on this computer.
+  if (hideWhenEmpty && (accounts === null || accounts.length === 0)) return null;
   // Every account shows the same limits, so the lines match from row to row.
   // Claude leaves out 5h and 7d while they have no use, so those show 0%. Any other limit an account leaves out
   // was not read (the reply check can't read a model's limit): it shows as unknown.
@@ -753,10 +948,11 @@ function AccountsSection({ provider, name }: { provider: Provider; name: string 
                   )
                 }
                 onSignInAgain={
-                  provider === "claude-code" && account.id !== LOCAL && adding === null
+                  provider === "claude-code" && account.id !== LOCAL
                     ? () => setAdding({ mac: false, id: account.id })
                     : undefined
                 }
+                signingIn={adding !== null}
               />
             ))}
           </div>
@@ -766,6 +962,14 @@ function AccountsSection({ provider, name }: { provider: Provider; name: string 
         <div className="rounded-lg border border-dashed border-border px-3.5">
           {provider === "acp-cursor" ? (
             <KeyRow
+              rpc={rpc}
+              close={() => {
+                setAdding(null);
+                load();
+              }}
+            />
+          ) : provider === "acp-antigravity" ? (
+            <CodeRow
               rpc={rpc}
               close={() => {
                 setAdding(null);
@@ -786,20 +990,23 @@ function AccountsSection({ provider, name }: { provider: Provider; name: string 
           )}
         </div>
       ) : null}
-      {provider === "acp-cursor" ? (
-        <p className="text-xs text-subtle-foreground">
-          Grok signs in with your X subscription. One login covers it, so there's nothing to add here.
-        </p>
+      {note ? (
+        <p className="text-xs text-subtle-foreground">{note}</p>
       ) : null}
       {error ? <p className="text-xs text-destructive-text">{error}</p> : null}
     </section>
   );
 }
 
-const AGENTS: readonly { provider: Provider; name: string }[] = [
+const AGENTS: readonly {
+  provider: Provider;
+  name: string;
+  hideWhenEmpty?: boolean;
+}[] = [
   { provider: "claude-code", name: "Claude Code" },
   { provider: "codex", name: "Codex" },
   { provider: "acp-cursor", name: "Cursor" },
+  { provider: "acp-antigravity", name: "Antigravity", hideWhenEmpty: true },
 ];
 
 /** Settings → Agents → Accounts: every agent's accounts on one page. All threads use the one picked. */
@@ -811,6 +1018,7 @@ function AccountsPage() {
     return () => window.clearInterval(timer);
   }, []);
   const [privacy, setPrivacy] = usePrivacyMode();
+  const [hasAntigravity, setHasAntigravity] = useState(false);
   return (
     <div className="space-y-2">
       {/* Hides emails here and in the usage box, for recordings. */}
@@ -820,7 +1028,22 @@ function AccountsPage() {
       </label>
       <div className="space-y-6">
         {AGENTS.map((agent) => (
-          <AccountsSection key={agent.provider} {...agent} />
+          <AccountsSection
+            key={agent.provider}
+            {...agent}
+            onPresence={
+              agent.provider === "acp-antigravity"
+                ? setHasAntigravity
+                : undefined
+            }
+            note={
+              agent.provider === "acp-antigravity"
+                ? "Added Antigravity accounts run Local threads; Cloud keeps its own Antigravity login. Grok signs in with your X subscription, so there's nothing to add for it."
+                : agent.provider === "acp-cursor" && !hasAntigravity
+                  ? "Grok signs in with your X subscription. One login covers it, so there's nothing to add here."
+                  : undefined
+            }
+          />
         ))}
       </div>
     </div>
@@ -833,7 +1056,7 @@ export default definePluginApp((app) => {
     id: "accounts",
     // Not shown on the page (the tab names it). Settings search finds the page by these.
     title: "Agent accounts",
-    description: "Add and switch Claude Code, Codex, and Cursor subscriptions.",
+    description: "Add and switch Claude Code, Codex, Cursor, and Antigravity subscriptions.",
     component: AccountsPage,
   });
 });

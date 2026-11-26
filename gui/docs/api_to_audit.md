@@ -1,5 +1,17 @@
 # APIs To Audit
 
+## Target for custom instructions
+
+`bb.agents.contributeInstructions` can receive `ctx.experimental_execution` with the resolved `providerId` and `model` for a user message. It is absent for callers without a resolved target.
+
+
+## `experimental_createHostUsageSource`
+
+Plugins can bundle host-local usage handlers from `@get-bb/plugin-sdk/provider-usage`
+in SDK 0.6.53. Each call owns its cache. The plugin supplies its schemas, plugin
+ID, and optional provider ID, then registers its own list and fetch RPC methods.
+Before stabilizing, check whether another usage source needs a different cache policy.
+
 ## `app.commands.register`
 
 `app.commands.register` requires SDK 0.4.91; `defaultShortcut` and keyboard
@@ -1163,6 +1175,18 @@ dist-tag and `doctor` parsing) beside them.
    (macOS, Linux). A plugin's own plan that hard-codes `/tmp` gets no such
    protection.
 
+## Private data paths (`experimental_privateDataPaths`) (`@get-bb/plugin-sdk/provider-bridge`)
+
+**What it does.** Returns the absolute paths of the data folder's credential
+files and app database for a session's `ROOM_DATA_DIR` (empty when unset).
+The Claude and Codex bridges deny them to sandboxed agents (#2191).
+
+**Audit before stabilizing.** The list lives in `@cloudroom/process-utils`:
+fixed names plus a scan of each plugin's `secrets/`, account profiles, and
+preview folders when it is called. A new kind of credential file must be added
+there. It names files, not the whole folder, because worktrees and attachments
+live in it too.
+
 ## Presentation builders (`experimental_presentationTitle`, `experimental_presentationDetail`, `experimental_withTitle`, `experimental_presentationFileName`, `experimental_COMPACTION_PRESENTATION`, `experimental_REASONING_PRESENTATION`, `experimental_fileReadPresentation`, `experimental_searchPresentation`, `experimental_webSearchPresentation`, `experimental_webFetchPresentation`, `experimental_planStepsPresentation`, `experimental_toolPresentation`) (`@get-bb/plugin-sdk/provider-bridge`)
 
 **What it does.** The bridge kit's presentation building blocks for the
@@ -1504,7 +1528,7 @@ Before stabilization, audit:
 
 ## `PluginProviderDeclaration.experimental_modelDiscoveryRestart`
 
-Opt-in model-picker recovery. Every ACP agent, Codex, and Pi enable it; other providers remain unchanged. On model discovery failure, the picker offers Restart. The API restarts only that provider's maintenance process and reloads its catalog, without stopping threads or changing credentials. For a provider with workspace-scoped catalogs (Pi), it also marks the provider's other cached workspace catalogs on that host stale. Experimental until recovery is proven with more providers.
+Opt-in model-picker recovery. Every ACP agent, Codex, and Pi enable it; other providers remain unchanged. On model discovery failure, the picker offers Restart. The API restarts only that provider's maintenance process and reloads its catalog, without stopping threads or changing credentials. For a provider with workspace-scoped catalogs (Pi, OpenCode, Kilo Code), it also marks the provider's other cached workspace catalogs on that host stale. Experimental until recovery is proven with more providers.
 
 ## `bb.providers.register` (`experimental_bridgeOptions`, `experimental_visibility`, and the `experimental_providerBridge` artifact export)
 
@@ -1939,6 +1963,9 @@ Verified data may come from the machine's stored catalog while a background
 refresh runs, or while that provider's refresh keeps failing or timing out, so
 a model newer than the stored list can be normalized away before a refresh
 lands.
+`extraChoice={{ label, icon, onSelect }}` adds one tab after the providers for
+a caller's choice that is not an agent (Loops: Jev); picking it closes the
+picker and calls `onSelect` without changing `value`.
 `allowProviderChange={false}` hides provider tabs while retaining model,
 reasoning, and service-tier selection for the controlled provider. Routing
 never implies provider locking: an environment supplies host/workspace context
@@ -2247,9 +2274,10 @@ renders in the same footer row.
 3. **Programmatic opening.** Confirm `open()` should remain available. The
    intended policy is direct user-driven flows; background changes should not
    surprise-open sidebar content.
-4. **Disclosure lifecycle.** Components currently mount only while open and
-   remount after dismissal. Confirm plugins do not require retained hidden state,
-   or add an explicit retention policy before stabilizing.
+4. **Disclosure lifecycle.** Components mount while open, and also hidden while
+   their button is hovered, so data loads before the click. A hidden
+   mount ends 30 s after the pointer leaves. Confirm plugins tolerate mounting
+   without being seen, or add an explicit opt-out before stabilizing.
 5. **Footer capacity.** Establish overflow behavior when several plugins
    register items, including compact viewports and icon-collapsed sidebars.
 6. **Compatibility.** Migrate representative users of

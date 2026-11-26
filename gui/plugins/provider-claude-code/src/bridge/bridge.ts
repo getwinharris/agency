@@ -57,7 +57,10 @@ import {
   type ClaudeCodeSkillRoot,
 } from "../session-params.js";
 import { SdkSession, type SdkSessionOptions } from "./sdk-session.js";
-import { createClaudeCodeBridgeModelListMemo } from "./model-list.js";
+import {
+  claudeModelCliVersionError,
+  createClaudeCodeBridgeModelListMemo,
+} from "./model-list.js";
 import {
   claudeThreadForkParamsSchema,
   claudeThreadResumeParamsSchema,
@@ -192,6 +195,8 @@ interface ThreadSession {
   session: SdkSession;
   attachment: ThreadAttachment;
   sessionSerial: number;
+  /** Set when Claude's init reports a non-bypass mode even though we asked for bypassPermissions (e.g. disableBypassPermissionsMode). */
+  bypassDisabledByClaude?: boolean;
   closing: boolean;
   /** Why Cloudroom is ending this session: its remaining tool calls are denied with it. */
   closeReason?: string;
@@ -210,6 +215,8 @@ interface ThreadSession {
   pendingInteractiveRequests: Map<string | number, PendingInteractiveRequest>;
   permissionEscalationByAgentId: Map<string, PermissionEscalation | null>;
   permissionEscalationByPromptId: Map<string, PermissionEscalation | null>;
+  /** Steers Claude hasn't started, by prompt ID: visible text, and whether Claude said it queued it (#2137). */
+  unstartedSteers: Map<string, { preview: string; queued: boolean }>;
   permissionEscalationBySubagentParentToolUseId: Map<
     string,
     PermissionEscalation | null
@@ -368,6 +375,9 @@ function requireSkillPluginsRoot(): string {
 
 const THREAD_STOP_CLOSE_TIMEOUT_MS = 4_000;
 const TURN_INTERRUPT_TIMEOUT_MS = 2_000;
+/** Same text as `UNDELIVERED_MESSAGE_WARNING` in @cloudroom/domain (the bridge test checks). */
+const UNDELIVERED_MESSAGE_WARNING =
+  "May not have been delivered: the agent stopped before reading it";
 /** How long a new turn waits on its MCP check before Claude gets the prompt. */
 const MCP_CHECK_WAIT_MS = 10_000;
 const THREAD_STOPPED_MESSAGE =
@@ -387,7 +397,7 @@ const threadAttachments = new Map<string, ThreadAttachment>();
 const closingSessions = new Map<string, Promise<void>>();
 /** Threads with a Stop on its way: the one new turn that gets here first ends at once. */
 const stopRequestedThreadIds = new Set<string>();
-const unconfirmedSessionStops = new Map<string, Set<SdkSession>>();
+const unconfirmedSessionStops = new Map<string, Set<ThreadSession>>();
 const toolCallTracker = createPendingToolCallTracker({ sendToolCall: send });
 const { forwardToolCall, handleToolCallResponse } = toolCallTracker;
 
@@ -429,7 +439,6 @@ function applyTrustdSetting(attachment: ThreadAttachment): void {
   const sandbox = attachment.sessionOptions.sandbox;
   if (!sandbox) return;
   const allow = claudeSettingsAllowTrustd(
-    attachment.sessionConstructionConfig.sessionOptions.cwd,
     attachment.sessionOptions.env ?? process.env,
   );
   if (allow === (sandbox.enableWeakerNetworkIsolation === true)) return;
@@ -468,6 +477,7 @@ function applyPermissionSetting(
   const sessionOptions = {
     ...current,
     additionalWorkspaceWriteRoots: params.additionalWorkspaceWriteRoots,
+    approvedPlanPermissionMode: permissionMode,
     permissionMode: liveMode,
     permissionScope,
   };
@@ -558,11 +568,12 @@ async function closeThreadSession(args: {
           args.gracefulTimeoutMs,
         ).catch((error: unknown) => {
           if (process.platform === "win32") {
-            holdUnconfirmedSessionStop(args.threadId, threadSession.session);
+            holdUnconfirmedSessionStop(args.threadId, threadSession);
             warnSessionStopFailed(args.threadId, error);
           }
           throw error;
         });
+        sendEndedTasks(args.threadId, threadSession);
       }
       await retryUnconfirmedSessionStops(args.threadId);
     })
@@ -589,11 +600,22 @@ async function closeThreadSession(args: {
 
 function holdUnconfirmedSessionStop(
   threadId: string,
-  session: SdkSession,
+  threadSession: ThreadSession,
 ): void {
   const sessions = unconfirmedSessionStops.get(threadId) ?? new Set();
-  sessions.add(session);
+  sessions.add(threadSession);
   unconfirmedSessionStops.set(threadId, sessions);
+}
+
+/**
+ * A stopped Claude's background commands, agents, and workflows ended with
+ * it. The next Claude can't see them, so nothing else would end them (#2228).
+ */
+function sendEndedTasks(threadId: string, threadSession: ThreadSession): void {
+  sendThreadDeltas(
+    threadId,
+    threadSession.translator.buildEndedTaskDeltas(threadId),
+  );
 }
 
 /** Stops this thread's earlier Claudes again until each stop is confirmed. */
@@ -601,9 +623,10 @@ async function retryUnconfirmedSessionStops(threadId: string): Promise<void> {
   const sessions = unconfirmedSessionStops.get(threadId);
   if (!sessions) return;
   const results = await Promise.allSettled(
-    Array.from(sessions, async (session) => {
-      await session.stop();
-      sessions.delete(session);
+    Array.from(sessions, async (held) => {
+      await held.session.stop();
+      sessions.delete(held);
+      sendEndedTasks(threadId, held);
     }),
   );
   if (sessions.size === 0) unconfirmedSessionStops.delete(threadId);
@@ -611,7 +634,7 @@ async function retryUnconfirmedSessionStops(threadId: string): Promise<void> {
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   if (!failure) return;
-  if ([...sessions].some((session) => session.isRunning())) {
+  if ([...sessions].some((held) => held.session.isRunning())) {
     throw new Error(
       "An earlier Claude process for this thread is still running, and Cloudroom is stopping it. Try again in a moment.",
     );
@@ -665,16 +688,53 @@ function pushPromptInput(
   threadSession: ThreadSession,
   input: string,
   permissionEscalation: PermissionEscalation | null,
+  steerPreview?: string,
 ): Promise<void> {
   const promptId = randomUUID();
   threadSession.permissionEscalationByPromptId.set(
     promptId,
     permissionEscalation,
   );
+  if (steerPreview !== undefined) {
+    threadSession.unstartedSteers.set(promptId, { preview: steerPreview, queued: false });
+  }
   return threadSession.session.pushInput(input, promptId).catch((error) => {
     threadSession.permissionEscalationByPromptId.delete(promptId);
+    threadSession.unstartedSteers.delete(promptId);
     throw error;
   });
+}
+
+/** The steer's text as the timeline shows it: no skill expansion, nothing agent-only. */
+function visibleSteerPreview(input: unknown): string {
+  const text = (Array.isArray(input) ? input : [])
+    .flatMap((raw: unknown) => {
+      const item = promptInputItemSchema.safeParse(raw).data;
+      const agentOnly = (raw as { visibility?: unknown }).visibility === "agent-only";
+      return item?.type === "text" && !agentOnly ? [item.text] : [];
+    })
+    .join("\n");
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+}
+
+/**
+ * At a Stop, each steer Claude said it queued and hasn't started is marked:
+ * Claude may drop it with the turn. Changes nothing Claude does. The server
+ * keeps the mark only for a Stop someone chose (#2137).
+ */
+function warnUnstartedSteers(threadId: string, threadSession: ThreadSession): void {
+  const queued = [...threadSession.unstartedSteers.values()].filter((steer) => steer.queued);
+  threadSession.unstartedSteers.clear();
+  sendThreadDeltas(
+    threadId,
+    queued.map((steer) => ({
+      kind: "provider.warning" as const,
+      category: "general" as const,
+      summary: UNDELIVERED_MESSAGE_WARNING,
+      ...(steer.preview ? { details: steer.preview } : {}),
+      vouchedTurn: true,
+    })),
+  );
 }
 
 async function applyLiveSessionSettings(
@@ -933,6 +993,7 @@ function toSessionConstructionConfig(
     dynamicTools: params.dynamicTools,
     sessionOptions: {
       additionalWorkspaceWriteRoots: params.additionalWorkspaceWriteRoots,
+      approvedPlanPermissionMode: params.approvedPlanPermissionMode,
       baseInstructions: params.baseInstructions,
       chromeEnabled: params.chromeEnabled,
       claudeAiConnectorsEnabled: params.claudeAiConnectorsEnabled,
@@ -1077,6 +1138,7 @@ function createThreadSession(attachment: ThreadAttachment): ThreadSession {
     pendingInteractiveRequests: new Map(),
     permissionEscalationByAgentId: new Map(),
     permissionEscalationByPromptId: new Map(),
+    unstartedSteers: new Map(),
     permissionEscalationBySubagentParentToolUseId: new Map(),
     permissionEscalationByToolUseId: new Map(),
   };
@@ -1375,7 +1437,7 @@ function replaceThreadSession(args: ReplaceThreadSessionArgs): ThreadSession {
     threadSession: args.threadSession,
   });
   if (process.platform === "win32") {
-    holdUnconfirmedSessionStop(args.threadId, args.threadSession.session);
+    holdUnconfirmedSessionStop(args.threadId, args.threadSession);
     void args.threadSession.session.stop().catch((error: unknown) => {
       warnSessionStopFailed(args.threadId, error);
     });
@@ -1508,6 +1570,13 @@ function createOnSdkMessage(
       threadId: args.threadIdRef.current,
     });
     if (!threadSession) return;
+    const lifecycle = message as { type?: string; command_uuid?: unknown; state?: unknown };
+    const steer =
+      lifecycle.type === "command_lifecycle" && typeof lifecycle.command_uuid === "string"
+        ? threadSession.unstartedSteers.get(lifecycle.command_uuid)
+        : undefined;
+    if (steer && lifecycle.state === "queued") steer.queued = true;
+    else if (steer) threadSession.unstartedSteers.delete(lifecycle.command_uuid as string);
     if (message.type === "result") {
       threadSession.turnRunning = false;
     } else if (
@@ -1530,6 +1599,15 @@ function createOnSdkMessage(
       message.type === "stream_event"
     ) {
       threadSession.contextUsageCollector.invalidate();
+    }
+    if (
+      message.type === "system" &&
+      message.subtype === "init" &&
+      threadSession.attachment.permissionMode === "bypassPermissions" &&
+      typeof message.permissionMode === "string" &&
+      message.permissionMode !== "bypassPermissions"
+    ) {
+      threadSession.bypassDisabledByClaude = true;
     }
     const providerThreadId = message.session_id?.trim() ?? "";
     if (
@@ -2076,6 +2154,8 @@ function restoreApprovedPlanPermissionMode(threadSession: ThreadSession): void {
   void threadSession.session
     .setPermissionMode(threadSession.attachment.approvedPlanPermissionMode)
     .catch((error: unknown) => {
+      // Claude stayed out of bypass: stop waiving its removal checks.
+      threadSession.bypassDisabledByClaude = true;
       logBridgeError(
         `Failed to leave Plan mode: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -2089,6 +2169,42 @@ function describeUnsandboxedAsk(reason: string | undefined): string {
   return reason === undefined || reason === "dangerouslyDisableSandbox"
     ? note
     : `${note} ${reason}`;
+}
+
+// Claude Code's bypass-immune dangerousRemoval checks (including unparsed_line
+// bash/zsh parser false positives like `declare -A`). Intentionally excludes
+// "A permission rule denies a command in this shell -c script" and non-removal
+// policy locks such as disableBypassPermissionsMode or outsideReadsBlocked.
+// claude-live.test.ts runs the latest real Claude nightly to catch rewording.
+export const CLAUDE_BYPASS_WAIVABLE_REMOVAL_CHECK_PATTERNS = [
+  /^Claude Code can't be sure it read this command the way the shell will, so it can't rule out a dangerous removal\b/i,
+  /^Dangerous rm(?:dir)? operation\b/i,
+  /^This shell -c script runs rm and could not be checked\b/i,
+];
+
+export function isClaudeBypassWaivableRemovalCheck(args: {
+  toolName: string;
+  decisionReason: string | undefined;
+  matchedAskRule: unknown;
+  blockedPath: string | undefined;
+}): boolean {
+  if (args.toolName !== "Bash" && args.toolName !== "PowerShell") {
+    return false;
+  }
+  // A blocked path, or Claude's read-block note appended to the reason, means
+  // a second, non-removal lock rides on this ask.
+  if (
+    args.matchedAskRule !== undefined ||
+    args.blockedPath !== undefined ||
+    args.decisionReason === undefined ||
+    args.decisionReason.includes("blockReadsOutsideWorkingDirectories")
+  ) {
+    return false;
+  }
+  const reason = args.decisionReason.trim();
+  return CLAUDE_BYPASS_WAIVABLE_REMOVAL_CHECK_PATTERNS.some((pattern) =>
+    pattern.test(reason),
+  );
 }
 
 function createCanUseTool(threadIdRef: ThreadIdRef): CanUseTool {
@@ -2184,28 +2300,21 @@ function createCanUseTool(threadIdRef: ThreadIdRef): CanUseTool {
         toolUseID: options.toolUseID,
       };
     }
-    // Claude calls this only for a call it would ask the user about, so
-    // outside Full access every ask reaches the user. "Allow for session"
-    // reaches Claude as a session rule, and Claude still asks when an ask
-    // rule, a safety check or a sandbox exit needs a person. Claude keeps no
-    // such rule for sandbox network asks, so the bridge remembers that one.
+    // Claude calls this only for a call it would ask the user about — including
+    // when an ask rule, a safety check, or disableBypassPermissionsMode blocked
+    // bypass mode. Every ask reaches the user except Claude's built-in
+    // dangerousRemoval checks in Full access (handled below) and remembered
+    // sandbox network grants ("Allow for session"), which Claude doesn't store.
     if (
       toolName === CLAUDE_SANDBOX_NETWORK_TOOL_NAME &&
-      threadSession.attachment.sandboxNetworkAllowed
+      threadSession.attachment.sandboxNetworkAllowed &&
+      !options.matchedAskRule
     ) {
       return {
         behavior: "allow",
         updatedInput: input,
         toolUseID: options.toolUseID,
         decisionClassification: "user_permanent",
-      };
-    }
-
-    if (threadSession.attachment.permissionMode === "bypassPermissions") {
-      return {
-        behavior: "allow",
-        updatedInput: input,
-        toolUseID: options.toolUseID,
       };
     }
 
@@ -2218,6 +2327,29 @@ function createCanUseTool(threadIdRef: ThreadIdRef): CanUseTool {
       return {
         behavior: "deny",
         message: options.decisionReason ?? policyMessage,
+        toolUseID: options.toolUseID,
+      };
+    }
+
+    // In Full access, Claude Code's built-in dangerousRemoval circuit breaker
+    // (including unparsed_line parser false positives on zsh syntax) still
+    // calls canUseTool, and CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS
+    // is ignored whenever canUseTool is attached. Auto-allow those checks here
+    // while keeping Command Guard (PreToolUse deny hook), user ask rules, and
+    // disableBypassPermissionsMode intact.
+    if (
+      threadSession.attachment.permissionMode === "bypassPermissions" &&
+      !threadSession.bypassDisabledByClaude &&
+      isClaudeBypassWaivableRemovalCheck({
+        toolName,
+        decisionReason: options.decisionReason,
+        matchedAskRule: options.matchedAskRule,
+        blockedPath: options.blockedPath,
+      })
+    ) {
+      return {
+        behavior: "allow",
+        updatedInput: input,
         toolUseID: options.toolUseID,
       };
     }
@@ -2587,6 +2719,14 @@ async function runTurnInput(
     );
     return;
   }
+  const cliTooOld = await claudeModelCliVersionError(
+    params.model ?? threadSession.attachment.liveSettings.model,
+    threadSession.attachment.sessionOptions.pathToClaudeCodeExecutable,
+  );
+  if (cliTooOld !== null) {
+    sendError(id, -32000, cliTooOld);
+    return;
+  }
   // A Stop can be on its way while this turn is still being set up, which
   // takes seconds while Claude starts. The turn then ends here, as interrupted,
   // before Claude ever takes it.
@@ -2667,6 +2807,7 @@ async function runTurnInput(
       threadSession,
       promptText,
       params.permissionEscalation,
+      intent === "steer" ? visibleSteerPreview(params.input) : undefined,
     );
     threadSession.turnRunning = true;
     emitCanonicalTurnInputAccepted(threadSession, acceptance, params.threadId);
@@ -2742,6 +2883,10 @@ async function handleThreadStop(
 ): Promise<void> {
   stopRequestedThreadIds.delete(params.threadId);
   const threadSession = threadAttachments.get(params.threadId)?.residentSession;
+  // Before the turn settles, so the parent's notice can count them.
+  if (params.intent === "interrupt" && threadSession && !threadSession.closing) {
+    warnUnstartedSteers(params.threadId, threadSession);
+  }
   if (
     threadSession == null ||
     threadSession.closing ||

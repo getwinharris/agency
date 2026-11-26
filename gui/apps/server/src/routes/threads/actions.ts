@@ -49,6 +49,7 @@ import { validatePromptAttachmentReferences } from "../../services/projects/atta
 import {
   createQueuedMessageForThread,
   sendQueuedMessageNow,
+  wasQueuedMessageDrainAccepted,
 } from "../../services/threads/queued-messages.js";
 import {
   ensureThreadIsNotAwaitingUserInteraction,
@@ -68,6 +69,7 @@ import {
   buildExecutionOptions,
   dispatchThreadUnarchiveCommand,
   prepareTurnSubmitCommandPayload,
+  setThreadGoal,
 } from "../../services/threads/thread-commands.js";
 import {
   appendThreadInterruptedEventInTransaction,
@@ -85,10 +87,11 @@ import {
   toThreadListEntryResponses,
   toThreadResponseFromThread,
 } from "../../services/threads/thread-runtime-display.js";
-import { archiveThreadAndChildren, listThreadsArchivedWith } from "../../services/threads/thread-archive.js";
+import { archiveThreadAndChildren, listThreadsArchivedWith, listThreadWithDescendants } from "../../services/threads/thread-archive.js";
 import { unarchiveThreadKeepingOpenParent } from "../../services/threads/thread-ownership.js";
 import { cloudroom, isCloudThread } from "../../services/cloudroom/commands.js";
 import { teleports } from "../../services/cloudroom/teleport.js";
+import { binding } from "../../services/cloudroom/store.js";
 import { teleportToLocal } from "../../services/cloudroom/teleport-local.js";
 import {
   requireThreadCommandEnvironment,
@@ -278,6 +281,15 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
   post(routes.sendQueuedMessage, async (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     ensureThreadQueueIsWritable(thread);
+    // A delivered message stays "sent" even if its turn now asks the user (#1954).
+    if (
+      wasQueuedMessageDrainAccepted(deps.db, {
+        queuedMessageId: context.req.param("queuedMessageId"),
+        threadId: thread.id,
+      })
+    ) {
+      return context.json({ ok: true, delivery: "sent" as const });
+    }
     ensureThreadIsNotAwaitingUserInteraction(deps, thread.id);
     const result = await sendQueuedMessageNow(deps, {
       queuedMessageId: context.req.param("queuedMessageId"),
@@ -510,36 +522,7 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
   post(routes.setGoal, async (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     await requireGoalSupport(deps, thread);
-    const environment = await requireThreadCommandEnvironment(deps, {
-      thread,
-    });
-    requireConnectedHostSession(deps, environment.hostId);
-    const execution = await buildExecutionOptions(
-      deps,
-      {},
-      { threadId: thread.id },
-    );
-    const preparedRuntimeCommand = await prepareTurnSubmitCommandPayload(deps, {
-      environment,
-      execution,
-      input: [],
-      permissionEscalation: "ask",
-      target: { mode: "auto", expectedTurnId: null },
-      thread,
-    });
-    await runLiveHostCommand(deps, {
-      command: {
-        type: "thread.goal.set",
-        environmentId: environment.id,
-        threadId: thread.id,
-        ...payload,
-        options: preparedRuntimeCommand.options,
-        resumeContext: preparedRuntimeCommand.resumeContext,
-        bridgeLaunch: preparedRuntimeCommand.bridgeLaunch,
-      },
-      hostId: environment.hostId,
-      timeoutMs: LIVE_DAEMON_COMMAND_TIMEOUT_MS,
-    });
+    await setThreadGoal(deps, thread, payload);
     return context.json({ ok: true });
   });
 
@@ -581,7 +564,9 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
   post(routes.worktree, (context, payload) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
     return context.json(
-      requestThreadWorktreeMove(deps, thread.id, payload.carry ?? []),
+      requestThreadWorktreeMove(deps, thread.id, payload.carry ?? [], {
+        self: payload.self ?? true,
+      }),
     );
   });
 
@@ -621,12 +606,16 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
     return context.json(buildActivePinnedThreadRootListResponse(deps));
   });
 
-  post(routes.archiveAll, (context, query) => {
+  post(routes.archiveAll, async (context, query) => {
     const thread = requirePublicThread(deps.db, context.req.param("id"));
-    const result = archiveThreadAndChildren(deps, {
-      parentThread: thread,
-      includeLive: query.includeLive === "true",
-    });
+    const family = listThreadWithDescendants(deps, thread);
+    const includeLive = query.includeLive === "true";
+    if (!family.some(item => isCloudThread(item) && item.archivedAt === null)) {
+      return context.json({ ok: true, ...archiveThreadAndChildren(deps, { parentThread: thread, includeLive }, family) });
+    }
+    const checkOwner = await cloudroom(deps).threadOwnerCheck();
+    // A child may have joined or been archived during the account read.
+    const result = archiveThreadAndChildren(deps, { parentThread: requirePublicThread(deps.db, thread.id), includeLive, checkOwner });
     return context.json({ ok: true, ...result });
   });
 
@@ -662,6 +651,10 @@ export function registerThreadActionRoutes(app: Hono, deps: AppDeps): void {
     // Read again: it may have been deleted during the wait.
     const thread = requirePublicThread(deps.db, archived.id);
     const providerThreadId = getLastProviderThreadId(deps, thread.id);
+    if (isCloudThread(thread)) {
+      const saved = binding(deps.db, thread.id);
+      if (saved) await cloudroom(deps).requireOwnThread(saved);
+    }
     const unarchivedThread = unarchiveThreadKeepingOpenParent(
       deps,
       thread.id,

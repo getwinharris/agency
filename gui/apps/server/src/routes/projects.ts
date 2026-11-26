@@ -3,6 +3,7 @@ import {
   countProjectSources,
   findOrCreateProjectByLocalPathSource,
   getPersonalProject,
+  getProject,
   getProjectExecutionDefaults,
   getPublicProjectByLocalPathSource,
   deleteProjectSource,
@@ -52,6 +53,7 @@ import {
   isWindowsHostPath,
   isWindowsNetworkOrDevicePath,
   PROMPT_HISTORY_ENTRY_LIMIT,
+  stripGitUrlCredentials,
   UNSUPPORTED_WINDOWS_NETWORK_PROJECT_PATH_MESSAGE,
 } from "@cloudroom/domain";
 import { getHostPathFlavorForHost } from "../services/lib/host-path.js";
@@ -86,6 +88,8 @@ import {
   beginProjectDeletion,
   requestProjectDeletionAdvance,
 } from "../services/projects/project-deletion.js";
+import { projectRemote } from "../services/cloudroom/project-copy.js";
+import { stopSharingDeleted } from "../services/cloudroom/shares.js";
 import { resolveDefaultWorktreeBaseBranch } from "../services/projects/worktree-base-branch.js";
 import {
   listCommandUsage,
@@ -149,7 +153,9 @@ function toProjectResponseProjectFields(
     id: project.id,
     kind: project.kind,
     name: project.name,
-    gitRemoteUrl: project.gitRemoteUrl,
+    // Rows saved before #2190 can hold a remote's username or token.
+    gitRemoteUrl:
+      project.gitRemoteUrl && stripGitUrlCredentials(project.gitRemoteUrl),
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };
@@ -498,6 +504,7 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
       );
     }
     beginProjectDeletion(deps, { projectId: id });
+    void stopSharingDeleted(deps);
     requestProjectDeletionAdvance(deps, { projectId: id });
     return context.json({ ok: true });
   });
@@ -602,6 +609,9 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
     }
     if (source.type === "local_path") {
       await fillProjectGitRemote(deps, project, source);
+      // This computer's folder decides the project's repo, so a changed origin is saved now, not at the next Cloud start (#2548).
+      const saved = getProject(deps.db, projectId);
+      if (saved?.gitRemoteUrl) await projectRemote(deps, saved, source.path).catch(() => null);
     }
     return context.json(source);
   });
@@ -685,6 +695,13 @@ export function registerProjectRoutes(app: Hono, deps: AppDeps): void {
           headers: { "x-bb-content-encoding": result.contentEncoding },
           ifNoneMatch: context.req.header("if-none-match"),
         }),
+      {
+        directLocal: {
+          ifRange: context.req.header("if-range"),
+          includeContentEncodingHeader: true,
+          range: context.req.header("range"),
+        },
+      },
     );
   });
 

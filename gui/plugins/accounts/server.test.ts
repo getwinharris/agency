@@ -263,6 +263,8 @@ it("accounts not in use keep their usage bars and reset times across a restart",
   // While set, D's read waits for it.
   let hold: Promise<void> | null = null;
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    if (url.endsWith("/api/oauth/profile"))
+      return new Response(null, { status: 503 });
     const token = new Headers(init.headers).get("authorization")!.slice(7);
     asked.push(token);
     if (token === "d-full") await hold;
@@ -292,6 +294,16 @@ it("accounts not in use keep their usage bars and reset times across a restart",
         }[]
       ).map((row) => [row.id, row.error ?? row.windows]),
     );
+  // When each of D's bars was last confirmed by a read.
+  const checked = async (host: typeof harness) =>
+    (
+      (await host.callRpc("accounts.list", { provider: "claude-code" })) as {
+        id: string;
+        windows: { checkedAt?: number | null }[];
+      }[]
+    )
+      .find((row) => row.id === "d")!
+      .windows.map((window) => window.checkedAt);
   try {
     await plugin(bb);
     // B had nothing saved, so one reply fills its row. C's saved bar and D's full login need none.
@@ -317,6 +329,8 @@ it("accounts not in use keep their usage bars and reset times across a restart",
     await vi.waitFor(async () =>
       expect(await rows(next.harness)).toMatchObject({ d: fullWeekly(55) }),
     );
+    const lastRead = await checked(next.harness);
+    expect(lastRead.every((at) => at! > Date.now() - 60_000)).toBe(true);
 
     // Offline after a restart: every saved bar stays, and D shows no error.
     asked.length = 0;
@@ -345,6 +359,8 @@ it("accounts not in use keep their usage bars and reset times across a restart",
     await vi.waitFor(async () =>
       expect((await rows(next.harness)).d).toMatch(/Sign in again/),
     );
+    // Its bars can't be read now: they keep the last read's time, so the page greys them once it's old.
+    expect(await checked(next.harness)).toEqual(lastRead);
     // Removing an account drops its saved bars.
     await next.harness.callRpc("accounts.remove", {
       provider: "claude-code",
@@ -389,6 +405,8 @@ it.each(["added", "local"])("reconciles %s Claude warnings on Reload", async (lo
     await fs.writeFile(path.join(dataDir, "security"), "#!/bin/sh\nexit 44\n", { mode: 0o700 });
     vi.stubEnv("PATH", `${dataDir}:${process.env.PATH}`);
   }
+  // Plans Cloud was sent.
+  const sent: (string | undefined)[] = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "accounts",
     dataDir,
@@ -398,6 +416,12 @@ it.each(["added", "local"])("reconciles %s Claude warnings on Reload", async (lo
           makeThreadResponse({ providerId: "claude-code", executionTarget: "cloud" }),
       },
       system: { config: async () => ({ primaryHostId: "here" }) as never },
+      cloudroom: {
+        claudeAuth: async (input) => {
+          sent.push(input?.plan);
+          return { state: "connected" } as never;
+        },
+      },
     },
   });
   const reset = Date.now() + 3_600_000;
@@ -409,6 +433,13 @@ it.each(["added", "local"])("reconciles %s Claude warnings on Reload", async (lo
   let replyProbes = 0;
   let offline = false;
   vi.stubGlobal("fetch", async (url: string) => {
+    if (url.endsWith("/api/oauth/profile"))
+      return Response.json({
+        organization: {
+          organization_type: "claude_max",
+          rate_limit_tier: "default_claude_max_5x",
+        },
+      });
     if (!url.endsWith("/api/oauth/usage")) {
       replyProbes++;
       throw new Error("unexpected inference request");
@@ -447,12 +478,23 @@ it.each(["added", "local"])("reconciles %s Claude warnings on Reload", async (lo
     expect((await current(true)).limitedUntil).toBe(reset);
   };
   try {
-    await bb.storage.kv.set("accounts:v1", [{ ...account("added"), profile: "added", tier: "max_5x" }]);
+    await bb.storage.kv.set("accounts:v1", [
+      { ...account("added"), profile: "added", plan: "pro", tier: "pro" },
+    ]);
+    await bb.storage.kv.set("cloud:v1", "added");
     await bb.storage.kv.set("order:v1", {
       "claude-code": login === "local" ? ["local", "added"] : ["added", "local"],
     });
     await bb.storage.kv.set("mac-login:v1", true);
     await plugin(bb);
+    // Saved as Pro, Max on Claude's side: the page and Cloud get Max (#2534).
+    await vi.waitFor(async () => {
+      const rows = (await harness.callRpc("accounts.list", {
+        provider: "claude-code",
+      })) as { id: string; plan: string | null }[];
+      expect(rows.find((row) => row.id === "added")?.plan).toBe("Max");
+      expect(sent).toEqual(login === "added" ? ["max"] : []);
+    });
     await current(true);
     await block("five_hour");
     offline = true;

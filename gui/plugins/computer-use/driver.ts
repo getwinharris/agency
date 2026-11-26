@@ -1,19 +1,19 @@
 export const DRIVER = {
-  version: "0.35.2",
-  releaseUrl: "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.35.2",
+  version: "0.59.5",
+  releaseUrl: "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.59.5",
   macTeamId: "YCK386LBJ7",
   assets: {
     darwin: {
-      file: "cua-driver-rs-0.35.2-darwin-universal-binary.tar.gz",
-      sha256: "ec8d9a073ee8c5e81113de682ba17b040eaacd58e84139f851540092c6b8d3b6",
+      file: "cua-driver-rs-0.59.5-darwin-universal-binary.tar.gz",
+      sha256: "e2d2f673d39785a9df7c68cc7463f9b2f59fa8a05b688956eb06142b2d9e03d1",
     },
     "linux-x64": {
-      file: "cua-driver-rs-0.35.2-linux-x86_64-binary.tar.gz",
-      sha256: "3a47b35ae8e083af8975c62f873a142f4a47c248c630a0eebfdf90de14d6fccf",
+      file: "cua-driver-rs-0.59.5-linux-x86_64-binary.tar.gz",
+      sha256: "4066a10d380ae8852a2405c41e79569ae756e7eac90154dd891f6712f051c2ec",
     },
     "linux-arm64": {
-      file: "cua-driver-rs-0.35.2-linux-arm64-binary.tar.gz",
-      sha256: "484d5c5cffa9c32d09244d4dfee078a1c4e8a175e1173f9129ec3bd113e45deb",
+      file: "cua-driver-rs-0.59.5-linux-arm64-binary.tar.gz",
+      sha256: "40e6ed50359745f0189ac7fd6f36cf09ae87ff02bcb633c6203416e140f7f7e0",
     },
   },
 } as const;
@@ -27,13 +27,15 @@ export function assetFor(platform: string, arch: string) {
 
 // The driver lets kill_app stop only apps launch_app started in the same session (#1950).
 export const SESSION_TOOLS = new Set([
-  "browser_click", "browser_dialog", "browser_download", "browser_navigate", "browser_pointer",
-  "browser_prepare", "browser_set_input_files", "browser_type", "click", "clipboard_read",
+  "browser_click", "browser_dialog", "browser_download", "browser_motion_policy",
+  "browser_navigate", "browser_pointer", "browser_prepare", "browser_select",
+  "browser_set_input_files", "browser_type", "click", "clipboard_read",
   "clipboard_write", "double_click", "drag", "end_session", "get_agent_cursor_state",
-  "get_browser_state", "get_cursor_position", "get_desktop_state", "get_screen_size", "get_session",
-  "get_window_state", "hotkey", "invoke_menu", "kill_app", "launch_app", "move_cursor",
-  "press_key", "right_click", "scroll", "set_agent_cursor_enabled", "set_agent_cursor_motion",
-  "set_agent_cursor_theme", "set_value", "set_window_frame", "start_recording", "start_session",
+  "get_browser_state", "get_cursor_position", "get_desktop_state", "get_guide",
+  "get_screen_size", "get_session", "get_window_state", "hotkey", "invoke_menu",
+  "kill_app", "launch_app", "move_cursor", "press_key", "right_click", "scroll",
+  "set_agent_cursor_enabled", "set_agent_cursor_motion", "set_agent_cursor_theme",
+  "set_value", "set_window_frame", "start_recording", "start_session",
   "type_text", "verify_state",
 ]);
 
@@ -44,9 +46,10 @@ export const PID_REQUIRED_TOOLS = new Set([
 ]);
 
 // run_script and run_steps can target apps by name inside one call, which would skip the per-app approval.
+// agent_display can list and remove any thread's virtual display, since threads share one driver.
 export const BLOCKED_TOOLS = new Set([
   "set_config", "install_extension", "install_ffmpeg", "check_for_update", "replay_trajectory",
-  "run_script", "run_steps",
+  "run_script", "run_steps", "agent_display",
 ]);
 
 export const LIME_CURSOR_SUFFIX = "-8";

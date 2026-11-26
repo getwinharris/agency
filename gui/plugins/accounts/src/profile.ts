@@ -23,7 +23,6 @@ const SHARED = [
   "keybindings.json",
 ];
 const SESSION_DIRS = ["projects", "file-history", "todos", "plans"];
-const SHARED_CONFIG = ["mcpServers", "projects"];
 
 const claudeHome = () =>
   process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
@@ -100,18 +99,78 @@ export async function prepareProfile(profile: string): Promise<void> {
     await fs.readFile(file, "utf8").catch(() => "{}"),
   ) as Record<string, unknown>;
   const next = { ...own };
-  for (const key of SHARED_CONFIG)
-    if (main[key] === undefined) delete next[key];
-    else next[key] = main[key];
-  if (JSON.stringify(next) !== JSON.stringify(own)) {
-    const temp = `${file}.${randomUUID()}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(next, null, 2), { mode: 0o600 });
-    await fs.rename(temp, file);
+  // Main's MCP servers sync in; ones added in this account stay (#2318): user scope (`claude mcp add -s user`)
+  // and each folder's local scope (a plain `claude mcp add`). Every other `projects` field comes from main.
+  const fromMain = path.join(profile, "cloudroom-main-mcp-servers.json");
+  const saved: unknown = await fs
+    .readFile(fromMain, "utf8")
+    .then(JSON.parse)
+    .catch(() => null);
+  // The first version of this file listed only user-scope names.
+  const before = isRecord(saved) ? saved : { mcpServers: saved };
+  const shared = isRecord(main.mcpServers) ? main.mcpServers : {};
+  if (main.mcpServers !== undefined || own.mcpServers !== undefined)
+    next.mcpServers = mergeServers(own.mcpServers, shared, before.mcpServers);
+  const mainProjects = isRecord(main.projects) ? main.projects : {};
+  const ownProjects = isRecord(own.projects) ? own.projects : {};
+  // With no per-folder list yet, the account's folder servers were all copies of main's.
+  const beforeProjects = isRecord(before.projects)
+    ? before.projects
+    : Object.fromEntries(
+        Object.entries(ownProjects).map(([cwd, entry]) => [
+          cwd,
+          isRecord(entry) && isRecord(entry.mcpServers)
+            ? Object.keys(entry.mcpServers)
+            : [],
+        ]),
+      );
+  const projects: Store = { ...mainProjects };
+  const sharedProjects: Record<string, string[]> = {};
+  for (const cwd of new Set([
+    ...Object.keys(mainProjects),
+    ...Object.keys(ownProjects),
+  ])) {
+    const theirs = mainProjects[cwd];
+    const from =
+      isRecord(theirs) && isRecord(theirs.mcpServers) ? theirs.mcpServers : {};
+    if (Object.keys(from).length) sharedProjects[cwd] = Object.keys(from);
+    const mine = ownProjects[cwd];
+    const servers = mergeServers(
+      isRecord(mine) ? mine.mcpServers : undefined,
+      from,
+      beforeProjects[cwd],
+    );
+    if (Object.keys(servers).length <= Object.keys(from).length) continue;
+    projects[cwd] = isRecord(theirs)
+      ? { ...theirs, mcpServers: servers }
+      : { mcpServers: servers };
   }
+  if (main.projects === undefined && !Object.keys(projects).length)
+    delete next.projects;
+  else next.projects = projects;
+  const save = async (target: string, text: string) => {
+    const temp = `${target}.${randomUUID()}.tmp`;
+    await fs.writeFile(temp, text, { mode: 0o600 });
+    await fs.rename(temp, target);
+  };
+  if (JSON.stringify(next) !== JSON.stringify(own))
+    await save(file, JSON.stringify(next, null, 2));
+  const names = JSON.stringify({
+    mcpServers: Object.keys(shared),
+    projects: sharedProjects,
+  });
+  if (names !== JSON.stringify(saved)) await save(fromMain, names);
   synced.set(profile, changed);
 }
 
 type Store = Record<string, unknown>;
+/** Main's servers win; the account's own stay unless main had them last sync and has removed them since. */
+function mergeServers(own: unknown, shared: Store, before: unknown): Store {
+  const servers: Store = isRecord(own) ? { ...own } : {};
+  for (const name of Array.isArray(before) ? before : [])
+    if (!Object.hasOwn(shared, name)) delete servers[name];
+  return Object.assign(servers, shared);
+}
 type SignIn = { accessToken?: unknown; refreshToken?: unknown; expiresAt?: unknown };
 type Warn = (error: Error) => void;
 const NOT_FOUND = 44;

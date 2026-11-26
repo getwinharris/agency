@@ -1,10 +1,11 @@
-import { useIsMutating, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { COMPUTER_TITLE, deriveProjectNameFromPath, reasoningLevelSchema, serviceTierSchema, type ReasoningLevel, type Thread } from "@cloudroom/domain";
-import type { MacAccessLevel, NativeSession, RepoSuggestion, SessionImportResult } from "@cloudroom/sdk/browser";
+import type { CloudroomStatus, MacAccessLevel, NativeSession, RepoSuggestion, SessionImportResult } from "@cloudroom/sdk/browser";
 import type { ProjectSelectorSuggestions } from "@/components/pickers/ProjectSelector";
 import { usePathPickerHost } from "@/hooks/useLocalPathPicker";
 import { useSetRootComposeProjectId } from "@/lib/root-compose-selection";
+import { relayConnectionError, OtherMacUnavailableError, viewingOtherMac } from "@/cloud/mac-connection";
 import { fetchWithAppSurface } from "@/lib/app-surface";
 import { sdk } from "@/lib/sdk";
 import { sidebarNavigationQueryKey, threadReasoningSaveKey } from "@/hooks/queries/query-keys";
@@ -14,6 +15,7 @@ import { getMutationErrorMessage, showMutationErrorToast } from "@/lib/mutation-
 
 export const cloudroomStatusSchema = z.object({
   ready: z.boolean(),
+  selfHosted: z.boolean().optional(),
   storage: z.object({
     enabled: z.boolean(), level: z.enum(["normal", "low_space", "blocked"]),
     reason: z.enum(["disk_capacity", "measurement_unavailable", "unprotected_test_mode"]),
@@ -35,6 +37,8 @@ export const cloudroomStatusSchema = z.object({
   queue_reorder: z.boolean().default(false),
   /** The account's place in the cloud queue, or a blocked region: new Cloud threads wait (docs/scopes/public-launch.md). */
   cloudQueue: z.object({ position: z.number(), total: z.number(), regionBlocked: z.boolean() }).nullable().default(null),
+  /** Non-null when Metal capacity is temporarily reserved for higher plans and this tier waits (ADR 20261124-103714). */
+  cloudCapacity: z.enum(["paid", "priority"]).nullable().default(null),
   cloudPaused: z.boolean().default(false),
   usedCloud: z.boolean().default(true),
   lastCloudAt: z.number().nullable().optional(),
@@ -54,14 +58,14 @@ export const cloudroomStatusSchema = z.object({
   })).nullable().default([]),
 });
 
-const CORE_HARNESS_IDS: Record<string, string> = { "acp-cursor": "cursor", "acp-fx": "fx", "acp-opencode": "opencode", "acp-hermes-agent": "hermes", "acp-devin": "devin", "acp-droid": "droid", "acp-kimi": "kimi", "acp-openclaw": "openclaw", "acp-agent-zero": "agent-zero" };
+const CORE_HARNESS_IDS: Record<string, string> = { "acp-cursor": "cursor", "acp-fx": "fx", "acp-opencode": "opencode", "acp-hermes-agent": "hermes", "acp-devin": "devin", "acp-droid": "droid", "acp-kimi": "kimi", "acp-antigravity": "antigravity", "acp-openclaw": "openclaw", "acp-agent-zero": "agent-zero" };
 
 export function cloudHarness(status: z.infer<typeof cloudroomStatusSchema> | undefined, harness: string | undefined) {
   const id = harness === undefined ? undefined : (CORE_HARNESS_IDS[harness] ?? harness);
   return status?.harnesses?.find((item) => item.id === id);
 }
 
-const CLOUD_HARNESS_IDS = new Set(["claude-code", "codex", "pi", "cursor", "fx", "opencode", "hermes", "devin", "droid", "kimi", "openclaw", "agent-zero"]);
+const CLOUD_HARNESS_IDS = new Set(["claude-code", "codex", "pi", "cursor", "fx", "opencode", "hermes", "devin", "droid", "kimi", "antigravity", "openclaw", "agent-zero"]);
 export function cloudCanRunHarness(harness: string): boolean {
   return CLOUD_HARNESS_IDS.has(CORE_HARNESS_IDS[harness] ?? harness);
 }
@@ -71,7 +75,12 @@ export function cloudCatalogKnown(status: z.infer<typeof cloudroomStatusSchema> 
   return status?.ready === true && status.harnesses !== null;
 }
 
-const HARNESS_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi", cursor: "Cursor", fx: "fx", opencode: "opencode", hermes: "Hermes Agent", devin: "Devin", droid: "Droid", kimi: "Kimi Code", openclaw: "OpenClaw", "agent-zero": "Agent Zero" };
+const HARNESS_NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", pi: "Pi", cursor: "Cursor", fx: "fx", opencode: "opencode", hermes: "Hermes Agent", devin: "Devin", droid: "Droid", kimi: "Kimi Code", antigravity: "Antigravity", openclaw: "OpenClaw", "agent-zero": "Agent Zero" };
+export function cloudHarnessOption(coreId: string) {
+  const label = HARNESS_NAMES[coreId];
+  if (!label) return null;
+  return { id: Object.keys(CORE_HARNESS_IDS).find(id => CORE_HARNESS_IDS[id] === coreId) ?? coreId, label };
+}
 export function cloudHarnessNames(status: z.infer<typeof cloudroomStatusSchema> | undefined): string {
   return (status?.harnesses ?? []).map((item) => HARNESS_NAMES[item.id] ?? item.id).join(", ") || "none";
 }
@@ -90,10 +99,58 @@ export function cloudReasoningLevels(status: z.infer<typeof cloudroomStatusSchem
   const profile = cloudHarness(status, harness);
   if (profile?.models === null) return [];
   const remoteModel = harness === "pi" && model ? model.slice(model.indexOf("/") + 1) : model;
-  if (!profile?.models) return profile?.reasoning_levels ?? [];
+  if (!profile?.models || (harness === "acp-opencode" && remoteModel === "default")) return profile?.reasoning_levels ?? [];
   const levels = profile.models.find((item) => item.model === remoteModel)?.reasoning_levels;
   // Claude runs exact models its catalog omits, such as claude-opus-5-5[1m]; core allows any VM level (ADR 0133).
   return levels ?? (harness === "claude-code" && remoteModel ? [...new Set(profile.models.flatMap((item) => item.reasoning_levels))] : []);
+}
+
+export function cloudOpenCodeCatalog(
+  status: z.infer<typeof cloudroomStatusSchema> | undefined,
+): readonly { model: string }[] | null {
+  const models = cloudHarness(status, "acp-opencode")?.models;
+  return models && models.length > 0 ? models : null;
+}
+
+export function cloudOpenCodeModelIssue(
+  catalog: readonly { model: string }[] | null,
+  model: string | undefined,
+): { alternatives: string[]; message: string } | null {
+  if (!model || model === "default" || !catalog || catalog.length === 0) return null;
+  if (catalog.some((item) => item.model === model)) return null;
+  const slash = model.indexOf("/");
+  const suffix = slash > 0 ? model.slice(slash + 1) : "";
+  const alternatives = suffix
+    ? catalog
+        .map((item) => item.model)
+        .filter((candidate) => {
+          const at = candidate.indexOf("/");
+          return at > 0 && candidate.slice(at + 1) === suffix;
+        })
+        .slice(0, 4)
+    : [];
+  const message = alternatives.length > 0
+    ? `${model} isn't available in Cloud. Available under another provider: ${alternatives.join(", ")}.`
+    : `${model} isn't configured in Cloud. Pick a Cloud model, or sign in with \`opencode auth login\` or configure ~/.config/opencode/opencode.json(c) on your computer.`;
+  return { alternatives, message };
+}
+
+/** Places Cloud-available OpenCode models first and moves local-only models into `more` so newly configured local models stay selectable. */
+export function partitionCloudOpenCodeModelOptions<T extends { value: string; label: string }>(
+  options: readonly T[],
+  catalog: readonly { model: string }[] | null,
+): { primary: T[]; more: T[] } | null {
+  if (!catalog || catalog.length === 0) return null;
+  const byValue = new Map(options.map((option) => [option.value, option]));
+  const inCloud = new Set<string>();
+  const primary: T[] = [];
+  for (const { model } of catalog) {
+    if (inCloud.has(model)) continue;
+    inCloud.add(model);
+    primary.push(byValue.get(model) ?? ({ value: model, label: model } as T));
+  }
+  const more = options.filter((option) => !inCloud.has(option.value));
+  return { primary, more };
 }
 export function cloudFeatureSupported(status: z.infer<typeof cloudroomStatusSchema> | undefined, harness: string, feature: "steer" | "compact" | "rewind"): boolean {
   const profile = cloudHarness(status, harness);
@@ -103,14 +160,24 @@ const cloudDiskSchema = z.object({ paused: z.boolean(), reason: z.enum(["disk_ca
 export type CloudDisk = z.infer<typeof cloudDiskSchema>;
 const threadStatusSchema = z.object({ authRequired: z.boolean().default(false), starting: z.boolean().default(false), sessionId: z.string().nullable(), paused: z.boolean(), failedStart: z.boolean().default(false), model: z.string(), reasoning: reasoningLevelSchema, serviceTier: serviceTierSchema.default("default"), error: z.string().nullable(), reconnecting: z.boolean().default(false), usageLimit: z.boolean().default(false), launchCap: z.boolean().default(false), disk: cloudDiskSchema.nullable().default(null), awake: z.boolean().default(false), vps: z.boolean().default(false), move: z.enum(["moving", "failed"]).nullable().default(null), waiting: z.string().nullable().default(null), fromCopy: z.boolean().default(false), outOfMemory: z.boolean().default(false), pendingDelivery: z.number() }).nullable();
 
-export function useCloudroomAccount() {
-  return useQuery({ queryKey: ["cloudroom-account"], queryFn: async ({ signal }) => {
-    const status = await sdk.cloudroom.status(signal);
-    if (status.account && typeof document !== "undefined" && document.visibilityState === "visible") {
-      void fetchWithAppSurface("/api/v1/cloudroom/account/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
-    }
-    return status;
-  }, refetchInterval: (query) => query.state.data?.signingIn ? 500 : 10000 });
+const accountQuery = { queryKey: ["cloudroom-account"], queryFn: async ({ signal }: { signal: AbortSignal }) => {
+  const status = await sdk.cloudroom.status(signal);
+  if (status.account && typeof document !== "undefined" && document.visibilityState === "visible") {
+    void fetchWithAppSurface("/api/v1/cloudroom/account/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+  }
+  return status;
+}, refetchInterval: (query: { state: { data?: CloudroomStatus } }) => query.state.data?.signingIn ? 500 : 10000 };
+
+export function useCloudroomAccount(enabled = true) {
+  return useQuery({ enabled, ...accountQuery });
+}
+
+/** This thread family's fast credit burn, for its sidebar row; null for almost every thread (docs/scopes/credit-burn.md).
+ *  Reads the account query's cache: its other users poll it, so hundreds of rows never add a fetch. Re-renders the row
+ *  only when its own burn changes. */
+export function useThreadCreditBurn(threadId: string, enabled: boolean) {
+  return useQuery({ enabled, queryKey: accountQuery.queryKey, queryFn: accountQuery.queryFn, staleTime: Infinity,
+    select: (status: CloudroomStatus) => status.burning?.[threadId] ?? null }).data ?? null;
 }
 
 /** Starts browser sign-in, or cancels the one in progress. GitHub and Google skip the website's login page. */
@@ -132,22 +199,35 @@ export function useCloudroomSignIn() {
   });
 }
 
-const cloudroomConnectionQuery = { queryKey: ["cloudroom-connection"], queryFn: async ({ signal }: { signal: AbortSignal }) => cloudroomStatusSchema.parse(await (await fetchWithAppSurface("/api/v1/cloudroom", { signal })).json()) };
-export function useCloudroomConnection() {
-  return useQuery({ ...cloudroomConnectionQuery, refetchInterval: 10000 });
+export const cloudroomConnectionQuery = { queryKey: ["cloudroom-connection"], queryFn: async ({ signal }: { signal: AbortSignal }) => cloudroomStatusSchema.parse(await (await fetchWithAppSurface("/api/v1/cloudroom", { signal })).json()) };
+export function useCloudroomConnection(enabled = true) {
+  return useQuery({ ...cloudroomConnectionQuery, enabled, refetchInterval: 10000 });
 }
-/** The Cloud status right now, for code that asks at one moment instead of watching. Always fresh: a copy up to 10
- *  seconds old could miss a region block or the cloud queue. */
-export const fetchCloudroomConnection = (queryClient: QueryClient) => queryClient.fetchQuery({ ...cloudroomConnectionQuery, staleTime: 0 });
 
-export function useMacAgents(enabled = true) {
+const macAgentsResponseSchema = z.object({
+  agents: z.array(z.string()),
+  installed: z.array(z.string()).default([]),
+});
+
+function useMacAgentsQuery(enabled = true) {
   return useQuery({
     queryKey: ["cloudroom-mac-agents"],
     enabled,
     staleTime: Infinity,
     gcTime: Infinity,
-    queryFn: async ({ signal }) => z.object({ agents: z.array(z.string()) }).parse(await (await fetchWithAppSurface("/api/v1/cloudroom/mac/agents", { signal })).json()).agents,
+    queryFn: async ({ signal }) => macAgentsResponseSchema.parse(await (await fetchWithAppSurface("/api/v1/cloudroom/mac/agents", { signal })).json()),
   });
+}
+
+export function useMacAgents(enabled = true) {
+  const query = useMacAgentsQuery(enabled);
+  return { ...query, data: query.data?.agents };
+}
+
+/** Supported agent CLIs found on PATH (no auth files read). Safe for onboarding telemetry. */
+export function useInstalledMacAgents(enabled = true) {
+  const query = useMacAgentsQuery(enabled);
+  return { ...query, data: query.data?.installed };
 }
 
 const desktopUpdateSchema = z.object({ version: z.string(), installAt: z.number().nullable(), installing: z.boolean() }).nullable();
@@ -190,10 +270,18 @@ export function useHostDesktopUpdate(enabled: boolean) {
 export type HostDesktopUpdate = NonNullable<ReturnType<typeof useHostDesktopUpdate>>;
 
 export function useCloudroomThread(threadId: string, enabled: boolean) {
-  return useQuery({ queryKey: ["cloudroom-thread", threadId], enabled, queryFn: async ({ signal }) => threadStatusSchema.parse(await (await fetchWithAppSurface(`/api/v1/cloudroom/threads/${encodeURIComponent(threadId)}`, { signal })).json()), refetchInterval: 1500 });
+  return useQuery({ queryKey: ["cloudroom-thread", threadId], enabled, queryFn: async ({ signal }) => {
+    const response = await fetchWithAppSurface(`/api/v1/cloudroom/threads/${encodeURIComponent(threadId)}`, { signal });
+    if (!response.ok) {
+      if (viewingOtherMac() && relayConnectionError(response)) throw new OtherMacUnavailableError();
+      const body = await response.json().catch(() => null);
+      throw new Error(typeof body?.message === "string" ? body.message : `Could not load the Cloud thread (HTTP ${response.status}).`);
+    }
+    return threadStatusSchema.parse(await response.json());
+  }, refetchInterval: 1500 });
 }
 
-const cloudLoginsSchema = z.object({ issues: z.array(z.object({ provider: z.enum(["codex", "claude-code", "acp-cursor"]), threads: z.number(), loops: z.number() })) });
+const cloudLoginsSchema = z.object({ issues: z.array(z.object({ provider: z.enum(["codex", "claude-code", "acp-cursor", "acp-antigravity"]), threads: z.number(), loops: z.number() })) });
 /** Agents Cloud refused for their login, with the threads and loops waiting on each. A local call; the server reads the
  *  website's loops at most every 15 minutes. */
 export function useCloudLogins(enabled: boolean) {
@@ -282,12 +370,12 @@ export const MAC_ACCESS_MUTATION_KEY = ["cloudroom-mac-access"];
 /** How much cloud agents may do on this computer (ADR 0113, 0186). `true` means Full access. The account cache is the one
  *  source every menu reads: it changes at once and rolls back on failure (#109). `onSaved` and the app's error toast run
  *  with the mutation itself, so each shows once, even after the menu that made the change has closed. */
-export function useSetMacAccess(onSaved?: (access: MacAccessChoice) => void) {
+export function useSetMacAccess(onSaved?: (access: MacAccessChoice) => void, options?: { showErrorToast?: boolean }) {
   const client = useQueryClient();
   type Account = Awaited<ReturnType<typeof sdk.cloudroom.status>>;
   return useMutation({
     mutationKey: MAC_ACCESS_MUTATION_KEY,
-    meta: { errorMessage: `Couldn't change ${COMPUTER_TITLE} access.` },
+    meta: options?.showErrorToast === false ? { showErrorToast: false } : { errorMessage: `Couldn't change ${COMPUTER_TITLE} access.` },
     mutationFn: (access: MacAccessChoice) => sdk.cloudroom.setMacAccess(access),
     onMutate: async (access) => {
       await client.cancelQueries({ queryKey: ["cloudroom-account"] });
@@ -355,6 +443,7 @@ export function useProjectSuggestions(): ProjectSelectorSuggestions | undefined 
   const add = useMutation({
     mutationFn: async ({ hostId, repo }: { hostId: string; repo: RepoSuggestion }) => repo.source === "mac"
       ? (await sdk.projects.create({ name: deriveProjectNameFromPath(repo.path), source: { type: "local_path", hostId, path: repo.path } })).id
+      : repo.source === "gitlab" ? (await sdk.cloudroom.addGitlabRepo({ repo: repo.repo })).projectId
       : (await sdk.cloudroom.addGithubRepo({ repo: repo.repo })).projectId,
     onSuccess: async (projectId, { repo }) => {
       // The new project replaces its suggestion as soon as the picker lists it, not after every query refreshes (#2126).
@@ -380,8 +469,9 @@ export function useProjectSuggestions(): ProjectSelectorSuggestions | undefined 
 }
 
 /** A project's branches on GitHub, for a project with no folder on this Mac. */
-export function useGithubBranches(projectId: string, enabled: boolean) {
-  return useQuery({ queryKey: ["cloudroom-github-branches", projectId], queryFn: ({ signal }) => sdk.cloudroom.githubBranches(projectId, signal), enabled, retry: false, staleTime: 5 * 60_000 });
+export function useCloudProjectBranches(projectId: string, enabled: boolean) {
+  const accountId = useCloudroomAccount(enabled).data?.account?.id;
+  return useQuery({ queryKey: ["cloudroom-project-branches", accountId, projectId], queryFn: ({ signal }) => sdk.cloudroom.projectBranches(projectId, signal), enabled, retry: false, staleTime: 5 * 60_000 });
 }
 
 /** Imports in batches so a big import shows progress and keeps going after its screen closes. */
@@ -423,10 +513,11 @@ export function useExportChats() {
   return useMutation({ mutationFn: (input: Parameters<typeof sdk.cloudroom.exportChats>[0]) => sdk.cloudroom.exportChats(input) });
 }
 
-export function useRetryProjectCopy(threadId: string) {
+export function useRetryProjectCopy(threadId: string, options?: { showToast?: boolean }) {
   return useMutation({
     mutationFn: () => sdk.cloudroom.retryCopy(threadId),
-    onError: (error) => showMutationErrorToast({ error, fallbackMessage: "Could not copy the project" }),
+    meta: options?.showToast === false ? { showErrorToast: false } : undefined,
+    onError: options?.showToast === false ? undefined : (error) => showMutationErrorToast({ error, fallbackMessage: "Could not copy the project" }),
   });
 }
 
@@ -449,6 +540,7 @@ export async function cloudroomRequestId(key: string, input: unknown): Promise<s
   return id;
 }
 
-export function clearCloudroomRequestId(key: string): void {
-  localStorage.removeItem(`cloudroom-request:${key}`);
+export function clearCloudroomRequestId(key: string, expectedId?: string): void {
+  const storageKey = `cloudroom-request:${key}`;
+  if (!expectedId || localStorage.getItem(storageKey)?.split(":")[1] === expectedId) localStorage.removeItem(storageKey);
 }

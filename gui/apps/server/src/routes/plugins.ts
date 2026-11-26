@@ -334,6 +334,9 @@ export function registerPluginRoutes(
   );
   const upgradePluginWebSocket = upgradeWebSocket?.(async (context) => {
     const id = context.req.param("id");
+    if (id === undefined) {
+      throw new ApiError(404, "unknown_plugin", "missing plugin id");
+    }
     const subPath = pluginHttpSubPath(context, id);
     const lookup = plugins.getWebSocketRoute(id, subPath);
     if (lookup.outcome === "unknown-plugin") {
@@ -468,6 +471,21 @@ export function registerPluginRoutes(
       return context.json(
         { ok: false, error: "expected { argv: string[] }" },
         400,
+      );
+    }
+    const subcommand = argv[0];
+    if (
+      getGateAuthKind(context) === "machine" &&
+      subcommand !== undefined &&
+      BUNDLED_PLUGINS.some(
+        (plugin) =>
+          plugin.pluginId === context.req.param("id") &&
+          plugin.refuseMachineCliSubcommands?.includes(subcommand),
+      )
+    ) {
+      return context.json(
+        { ok: false, error: "This plugin command requires the account owner." },
+        403,
       );
     }
     const ctx: {
@@ -719,6 +737,7 @@ export function registerPluginRoutes(
   });
 
   app.put("/plugins/:id/settings", async (context) => {
+    const id = context.req.param("id");
     const json: unknown = await context.req.json().catch(() => null);
     const body = pluginSettingsUpdateRequestSchema.safeParse(json);
     if (!body.success) {
@@ -727,11 +746,31 @@ export function registerPluginRoutes(
         400,
       );
     }
+    const gate = getGateAuthKind(context);
+    if (gate !== null) {
+      const refusedSettings = BUNDLED_PLUGINS.find(
+        (bundled) => bundled.pluginId === id,
+      )?.relayRefusedSettings;
+      for (const key of Object.keys(body.data.values)) {
+        const refused = refusedSettings?.[key];
+        if (
+          refused === "all" ||
+          (refused === "machine" && gate === "machine")
+        ) {
+          return context.json(
+            {
+              ok: false,
+              error: `plugin "${id}" setting "${key}" can't be changed through Cloudroom Connect${
+                refused === "machine" ? " by a remote host" : ""
+              }`,
+            },
+            403,
+          );
+        }
+      }
+    }
     try {
-      const view = await plugins.updateSettings(
-        context.req.param("id"),
-        body.data.values,
-      );
+      const view = await plugins.updateSettings(id, body.data.values);
       if (!view) return context.json(NOT_RUNNING, 404);
       return context.json({ ok: true, ...view });
     } catch (error) {

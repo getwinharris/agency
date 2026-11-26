@@ -1,6 +1,11 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { MODEL_LEVELS } from "@cloudroom/domain";
-import { listAutomationRuns, type AutomationRow, type Db } from "./data.js";
+import {
+  listAutomationRuns,
+  REFUSED,
+  type AutomationRow,
+  type Db,
+} from "./data.js";
 import type {
   AutomationExecution,
   ReasoningLevel,
@@ -29,6 +34,14 @@ const OTHER_PROVIDER: Record<string, string> = {
   codex: "claude-code",
 };
 const CODEX_EFFORTS: ReasoningLevel[] = ["low", "medium", "high", "xhigh"];
+// Opus, or an unknown or default Claude model, falls back to Gemini 4 Neon in Antigravity first, then GPT-6.2-Astra in
+// Codex, both at xhigh (David, 2026-11-24). Cloud loops do the same (web/lib/automations.ts).
+const OPUS_FALLBACK: LoopAgent[] = [
+  { providerId: "acp-antigravity", model: "gemini-4-neon", reasoningLevel: "xhigh" },
+  { providerId: "codex", model: "gpt-6.2-astra", reasoningLevel: "xhigh" },
+];
+// Agents whose usage this Mac can't read: unknown counts as free, and being ready decides.
+const NO_USAGE = new Set(["acp-antigravity"]);
 const USAGE_CACHE_MS = 60_000;
 const LIMIT_SUSPECT_MS = 10 * 60_000;
 const SETTING_CACHE_MS = 10 * 60_000;
@@ -42,6 +55,9 @@ const usageCache = new Map<
       | null;
   }
 >();
+// After a refusal, the loop runs on the other provider for a week (ADR 20261119-091500). Kept until the app restarts.
+const REFUSAL_HOLD_MS = 7 * 86_400_000;
+const refusedUntil = new Map<string, number>();
 // A provider seen at its limit stays suspect until the full window resets, or 10 minutes when the reset is unknown (#1807).
 const limitedUntil = new Map<string, number>();
 // Loops whose last run switched: the next one checks usage again, so an unknown reset can't send it back early.
@@ -77,6 +93,16 @@ export function sameLevelAgent(execution: AgentExecution): LoopAgent {
       ? { reasoningLevel: execution.reasoningLevel }
       : {}),
   };
+}
+
+/** The agents a loop falls back to, in order: OPUS_FALLBACK for Opus (or an unknown or default Claude model), else the
+ *  other provider's model of the same level. */
+export function fallbackAgents(execution: AgentExecution): LoopAgent[] {
+  const model = execution.model.toLowerCase();
+  const level = MODEL_LEVELS.find((entry) => model.includes(entry.claude));
+  if (execution.providerId === "claude-code" && (!level || level.claude === "opus"))
+    return OPUS_FALLBACK;
+  return [sameLevelAgent(execution)];
 }
 
 async function atLimit(
@@ -155,13 +181,16 @@ function fallbackOn(sdk: FallbackSdk): Promise<boolean> {
   return read.on;
 }
 
-// run.ts skips a run its plan limit stopped (ADR 0344). The newest run is this one, still running.
-function limitSkipped(db: Db, automationId: string): boolean {
-  return (
-    listAutomationRuns(db, { automationId, limit: 2 })
-      .find((run) => run.status !== "running")
-      ?.skipReason?.startsWith("plan limit:") === true
+// The last run that ended. The newest run is this one, still running.
+function lastEnded(db: Db, automationId: string) {
+  return listAutomationRuns(db, { automationId, limit: 2 }).find(
+    (run) => run.status !== "running",
   );
+}
+
+// run.ts skips a run its plan limit stopped (ADR 0344).
+function limitSkipped(db: Db, automationId: string): boolean {
+  return lastEnded(db, automationId)?.skipReason?.startsWith("plan limit:") === true;
 }
 
 /** A loop with several agents gives each run the next one (docs/scopes/loops.md), past any at its plan limit or not
@@ -215,24 +244,41 @@ export async function loopAgent(
       ? {}
       : { serviceTier: execution.serviceTier }),
   };
+  // A refused last run holds this loop's own agent for a week, only when it ran there: one already on the other agent
+  // (at a limit) refused there, so the hold would send the loop to the agent that refused. The retry already switches.
+  const held = `${automation.id}:${execution.providerId}`;
+  if (
+    failed &&
+    lastEnded(db, automation.id)?.error?.startsWith(REFUSED) &&
+    (await ranOn(sdk, automation.lastRunThreadId)) === execution.providerId
+  )
+    refusedUntil.set(held, Date.now() + REFUSAL_HOLD_MS);
+  const refused = (refusedUntil.get(held) ?? 0) > Date.now();
   const suspect =
     switched.delete(automation.id) ||
     failed ||
     (limitedUntil.get(execution.providerId) ?? 0) > Date.now();
   if (
     !OTHER_PROVIDER[execution.providerId] ||
-    !suspect ||
-    (await atLimit(sdk, execution.providerId, execution.model, failed)) !== true
+    (!refused &&
+      (!suspect ||
+        (await atLimit(sdk, execution.providerId, execution.model, failed)) !==
+          true))
   )
     return own;
-  const other = sameLevelAgent(execution);
-  // Local checks first: the setting is read only when the other provider could take over.
-  if (
-    (await atLimit(sdk, other.providerId, other.model, false)) !== false ||
-    !(await canRun(sdk, other.providerId, execution.environment)) ||
-    !(await fallbackOn(sdk))
-  )
-    return own;
+  // Local checks first: the setting is read only when another agent could take over. The first one free and ready wins.
+  let other: LoopAgent | undefined;
+  for (const agent of fallbackAgents(execution)) {
+    const limit = await atLimit(sdk, agent.providerId, agent.model, false);
+    if (
+      (NO_USAGE.has(agent.providerId) ? limit !== true : limit === false) &&
+      (await canRun(sdk, agent.providerId, execution.environment))
+    ) {
+      other = agent;
+      break;
+    }
+  }
+  if (!other || !(await fallbackOn(sdk))) return own;
   // A webhook run's retry carries its own events, which the website no longer has: it stays, as on Cloud loops.
   if (
     failed &&
@@ -243,6 +289,37 @@ export async function loopAgent(
     return own;
   switched.add(automation.id);
   return other;
+}
+
+const NAMES: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", "acp-antigravity": "Antigravity" };
+
+/** The line a fallback run's prompt starts with, so its agent knows why it runs and says so: a silent switch made runs
+ *  that needed the loop's own agent fail with no reason anyone could see (#2153). Empty on the loop's own agent, and for
+ *  agents that take turns. Cloud loops say the same (web/lib/automations.ts). */
+export function fallbackNote(
+  automation: AutomationRow,
+  execution: AgentExecution,
+  agent: LoopAgent,
+): string {
+  if (agent.providerId === execution.providerId || (execution.agents?.length ?? 0) > 1) return "";
+  const own = NAMES[execution.providerId] ?? execution.providerId;
+  const why =
+    (refusedUntil.get(`${automation.id}:${execution.providerId}`) ?? 0) > Date.now()
+      ? `${own} refused one of its recent runs`
+      : `${own} is at its plan limit`;
+  return `Note from Cloudroom: this run is on ${NAMES[agent.providerId] ?? agent.providerId} · ${agent.model} instead of this loop's own ${own}${execution.model ? ` · ${execution.model}` : ""}, because ${why}. Say so in your reply and your report. If the task needs a tool you don't have here, report needs-you and stop instead of working around it.\n\n`;
+}
+
+/** The agent a run's thread ran on, or null when unknown. */
+async function ranOn(
+  sdk: FallbackSdk,
+  threadId: string | null,
+): Promise<string | null> {
+  if (!threadId) return null;
+  const thread = (await safely(() => sdk.threads.get?.({ threadId }))) as {
+    providerId?: unknown;
+  } | null;
+  return typeof thread?.providerId === "string" ? thread.providerId : null;
 }
 
 // The last run's retries would redo its work on the limited provider. As after a failed run, Stop cancels them all,

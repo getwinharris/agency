@@ -174,6 +174,15 @@ pub(super) fn option_value<'a>(state: &'a Value, name: &str) -> Option<&'a str> 
         .as_str()
 }
 
+/// Whether the ACP session lists `value` for config option `name`.
+pub(super) fn offers(state: &Value, name: &str, value: &str) -> bool {
+    state["configOptions"]
+        .as_array()
+        .and_then(|options| options.iter().find(|o| o["id"] == name))
+        .and_then(|option| option["options"].as_array())
+        .is_some_and(|options| options.iter().any(|o| o["value"] == value))
+}
+
 pub(super) async fn send(handle: &Handle, request: &str, input: &Value) -> io::Result<()> {
     if handle.kind == Kind::Cursor {
         // Fast is per turn: the driver runs the selected model's `-fast` variant when Cursor offers one.
@@ -185,7 +194,12 @@ pub(super) async fn send(handle: &Handle, request: &str, input: &Value) -> io::R
             )
             .await?;
     }
-    prompt(handle, request, input, false, Vec::new()).await
+    let inline = if handle.kind == Kind::Antigravity {
+        images(handle, input).await?
+    } else {
+        Vec::new()
+    };
+    prompt(handle, request, input, false, inline).await
 }
 
 /// Cloudroom's rules for the agent: plain-chat questions and the Cloudroom system prompt.
@@ -203,6 +217,27 @@ pub(super) fn instructions(handle: &Handle) -> String {
         ),
         _ => rules,
     }
+}
+
+/// Image attachments go inline when the ACP server accepts images; their paths still follow the text.
+pub(super) async fn images(handle: &Handle, input: &Value) -> io::Result<Vec<Value>> {
+    if handle.acp.lock().unwrap()["promptCapabilities"]["image"] != true {
+        return Ok(Vec::new());
+    }
+    // Leave room in the ACP frame for the text, the instructions, and the envelope.
+    let used = serde_json::to_vec(input)?.len() + instructions(handle).len() + 4096;
+    let remaining = super::process::MAX_LINE.saturating_sub(used);
+    let (reader, input) = (handle.clone(), input.clone());
+    tokio::task::spawn_blocking(move || super::files::images(&reader, &input, remaining))
+        .await
+        .map_err(io::Error::other)?
+        // No prompt was sent: reject this request and allow queued work to continue.
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("cannot read image attachment: {error}"),
+            )
+        })
 }
 
 /// Sends one turn, with any inline images after the text. Agents that do not keep the instructions
@@ -240,6 +275,17 @@ pub(super) async fn prompt(
 
 pub(super) async fn steer(handle: &Handle, request: &str, text: &str) -> io::Result<()> {
     let _control = handle.controls.lock().await;
+    if handle.kind == Kind::Antigravity {
+        return handle
+            .process
+            .dispatch(
+                "cloudroom/join",
+                json!({"sessionId":handle.native()?,"prompt":[{"type":"text","text":text}]}),
+                None,
+                Some(request),
+            )
+            .await;
+    }
     handle
         .process
         .control(
@@ -349,6 +395,8 @@ pub(super) struct Protocol {
     restart: Option<(u64, Value)>,
     /// Steering prompts the agent joins to the running turn; each is answered when that turn ends.
     steering: Vec<u64>,
+    /// The current prompt got output. A steer's new prompt starts without, so its empty end is still silent (#1721).
+    replied: bool,
     acknowledgement: Option<(Value, u64)>,
     responses: Vec<Value>,
     closing: bool,
@@ -369,6 +417,7 @@ impl Protocol {
             cancel: None,
             restart: None,
             steering: Vec::new(),
+            replied: false,
             acknowledgement: None,
             responses: Vec::new(),
             closing: false,
@@ -388,8 +437,8 @@ impl Protocol {
     }
     fn finish_message(&mut self, state: &mut Progress, events: &mut Vec<Event>) {
         for (kind, text) in [
-            ("agentMessage", std::mem::take(&mut self.text)),
             ("reasoning", std::mem::take(&mut self.thinking)),
+            ("agentMessage", std::mem::take(&mut self.text)),
         ] {
             if !text.is_empty() {
                 if kind == "agentMessage" {
@@ -427,6 +476,7 @@ impl Adapter for Protocol {
         }
         if request.is_some() {
             self.prompt = Some(id);
+            self.replied = false;
         }
         if method == "cloudroom/join" {
             self.steering.push(id);
@@ -514,6 +564,7 @@ impl Adapter for Protocol {
                 kind,
                 "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"
             ) {
+                self.replied = true;
                 events.extend(state.started());
             }
             let text = update["content"]["text"].as_str().unwrap_or_default();
@@ -647,6 +698,7 @@ impl Adapter for Protocol {
                 );
                 self.acknowledgement = Some((value["id"].clone(), id));
                 self.prompt = Some(id);
+                self.replied = false;
             } else if value.get("error").is_none()
                 && stop == Some("end_turn")
                 && !self.steering.is_empty()
@@ -663,7 +715,7 @@ impl Adapter for Protocol {
                 {
                     self.acknowledgement = Some((value["id"].clone(), id));
                 }
-                let silent = stop == Some("end_turn") && !state.started;
+                let silent = stop == Some("end_turn") && !self.replied;
                 let status = match stop {
                     _ if silent && self.flavor.empty_turn.is_some() => "failed",
                     Some("end_turn") => "completed",

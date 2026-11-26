@@ -9,6 +9,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// starts its shell, which the setup test would read as a running helper. A test-only race; setup runs alone in the app.
 static FORKS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// A core whose stream the helper keeps: its sandbox is awake, so its commands may start.
+fn awake(jobs: &jobs::Jobs) -> (String, String) {
+    let core = ("http://core".to_owned(), "token".to_owned());
+    jobs.wanted.lock().unwrap().insert(core.clone());
+    core
+}
+
 fn folder(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("cr-helper-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&path);
@@ -157,10 +164,17 @@ async fn browser_path_streaming_upload_readiness_and_privacy() {
 fn ask_first_popup_shows_agent_text_as_text() {
     // Security sweep: line breaks in a folder name could push the command out of view in the Ask first popup.
     let stdin: String = (0..25).map(|n| format!("echo {n}\r\n")).collect();
-    let job = json!({"id": "job", "command": "bash -s\necho two\u{202e}", "cwd": format!("/tmp/a\nb{}", "c".repeat(300)), "write": true, "stdin": super::hex(stdin.as_bytes())});
+    let job = json!({"id": "job", "command": "bash -s\necho two\u{202e}", "cwd": format!("/opt/a\nb{}", "c".repeat(300)), "write": true, "stdin": super::hex(stdin.as_bytes())});
     let text = jobs::popup_text(&job, Path::new("/unused"));
-    let lines: Vec<&str> = text.split('\n').collect();
-    let folder = format!("Folder: /tmp/a\\nb{}…", "c".repeat(191));
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    assert_eq!(
+        lines.drain(2..4).collect::<Vec<_>>(),
+        [
+            "Warning: 109 more characters of the folder are not shown.",
+            ""
+        ]
+    );
+    let folder = format!("Folder: /opt/a\\nb{}…", "c".repeat(191));
     let expected = [
         "Warning: 44 more characters of its input are not shown, and will also run.",
         "",
@@ -186,6 +200,76 @@ fn ask_first_popup_shows_agent_text_as_text() {
         jobs::visible(&"\0".repeat(300), 600, 10),
         ("\\x00".repeat(150), 150)
     );
+}
+
+#[tokio::test]
+async fn ask_first_popup_shows_the_folder_the_command_runs_in() {
+    // #2470: `.` and `..` in the agent's folder text could show a project folder while the command ran in a temp folder.
+    let raw = format!(
+        "/Users/me/code/{}{}private/tmp/b",
+        "./".repeat(100),
+        "../".repeat(30)
+    );
+    let cwd = jobs::realpath(Path::new(&raw));
+    assert_eq!(cwd, Path::new("/private/tmp/b"));
+    let job = json!({"id": "job", "command": "make", "cwd": cwd, "write": true});
+    let text = jobs::popup_text(&job, Path::new("/Users/me"));
+    assert!(text.contains("Warning: the command uses files in a temp folder."));
+    assert!(text.ends_with("Folder: /private/tmp/b"));
+    let home = json!({"id": "job", "command": "make", "cwd": "/Users/me/code", "write": true});
+    assert!(jobs::popup_text(&home, Path::new("/Users/me")).ends_with("\n\nFolder: ~/code"));
+    // `..` never skips a missing part or a file, which the OS would refuse to start in.
+    let base = folder("real-folder");
+    std::fs::create_dir(base.join("code")).unwrap();
+    std::fs::write(base.join("file"), "").unwrap();
+    std::os::unix::fs::symlink(base.join("code"), base.join("link")).unwrap();
+    let (real, id) = jobs::real_folder(&base.join("link/.")).unwrap();
+    assert_eq!(real, base.join("code").to_string_lossy());
+    assert!(jobs::real_folder(&base.join("missing/../code")).is_err());
+    assert!(jobs::real_folder(&base.join("file/../code")).is_err());
+    // The approved command runs in that folder. Swapped after Allow, it no longer matches, so it does not start.
+    let _alone = FORKS.lock().await;
+    let jobs = jobs::Jobs::new(std::sync::Arc::new(super::net::Shared::new(base.clone())));
+    let job =
+        json!({"id": "run", "command": "pwd", "cwd": real, "approvedFolder": id, "write": true});
+    let core = awake(&jobs);
+    let ran = jobs.run(&job, &core, false, &base, None, None).await;
+    let stdout = super::unhex(ran["stdout"].as_str().unwrap()).unwrap();
+    assert_eq!(String::from_utf8(stdout).unwrap().trim(), real);
+    // Approved after its sandbox slept, a write command does not start: nobody would read the result (feedback 0024).
+    jobs.wanted.lock().unwrap().clear();
+    let late = jobs.run(&job, &core, false, &base, None, None).await;
+    let stderr = super::unhex(late["stderr"].as_str().unwrap()).unwrap();
+    assert_eq!(late["code"], 126);
+    assert!(
+        String::from_utf8(stderr)
+            .unwrap()
+            .contains("stopped taking commands")
+    );
+    jobs.wanted.lock().unwrap().insert(core.clone());
+    std::fs::rename(base.join("code"), base.join("old")).unwrap();
+    std::fs::create_dir(base.join("code")).unwrap();
+    assert_eq!(
+        jobs.run(&job, &core, false, &base, None, None).await["code"],
+        126
+    );
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn real_folder_uses_the_letter_case_on_disk() {
+    // #2470: realpath keeps a typed ~/CODE, while the shell's `pwd -P` shows ~/code, so the approved folder never matched.
+    let base = folder("disk-case");
+    std::fs::create_dir(base.join("code")).unwrap();
+    if base.join("CODE").exists() {
+        let real = base.join("code").to_string_lossy().into_owned();
+        assert_eq!(
+            jobs::real_folder(&base.join("CODE")).map(|found| found.0),
+            Ok(real)
+        );
+    }
+    std::fs::remove_dir_all(base).unwrap();
 }
 
 #[test]
@@ -265,6 +349,7 @@ async fn push_places_only_its_named_item() {
     std::fs::write(stage.join("proj/a"), "new").unwrap();
     std::fs::write(stage.join("proj/b"), "b").unwrap();
     let jobs = jobs::Jobs::new(std::sync::Arc::new(super::net::Shared::new(root.clone())));
+    let core = awake(&jobs);
     let push = async |data: Vec<u8>, name: &str, to: &str, staged: Option<String>| {
         // The sandbox's own command, folder, and write flag never count.
         let mut job = json!({"id": name, "command": format!("touch {}/ran", root.display()), "cwd": outside, "write": false,
@@ -272,7 +357,7 @@ async fn push_places_only_its_named_item() {
         if let Some(refused) = super::jobs::as_copy(&mut job, &home, &[]) {
             return (126, String::new(), refused);
         }
-        let result = jobs.run(&job, None, &root, None, None).await;
+        let result = jobs.run(&job, &core, false, &root, None, None).await;
         let text = |key: &str| {
             String::from_utf8(super::unhex(result[key].as_str().unwrap()).unwrap()).unwrap()
         };
@@ -543,10 +628,11 @@ async fn read_only_command_leaves_nothing_running() {
             .map(|(name, text)| read(name) != text)
             .collect::<Vec<_>>()
     };
-    let run = async |command: String, sandbox: Option<&(String, String)>| {
+    let run = async |command: String, sandboxed: bool| {
         jobs.run(
             &json!({"id": "job", "command": command}),
-            sandbox,
+            &core,
+            sandboxed,
             &root,
             None,
             None,
@@ -562,7 +648,8 @@ async fn read_only_command_leaves_nothing_running() {
         let task = tokio::spawn(async move {
             jobs.run(
                 &json!({"id": id, "command": command}),
-                Some(&core),
+                &core,
+                true,
                 &root,
                 None,
                 None,
@@ -611,16 +698,16 @@ async fn read_only_command_leaves_nothing_running() {
             .unwrap(),
     );
     // Full keeps what it leaves running; read-only ends it all with the command.
-    assert_eq!(run(leaves("full", false), None).await, json!(0));
+    assert_eq!(run(leaves("full", false), false).await, json!(0));
     assert_eq!(running(&["full-group", "full-left"]).await, [true, true]);
-    assert_eq!(run(leaves("read", true), Some(&core)).await, json!(0));
+    assert_eq!(run(leaves("read", true), true).await, json!(0));
     assert_eq!(
         running(&["read-group", "read-left", "read-chain"]).await,
         [false; 3]
     );
     // A running read-only command survives another one's end and the check that ends what earlier runs left.
     let first = start("first").await;
-    assert_eq!(run("true".into(), Some(&core)).await, json!(0));
+    assert_eq!(run("true".into(), true).await, json!(0));
     jobs.end_unwanted().await;
     assert_eq!(
         running(&["first-group", "first-left", "old"]).await,
@@ -642,7 +729,7 @@ async fn read_only_command_leaves_nothing_running() {
     let names: Vec<&str> = names.iter().flatten().map(String::as_str).collect();
     assert_eq!(running(&names).await, [false; 6]);
     // After the stop nothing new starts, and the others still run.
-    assert_eq!(run("true".into(), None).await, json!(126));
+    assert_eq!(run("true".into(), false).await, json!(126));
     assert_eq!(running(&["other", "denies-all"]).await, [true, true]);
     for process in &mut others {
         let _ = process.kill();
@@ -674,10 +761,12 @@ async fn background_process_outlives_its_result() {
         "(sleep 3; echo late; touch {}) 2>/dev/null & echo started",
         marker.display()
     );
+    let core = awake(&jobs);
     let result = jobs
         .run(
             &json!({"id": "bg", "command": command}),
-            None,
+            &core,
+            false,
             &root,
             None,
             None,
@@ -708,8 +797,16 @@ async fn nested_room_cli_reaches_the_app_that_owns_the_helper() {
     let root = folder("server");
     let jobs = jobs::Jobs::new(std::sync::Arc::new(super::net::Shared::new(root.clone())));
     let job = json!({"id": "url", "command": "printf %s \"$ROOM_SERVER_URL\""});
+    let core = awake(&jobs);
     let result = jobs
-        .run(&job, None, &root, None, Some("http://127.0.0.1:41000"))
+        .run(
+            &job,
+            &core,
+            false,
+            &root,
+            None,
+            Some("http://127.0.0.1:41000"),
+        )
         .await;
     assert_eq!(
         result["stdout"],

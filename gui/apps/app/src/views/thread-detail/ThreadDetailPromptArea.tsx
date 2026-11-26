@@ -1,17 +1,20 @@
 import { ThreadMachineStatus } from "@/components/promptbox/banner/ThreadMachineStatus";
+import { canRecoverCloudSend } from "@/cloud/remote-cloud-send";
+import { OtherMacUnavailableError, onMacConnectionChange, otherMacLostAt, viewingOtherMac } from "@/cloud/mac-connection";
+import { getThreadDisplayTitle } from "@/lib/thread-title";
 import { withDraftEdits } from "@/lib/draft-edits";
 import { TeleportLocalNotice, TeleportNotice } from "@/components/thread/TeleportNotice";
 import { TeleportCheckCard } from "@/components/thread/TeleportCheckCard";
 import { TryCloudCard } from "@/components/thread/TryCloudCard";
 import { SkillSuggestionCard } from "@/components/thread/SkillSuggestionCard";
+import { BuildNextCard } from "@/components/thread/BuildNextCard";
 import { StarCard } from "@/components/StarPrompt";
 import { DesktopUpdateCard } from "@/components/layout/DesktopUpdateBanner";
 import { ProjectCopyNotice } from "@/components/thread/ProjectCopyNotice";
 import { FixPrompt } from "@/components/ui/fix-prompt";
 import { cloudThreadFixPrompt, plainError } from "@/lib/fix-prompts";
+import { openUpgrade, splitUpgradeLink } from "@/lib/upgrade-prompt";
 import { canTeleportLocalThread, canTeleportThread } from "@/components/thread/ThreadActionsMenu";
-import { ClaudeSignIn } from "@/components/ClaudeConnection";
-import { LocalSignInNotice } from "@/components/LocalSignInNotice";
 import { CloudMcpSignInNotice } from "@/components/CloudMcpSignIn";
 import { openTeleportLogin } from "@/components/CodexConnectionPanel";
 import {
@@ -21,12 +24,12 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { useIsMutating, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { Icon, type IconName } from "@cloudroom/shared-ui/icon";
-import { PromptStackCard } from "@/components/promptbox/banner/PromptStackCard";
 import { CloudDiskNotice, ContinueFromCopyButton } from "@/components/CloudUsageLimitNotice";
 import { VpsThreadNotice } from "@/components/VpsThreadNotice";
 import type { PromptMentionLinkResolver } from "@/components/promptbox/editor/prompt-mention-link";
@@ -41,7 +44,7 @@ import {
   usePromptSuggestion,
   type PromptSuggestionAction,
 } from "@/components/promptbox/usePromptSuggestion";
-import { PERSONAL_PROJECT_ID } from "@cloudroom/domain";
+import { PERSONAL_PROJECT_ID, isBackgroundCommandTaskType } from "@cloudroom/domain";
 import type {
   ReasoningLevel,
   PendingInteraction,
@@ -264,52 +267,54 @@ interface InlineDraftComposerOptions {
 
 function buildInlineDraftComposer(options: InlineDraftComposerOptions) {
   return (
-    <FollowUpPromptBox
-      id={options.composerId}
-      attachments={options.attachments}
-      stack={null}
-      composer={{
-        history: {
-          currentDraft: options.draft,
-          entries: [],
-          onSelectEntry: options.onSelectHistoryEntry,
-          resetKey: options.historyResetKey,
-        },
-        isFollowUpSubmitting: options.isSubmitting,
-        message: options.draft.text,
-        mentionRanges: options.draft.mentions,
-        onChangeMessage: options.onChangeMessage,
-        onModifierSubmit: options.submit,
-        onSubmit: options.submit,
-        onEscape: options.onEscape,
-        submitTitle: options.submitTitle,
-        compactPromptPlaceholder: options.compactPromptPlaceholder,
-        promptPlaceholder: options.promptPlaceholder,
-        canModifierSubmit: options.canModifierSubmit,
-        steerActiveThreadOnEnter: false,
-        submitMode: options.submitMode,
-        threadRuntimeDisplayStatus: options.threadRuntimeDisplayStatus,
-      }}
-      pluginComposerHost={options.pluginComposerHost}
-      pluginComposerScope={options.pluginComposerHost.scope}
-      suppressPluginComposerCustomizations={
-        options.suppressPluginComposerCustomizations
-      }
-      textEffects={options.textEffects}
-      environmentSummary={null}
-      contextWindowUsage={null}
-      execution={options.execution}
-      executionReadOnly={options.executionReadOnly ?? true}
-      permission={options.permission}
-      permissionReadOnly
-      permissionInToolbar
-      typeahead={options.typeahead}
-      promptActions={options.promptActions}
-      collapseResetKey={options.collapseResetKey}
-      focusEndKey={`${options.focusSessionKey}:${options.editFocusNonce}`}
-      isPrimaryComposer={false}
-      showScrollToBottomButton={false}
-    />
+    <PromptDraftContextsContext.Provider value={options.draft.contexts}>
+      <FollowUpPromptBox
+        id={options.composerId}
+        attachments={options.attachments}
+        stack={null}
+        composer={{
+          history: {
+            currentDraft: options.draft,
+            entries: [],
+            onSelectEntry: options.onSelectHistoryEntry,
+            resetKey: options.historyResetKey,
+          },
+          isFollowUpSubmitting: options.isSubmitting,
+          message: options.draft.text,
+          mentionRanges: options.draft.mentions,
+          onChangeMessage: options.onChangeMessage,
+          onModifierSubmit: options.submit,
+          onSubmit: options.submit,
+          onEscape: options.onEscape,
+          submitTitle: options.submitTitle,
+          compactPromptPlaceholder: options.compactPromptPlaceholder,
+          promptPlaceholder: options.promptPlaceholder,
+          canModifierSubmit: options.canModifierSubmit,
+          steerActiveThreadOnEnter: false,
+          submitMode: options.submitMode,
+          threadRuntimeDisplayStatus: options.threadRuntimeDisplayStatus,
+        }}
+        pluginComposerHost={options.pluginComposerHost}
+        pluginComposerScope={options.pluginComposerHost.scope}
+        suppressPluginComposerCustomizations={
+          options.suppressPluginComposerCustomizations
+        }
+        textEffects={options.textEffects}
+        environmentSummary={null}
+        contextWindowUsage={null}
+        execution={options.execution}
+        executionReadOnly={options.executionReadOnly ?? true}
+        permission={options.permission}
+        permissionReadOnly
+        permissionInToolbar
+        typeahead={options.typeahead}
+        promptActions={options.promptActions}
+        collapseResetKey={options.collapseResetKey}
+        focusEndKey={`${options.focusSessionKey}:${options.editFocusNonce}`}
+        isPrimaryComposer={false}
+        showScrollToBottomButton={false}
+      />
+    </PromptDraftContextsContext.Provider>
   );
 }
 
@@ -386,7 +391,7 @@ async function runWhileFollowUpShortcutSending(
 }
 
 import { showCloudSignIn, useCloudLocked } from "@/hooks/useCloudLocked";
-import { useCloudroomThread, useSetCloudReasoning, useCloudroomThreadWorkspace, useCloudroomConnection, useRetryCloudStart, useTeleportThread, useTeleportLocal, useTeleportDirection, cloudroomRequestId, clearCloudroomRequestId, cloudReasoningLevels, cloudServiceTierSupported, cloudUltraFastSupported, cloudFeatureSupported, cloudCanRunHarness, cloudHarness } from "@/hooks/queries/cloudroom-queries";
+import { useCloudroomThread, useSetCloudReasoning, useCloudroomThreadWorkspace, useCloudroomConnection, useRetryCloudStart, useTeleportThread, useTeleportLocal, useTeleportDirection, cloudroomRequestId, clearCloudroomRequestId, cloudReasoningLevels, cloudOpenCodeCatalog, partitionCloudOpenCodeModelOptions, cloudServiceTierSupported, cloudUltraFastSupported, cloudFeatureSupported, cloudCanRunHarness, cloudHarness } from "@/hooks/queries/cloudroom-queries";
 import { reasoningLevelSchema, reconcileReasoningLevel } from "@cloudroom/domain";
 import { reasoningLevelLabel } from "@/lib/reasoning-labels";
 import { useCopyCommand } from "@/hooks/useCopyCommand";
@@ -436,8 +441,18 @@ export function ThreadDetailPromptArea({
   thread,
 }: ThreadDetailPromptAreaProps) {
   const isCloud = thread.executionTarget === "cloud";
+  // Background commands show as bubbles in the chat; this card keeps only background agents.
+  const backgroundAgents = useMemo(
+    () =>
+      activeBackgroundCommands.filter(
+        (row) => !isBackgroundCommandTaskType(row.taskType),
+      ),
+    [activeBackgroundCommands],
+  );
   const teleporting = Boolean(thread.teleport && !["complete", "cancelled"].includes(thread.teleport.phase));
   const transferredChild = Boolean(thread.teleport?.phase === "complete" && thread.teleport.owner !== thread.id);
+  const remoteMac = viewingOtherMac();
+  const macLostAt = useSyncExternalStore(onMacConnectionChange, otherMacLostAt, () => null);
   const cloudState = useCloudroomThread(thread.id, isCloud);
   const onVps = isCloud && cloudState.data?.vps === true;
   const cloudPlace = onVps ? "VPS" : CLOUDROOM_CLOUD_PRIMARY;
@@ -448,11 +463,12 @@ export function ThreadDetailPromptArea({
   const teleportLocal = useTeleportLocal(thread.id);
   const movingToLocal = useTeleportDirection(thread) === "local";
   const canTeleportLocal = canTeleportLocalThread(thread) && !movingToLocal;
+  // Moving either way keeps the composer and its unsent draft; sending waits until the move ends (#2575).
+  const moving = teleporting || movingToLocal;
   const startTeleportLocal = useCallback(() => teleportLocal.mutate(), [teleportLocal]);
   const claudeThread = thread.providerId === "claude-code";
-  // Codex and Cursor show "… disconnected in Cloud" with Reconnect in the timeline (CloudLoginRow), never a modal.
-  // Claude connects through its own sign-in card in the cloud notice below.
-  const loginRow = isCloud && cloudState.data?.authRequired === true && !claudeThread;
+  // Cloud login prompts render inline in the timeline (CloudLoginRow / PendingClaudeSignInRow), never as a card or modal.
+  const loginRow = isCloud && cloudState.data?.authRequired === true;
   useEffect(() => { if (teleport.error) openTeleportLogin(teleport.error, thread.providerId); }, [teleport.error, thread.providerId]);
   const cloudWorkspace = useCloudroomThreadWorkspace(
     thread.id,
@@ -719,6 +735,7 @@ export function ThreadDetailPromptArea({
     serviceTierFastLabel,
     executionInputSources,
   } = useThreadCreationOptions({
+    cloud: isCloud,
     enabled: thread.archivedAt === null,
     environmentId: thread.environmentId ?? undefined,
     environmentHostId,
@@ -733,7 +750,7 @@ export function ThreadDetailPromptArea({
     initialEnvironmentSelectionValue: thread.environmentId ?? undefined,
   });
   const cloudFollowUpReasoningOptions = useMemo(() => {
-    // ACP harnesses keep their launch level, unless Cloud can switch it per turn (fx).
+    // ACP harnesses keep their launch level, unless Cloud can switch it per turn (fx, Antigravity).
     const fixed = thread.providerId.startsWith("acp-") && !cloudHarness(cloudConnection.data, thread.providerId)?.prompt_reasoning;
     const levels = fixed ? [cloudReasoning] : cloudReasoningLevels(cloudConnection.data, thread.providerId, cloudState.data?.model);
     return [...new Set([cloudReasoning, ...levels])].flatMap((level) => {
@@ -936,15 +953,16 @@ export function ThreadDetailPromptArea({
     isStopRequested,
     runtimeDisplayStatus,
   ]);
-  const promptPlaceholder = getFollowUpPromptPlaceholder(
-    isStopRequested ? "stopping" : runtimeDisplayStatus,
-  );
-  const compactPromptPlaceholder = getCompactFollowUpPromptPlaceholder(
-    isStopRequested ? "stopping" : runtimeDisplayStatus,
-  );
-  const promptPlaceholderHint = getFollowUpPromptPlaceholderHint(
-    isStopRequested ? "stopping" : runtimeDisplayStatus,
-  );
+  const placeholderStatus = isStopRequested
+    ? "stopping"
+    : providerAuthFailed && runtimeDisplayStatus === "error"
+      ? "idle"
+      : runtimeDisplayStatus;
+  const promptPlaceholder = getFollowUpPromptPlaceholder(placeholderStatus);
+  const compactPromptPlaceholder =
+    getCompactFollowUpPromptPlaceholder(placeholderStatus);
+  const promptPlaceholderHint =
+    getFollowUpPromptPlaceholderHint(placeholderStatus);
   const submitProgrammaticallyRef = useRef<
     (
       options: ExperimentalComposerSubmitOptions,
@@ -1029,7 +1047,7 @@ export function ThreadDetailPromptArea({
   const { start: startFreshThread } = freshThread;
   const contextWindowActions = useMemo<ThreadContextWindowActions | undefined>(
     () =>
-      shouldHideComposer
+      shouldHideComposer || moving
         ? undefined
         : {
             onCompact: canCompact
@@ -1051,6 +1069,7 @@ export function ThreadDetailPromptArea({
       compactThread.isPending,
       compactThreadMutate,
       freshThread.isPending,
+      moving,
       shouldHideComposer,
       startFreshThread,
       thread.id,
@@ -1058,11 +1077,11 @@ export function ThreadDetailPromptArea({
     ],
   );
 
-  const sendCloudDraft = useCallback(async (steer: boolean) => {
-    const submittedDraft = currentPromptDraft;
-    const draftEdits = withDraftEdits(thread.id, currentPromptDraftInput);
+  const sendCloudDraft = useCallback(async (steer: boolean): Promise<boolean> => {
+    const submittedDraft = promptDraft.getCurrent();
+    const draftEdits = withDraftEdits(thread.id, promptDraftToInput(submittedDraft));
     const submittedInput = draftEdits.input;
-    if (!cloudModel || submittedInput.length === 0 || movingToLocal) return;
+    if (!cloudModel || submittedInput.length === 0 || movingToLocal) return false;
     const request = {
       id: thread.id,
       input: submittedInput,
@@ -1074,29 +1093,34 @@ export function ThreadDetailPromptArea({
     };
     promptDraft.clearIfCurrentMatches(submittedDraft);
     try {
-      await sendMessage.mutateAsync({ ...request, requestId: await cloudroomRequestId(thread.id, request) });
-      clearCloudroomRequestId(thread.id);
+      const requestId = await cloudroomRequestId(thread.id, request);
+      await sendMessage.mutateAsync({
+        ...request, requestId,
+        ...(remoteMac && canRecoverCloudSend(submittedInput) ? { recoverCloudDelivery: true } : {}),
+      });
+      clearCloudroomRequestId(thread.id, requestId);
       draftEdits.commit();
+      return true;
     } catch (error) {
       promptDraft.restoreIfEmpty(submittedDraft);
       showMutationErrorToast({ error, fallbackMessage: "Cloud message was not confirmed", lifecycleOperation: "send_message" });
+      return false;
     }
-  }, [cloudFastSupported, cloudModel, cloudReasoning, currentPromptDraft, currentPromptDraftInput, movingToLocal, promptDraft, sendMessage, serviceTier, thread.id, thread.status]);
+  }, [remoteMac, cloudFastSupported, cloudModel, cloudReasoning, movingToLocal, promptDraft, sendMessage, serviceTier, thread.id, thread.status]);
 
-  const handleSend = useCallback(async () => {
-    const submittedDraft = currentPromptDraft;
-    if (isCloud) {
-      await sendCloudDraft(false);
-      return;
-    }
-    const draftEdits = withDraftEdits(thread.id, currentPromptDraftInput);
+  // Reads the stored draft, not this render's copy: a voice message can send after the user leaves.
+  // Resolves true once the message is sent or queued.
+  const handleSend = useCallback(async (): Promise<boolean> => {
+    if (isCloud) return sendCloudDraft(false);
+    const submittedDraft = promptDraft.getCurrent();
+    const draftEdits = withDraftEdits(thread.id, promptDraftToInput(submittedDraft));
     const submittedInput = draftEdits.input;
     const isQueuingMessage = shouldQueueFollowUpMessage(runtimeDisplayStatus);
     if (
       submittedInput.length === 0 ||
       (!isQueuingMessage && isDefaultExecutionOptionsLoading)
     ) {
-      return;
+      return false;
     }
 
     promptDraft.clearIfCurrentMatches(submittedDraft);
@@ -1124,6 +1148,7 @@ export function ThreadDetailPromptArea({
           draftEdits.commit();
         }
       }
+      return true;
     } catch (nextError) {
       promptDraft.restoreIfEmpty(submittedDraft);
       showMutationErrorToast({
@@ -1133,13 +1158,12 @@ export function ThreadDetailPromptArea({
           : "Failed to send message",
         lifecycleOperation: isQueuingMessage ? "queue_message" : "send_message",
       });
+      return false;
     }
   }, [
     isCloud,
     sendCloudDraft,
     createQueuedMessage,
-    currentPromptDraft,
-    currentPromptDraftInput,
     followUpExecutionSelection,
     isDefaultExecutionOptionsLoading,
     promptDraft,
@@ -1271,8 +1295,8 @@ export function ThreadDetailPromptArea({
       submitOptions: ExperimentalComposerSubmitOptions,
       pluginSubmission: SendMessageRequest["pluginSubmission"],
     ) => {
-      if (movingToLocal) {
-        throw new Error("Wait for Teleport to Local to finish.");
+      if (moving) {
+        throw new Error("Wait for Teleport to finish.");
       }
       if (isDefaultExecutionOptionsLoading) {
         throw new Error("This thread's execution settings are still loading.");
@@ -1318,7 +1342,7 @@ export function ThreadDetailPromptArea({
     [
       followUpExecutionSelection,
       isDefaultExecutionOptionsLoading,
-      movingToLocal,
+      moving,
       promptDraft,
       sendMessage,
       dismissBottomAttachmentFailures,
@@ -1334,7 +1358,9 @@ export function ThreadDetailPromptArea({
       return;
     }
     if (isCloud && currentPromptDraftInput.length > 0) {
-      await runWhileFollowUpShortcutSending(setIsFollowUpShortcutSending, () => sendCloudDraft(true));
+      await runWhileFollowUpShortcutSending(setIsFollowUpShortcutSending, async () => {
+        await sendCloudDraft(true);
+      });
       return;
     }
 
@@ -1499,6 +1525,15 @@ export function ThreadDetailPromptArea({
     (action: PromptSuggestionAction) => reportPromptSuggestion(thread.id, action),
     [thread.id],
   );
+  const threadTitle = getThreadDisplayTitle(thread);
+  const voiceTarget = useMemo(
+    () => ({
+      draftScope: { kind: "thread" as const, projectId, threadId: thread.id },
+      label: threadTitle,
+      send: handleSend,
+    }),
+    [handleSend, projectId, thread.id, threadTitle],
+  );
   const bottomComposerConfig = useMemo<FollowUpComposerProps>(
     () => ({
       history: {
@@ -1507,7 +1542,7 @@ export function ThreadDetailPromptArea({
         onSelectEntry: promptDraft.setDraft,
         resetKey: thread.id,
       },
-      isFollowUpSubmitting: isFollowUpSubmitting || movingToLocal,
+      isFollowUpSubmitting: isFollowUpSubmitting || moving,
       message: currentPromptDraft.text,
       mentionRanges: currentPromptDraft.mentions,
       onChangeMessage: handleBottomComposerMessageChange,
@@ -1523,8 +1558,9 @@ export function ThreadDetailPromptArea({
       onGhostText: handlePromptSuggestionEvent,
       canModifierSubmit: (!isCloud || cloudSteerSupported) && canSubmitModifierShortcut,
       steerActiveThreadOnEnter: isCloud ? cloudSteerSupported && steerActiveThreadOnEnter : steerActiveThreadOnEnter,
-      submitMode: movingToLocal ? { kind: "ready" } : submitMode,
+      submitMode: moving ? { kind: "ready" } : submitMode,
       threadRuntimeDisplayStatus: runtimeDisplayStatus,
+      voiceTarget,
     }),
     [
       isCloud,
@@ -1536,7 +1572,7 @@ export function ThreadDetailPromptArea({
       handleBottomComposerModifierSubmit,
       handleBottomComposerSubmit,
       isFollowUpSubmitting,
-      movingToLocal,
+      moving,
       promptHistoryDrafts,
       promptPlaceholder,
       promptPlaceholderHint,
@@ -1548,6 +1584,7 @@ export function ThreadDetailPromptArea({
       cloudSteerSupported,
       submitMode,
       thread.id,
+      voiceTarget,
     ],
   );
   const sentMessageEditInput = useMemo(
@@ -2203,9 +2240,9 @@ export function ThreadDetailPromptArea({
           expandedSection={expandedBannerSection}
           onToggleSection={handleToggleBannerSection}
           leading={
-            activeBackgroundCommands.length > 0 ? (
+            backgroundAgents.length > 0 ? (
               <ThreadBackgroundCommandsCard
-                commands={activeBackgroundCommands}
+                commands={backgroundAgents}
                 isExpanded={isBackgroundCommandsExpanded}
                 onToggle={() =>
                   setIsBackgroundCommandsExpanded((value) => !value)
@@ -2238,7 +2275,7 @@ export function ThreadDetailPromptArea({
               isFollowUpSubmitting ||
               isExecutionUpdatePending ||
               isQueueMutationPending ||
-              movingToLocal
+              moving
             }
             actionDisabled={isQueueMutationPending}
             processingMessageId={displayedProcessingQueuedMessage?.id ?? null}
@@ -2269,7 +2306,7 @@ export function ThreadDetailPromptArea({
       isExecutionUpdatePending,
       isUnarchiveCurrentThreadPending,
       isQueueMutationPending,
-      movingToLocal,
+      moving,
       queuedMessageEditor,
       activeGoalCard,
       activePromptModeCard,
@@ -2277,7 +2314,7 @@ export function ThreadDetailPromptArea({
       activeWorkflows,
       expandedWorkflowIds,
       toggleWorkflowExpanded,
-      activeBackgroundCommands,
+      backgroundAgents,
       isBackgroundCommandsExpanded,
       modelFallback,
       pullRequestSection,
@@ -2333,7 +2370,8 @@ export function ThreadDetailPromptArea({
     ],
   );
 
-  const cloudFetchFailed = cloudState.error instanceof TypeError;
+  const remoteDisconnected = remoteMac && (macLostAt !== null || cloudState.error instanceof OtherMacUnavailableError);
+  const cloudFetchFailed = cloudState.error instanceof TypeError || cloudState.error instanceof OtherMacUnavailableError;
   const cloudOffline = cloudFetchFailed || (typeof navigator !== "undefined" && !navigator.onLine);
   const cloudError = cloudState.data?.move === "moving" ? undefined : retryCloudStart.error?.message ?? (cloudFetchFailed ? undefined : cloudState.error?.message) ?? cloudState.data?.error;
   const cloudReconnectingNow = Boolean(!cloudError && (cloudOffline || cloudState.data?.reconnecting));
@@ -2351,26 +2389,24 @@ export function ThreadDetailPromptArea({
   const cloudFixPrompt = cloudError || cloudState.data?.failedStart ? cloudThreadFixPrompt(thread.id, thread.providerId, cloudError) : null;
   const cloudStatusKey = `${thread.id}|${cloudState.data?.failedStart ? "failed" : ""}|${cloudError ?? ""}`;
   const cloudStatusDismissed = dismissedCloudStatus === cloudStatusKey;
-  const cloudAuthNotice = isCloud && !shouldHideComposer && cloudState.data?.authRequired && claudeThread ? (
-    <PromptStackCard ariaLabel="Connect your account" className="w-full max-w-sm justify-self-center p-3 text-xs">
-      <ClaudeSignIn target={{ target: "cloud" }} onContinue={() => retryCloudStart.mutate()} continuing={retryCloudStart.isPending} />
-      {retryCloudStart.error && <p role="alert" className="mt-2 text-destructive">{retryCloudStart.error.message}</p>}
-    </PromptStackCard>
-  ) : null;
+  const cloudWaitingLink = cloudWaiting ? splitUpgradeLink(cloudWaiting) : null;
+  const cloudErrorLink = cloudError ? splitUpgradeLink(plainError(cloudError)) : null;
   const cloudReconnectingPill = cloudReconnecting ? (
     <div className="flex min-w-0 max-w-full items-center gap-2 justify-self-center rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
-      <span role="status" className="flex min-w-0 items-center gap-2">{cloudOffline && <><span className="text-foreground">Offline</span><span aria-hidden>·</span></>}<span className="truncate" title={cloudWaiting ?? undefined}>{cloudWaiting ?? "Reconnecting…"}</span></span>
+      <span role="status" className="flex min-w-0 items-center gap-2">{cloudOffline && <><span className="text-foreground">Offline</span><span aria-hidden>·</span></>}<span className="truncate" title={cloudWaitingLink?.text ?? undefined}>{cloudWaitingLink?.text ?? "Reconnecting…"}</span></span>
       {!cloudWaiting && <><span aria-hidden>·</span>
       <button type="button" className="underline underline-offset-2 hover:text-foreground disabled:opacity-50" disabled={cloudState.isFetching} onClick={() => void cloudState.refetch()}>Retry</button></>}
+      {cloudWaitingLink?.hasLink && <><span aria-hidden>·</span><button type="button" className="shrink-0 font-medium text-foreground underline underline-offset-2 hover:text-primary" onClick={() => openUpgrade("limit_link")}>Upgrade</button></>}
       {cloudWaiting && cloudState.data?.fromCopy && <><span aria-hidden>·</span><ContinueFromCopyButton threadId={thread.id} /></>}
     </div>
   ) : null;
-  const cloudNotice = cloudAuthNotice ?? cloudLimitNotice ?? (isCloud && !shouldHideComposer && !loginRow && !cloudState.data?.usageLimit && (cloudError || cloudReconnecting || cloudState.data?.failedStart) ? (<>
+  const cloudNotice = cloudLimitNotice ?? (isCloud && !remoteDisconnected && !shouldHideComposer && !loginRow && !cloudState.data?.usageLimit && (cloudError || cloudReconnecting || cloudState.data?.failedStart) ? (<>
     {cloudReconnectingPill}
     {cloudFixPrompt && !cloudStatusDismissed && <div role="alert" aria-label="Cloud thread status" className="flex min-w-0 max-w-full items-center gap-2 justify-self-center rounded-full border border-border bg-background py-1 pl-3 pr-1.5 text-xs text-muted-foreground">
       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-destructive" />
-      <span className="truncate text-foreground" title={cloudError ?? undefined}>{cloudError ? plainError(cloudError) : "Cloud thread didn't start"}</span>
+      <span className="truncate text-foreground" title={cloudErrorLink?.text ?? undefined}>{cloudErrorLink ? cloudErrorLink.text : "Cloud thread didn't start"}</span>
+      {cloudErrorLink?.hasLink && <button type="button" className="shrink-0 font-medium text-foreground underline underline-offset-2 hover:text-primary" onClick={() => openUpgrade("limit_link")}>Upgrade</button>}
       {cloudState.data?.failedStart && <button type="button" className="shrink-0 text-foreground underline underline-offset-2 disabled:opacity-50" disabled={retryCloudStart.isPending} onClick={() => retryCloudStart.mutate()}>Retry</button>}
       {cloudState.isError && !cloudFetchFailed && <button type="button" className="shrink-0 text-foreground underline underline-offset-2 disabled:opacity-50" disabled={cloudState.isFetching} onClick={() => void cloudState.refetch()}>Reconnect</button>}
       <span aria-hidden className="h-3.5 w-px shrink-0 bg-border" />
@@ -2387,10 +2423,25 @@ export function ThreadDetailPromptArea({
       {!isCloud && !teleporting && canTeleport && <TryCloudCard threadId={thread.id} active={thread.status === "active"} attached={cardsOnInput} onMove={startTeleport} />}
       <SkillSuggestionCard threadId={thread.id} idle={runtimeDisplayStatus === "idle" && !isStopRequested} turnKey={thread.updatedAt} attached={cardsOnInput}
         onUse={(prompt) => { setBottomComposerText(prompt, []); focusBottomPluginComposer(); }} />
+      <BuildNextCard working={runtimeDisplayStatus === "active" && !isStopRequested && !pendingInteractionNode} attached={cardsOnInput} />
       <StarCard active={thread.status === "active"} attached={cardsOnInput} />
       <DesktopUpdateCard attached={cardsOnInput} />
     </>
   );
+
+  const cloudOpenCodeModelsRef =
+    isCloud && thread.providerId === "acp-opencode"
+      ? cloudOpenCodeCatalog(cloudConnection.data)
+      : null;
+  const cloudModelPartition = useMemo(() => {
+    const combined = [...modelOptions, ...moreModelOptions];
+    return (
+      partitionCloudOpenCodeModelOptions(combined, cloudOpenCodeModelsRef) ?? {
+        primary: combined,
+        more: [],
+      }
+    );
+  }, [modelOptions, moreModelOptions, cloudOpenCodeModelsRef]);
 
   const bottomContent = (
     <FollowUpPromptBox
@@ -2398,10 +2449,12 @@ export function ThreadDetailPromptArea({
       threadProviderId={isCloud || (modelCatalogIsVerified && selectedProviderId === thread.providerId) ? thread.providerId : undefined}
       cloudShortcutModels={isCloud ? (shortcutHarness?.idle_set_model ? shortcutHarness.models?.map(({ model }) => model) ?? [] : []) : undefined}
       attachments={bottomAttachmentsConfig}
-      stack={<>{!isCloud && !teleporting && <TeleportCheckCard error={teleport.error} models={[...modelOptions, ...moreModelOptions]} reasoning={reasoningLevel} usedTokens={contextWindowUsage?.usedTokens ?? null} levelsFor={(model) => cloudReasoningLevels(cloudConnection.data, thread.providerId, model)} onTeleport={(choice) => teleport.mutate(choice)} onDismiss={teleport.reset} />}{slotCards}{thread.teleport && !movingToLocal && <TeleportNotice thread={thread} pendingDelivery={cloudState.data?.pendingDelivery} paused={cloudState.data?.paused} sending={sendMessage.isPending} />}{movingToLocal && <TeleportLocalNotice step={thread.teleportLocalStep} />}{thread.projectCopy && <ProjectCopyNotice thread={thread} />}{cloudNotice}{isCloud && claudeThread && !shouldHideComposer && <CloudMcpSignInNotice />}{!isCloud && !shouldHideComposer && <LocalSignInNotice threadId={thread.id} providerId={thread.providerId} hostId={environmentHostId} environmentId={thread.environmentId} authFailed={providerAuthFailed} started={thread.status !== "pending"} />}{pendingInteractionNode && !pendingInteractionInChat ? pendingInteractionStack : promptStack}</>}
+      stack={<>{!isCloud && !teleporting && <TeleportCheckCard error={teleport.error} models={[...modelOptions, ...moreModelOptions]} reasoning={reasoningLevel} usedTokens={contextWindowUsage?.usedTokens ?? null} levelsFor={(model) => cloudReasoningLevels(cloudConnection.data, thread.providerId, model)} onTeleport={(choice) => teleport.mutate(choice)} onDismiss={teleport.reset} />}{slotCards}{thread.teleport && !movingToLocal && <TeleportNotice thread={thread} pendingDelivery={cloudState.data?.pendingDelivery} paused={cloudState.data?.paused} sending={sendMessage.isPending} />}{movingToLocal && <TeleportLocalNotice step={thread.teleportLocalStep} />}{thread.projectCopy && <ProjectCopyNotice thread={thread} />}{cloudNotice}{isCloud && claudeThread && !shouldHideComposer && <CloudMcpSignInNotice />}{pendingInteractionNode && !pendingInteractionInChat ? pendingInteractionStack : promptStack}</>}
       pendingInteraction={pendingInteractionInChat ? undefined : pendingInteractionNode}
       activePromptMode={activePromptMode}
-      composer={shouldHideComposer || (teleporting && !movingToLocal) || transferredChild ? null : bottomComposerConfig}
+      composer={shouldHideComposer || transferredChild ? null : bottomComposerConfig}
+      executionReadOnly={moving}
+      permissionReadOnly={moving}
       pluginComposerHost={normalPluginComposerHost}
       pluginComposerScope={normalPluginComposerHost.scope}
       textEffects={promptTextEffects}
@@ -2409,12 +2462,12 @@ export function ThreadDetailPromptArea({
       focusEndKey={bottomFocusEndKey}
       environmentSummary={environmentSummary}
       contextWindowUsage={contextWindowUsage ?? null}
-      contextWindowNote={thread.providerId === "acp-cursor" ? "Cursor doesn't report token usage, so this is an estimate." : undefined}
+      contextWindowNote={thread.providerId === "acp-cursor" && contextWindowUsage?.estimated ? "Cursor doesn't report token usage, so this is an estimate." : undefined}
       contextWindowActions={contextWindowActions}
       execution={isCloud ? {
         ...bottomExecutionConfig,
         provider: { ...bottomExecutionConfig.provider, selectedId: pendingSwitch?.providerId ?? thread.providerId, options: cloudProviderOptions, hasMultiple: cloudProviderOptions.length > 1 },
-        model: { ...bottomExecutionConfig.model, active: cloudModel ? { model: cloudModel } : null, isLoading: !cloudModel, options: [...modelOptions, ...moreModelOptions], moreOptions: [], loadFailed: false, loadError: null, onChange: (model: string) => handleSelectModel({ providerId: thread.providerId, model }) },
+        model: { ...bottomExecutionConfig.model, active: cloudModel ? { model: cloudModel } : null, isLoading: !cloudModel, options: cloudModelPartition.primary, moreOptions: cloudModelPartition.more, loadFailed: false, loadError: null, onChange: (model: string) => handleSelectModel({ providerId: thread.providerId, model }) },
         reasoning: { ...bottomExecutionConfig.reasoning, value: cloudReasoning, options: cloudFollowUpReasoningOptions, onChange: handleReasoningChange },
         serviceTier: { ...bottomExecutionConfig.serviceTier, value: cloudFastSupported ? serviceTier : "default", supported: cloudFastSupported },
       } : bottomExecutionConfig}

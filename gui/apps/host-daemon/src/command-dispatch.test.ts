@@ -823,8 +823,7 @@ describe("dispatchCommand", () => {
       .mockReturnValueOnce(newRuntime);
     const manager = new RuntimeManager({
       createRuntime: createRuntimeSpy,
-      provisionWorkspace: async (args) =>
-        createWorkspace(args.path),
+      provisionWorkspace: async (args) => createWorkspace(args.path),
     });
     await manager.ensureEnvironment({
       environmentId: "env-old",
@@ -1149,8 +1148,7 @@ describe("dispatchCommand", () => {
       .mockReturnValueOnce(newRuntime);
     const manager = new RuntimeManager({
       createRuntime: createRuntimeSpy,
-      provisionWorkspace: async (args) =>
-        createWorkspace(args.path),
+      provisionWorkspace: async (args) => createWorkspace(args.path),
     });
     await manager.ensureEnvironment({
       environmentId: "env-old",
@@ -1200,8 +1198,7 @@ describe("dispatchCommand", () => {
       .mockReturnValueOnce(newRuntime);
     const manager = new RuntimeManager({
       createRuntime: createRuntimeSpy,
-      provisionWorkspace: async (args) =>
-        createWorkspace(args.path),
+      provisionWorkspace: async (args) => createWorkspace(args.path),
     });
     await manager.ensureEnvironment({
       environmentId: "env-old",
@@ -1371,6 +1368,9 @@ describe("dispatchCommand", () => {
       }),
     ).rejects.toMatchObject({
       code: "provider_cli_unsupported_version",
+      message: expect.stringContaining(
+        "0.135.0 at /usr/local/bin/example-agent is too old",
+      ),
     });
 
     expect(runtime.startThread).not.toHaveBeenCalled();
@@ -1606,6 +1606,31 @@ describe("dispatchCommand", () => {
 
     expect(providerInstallationStatus).toHaveBeenCalledOnce();
     expect(runtime.startThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again when the first installation probe times out", async () => {
+    const runtime = createRuntime();
+    const manager = new RuntimeManager({
+      createRuntime: () => runtime,
+      provisionWorkspace: async () => createWorkspace(),
+    });
+    const providerInstallationStatus = vi
+      .fn<() => Promise<ProviderCliStatus>>()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("JSON-RPC request timed out"), {
+          code: "rpc_timeout",
+        }),
+      )
+      .mockResolvedValue(supportedCodexInstallationStatus());
+    const options = makeDispatchOptions({
+      runtimeManager: manager,
+      providerInstallationStatus,
+    });
+
+    await expect(
+      dispatchCommand(createInstallationGatedThreadStart("thread-1"), options),
+    ).resolves.toEqual({ providerThreadId: "provider-thread-1" });
+    expect(providerInstallationStatus).toHaveBeenCalledTimes(2);
   });
 
   it("shares one in-flight probe between concurrent thread starts", async () => {
@@ -2241,6 +2266,34 @@ describe("dispatchCommand", () => {
         message: "Claude Code update is no longer available on this host.",
       },
     ]);
+
+    // A stale Install on a CLI that is now working and current succeeds (#2623).
+    providerInstallationStatus.mockResolvedValueOnce(
+      claudeCodeStatus({ currentVersion: "2.1.69", latestVersion: "2.1.69" }),
+    );
+    const install = await dispatchOnlineRpcCommand(
+      {
+        type: "provider.installation.run",
+        bridgeLaunch: DISPATCH_TEST_BRIDGE_LAUNCH,
+        providerId: "claude-code",
+        action: "install",
+      },
+      makeDispatchOptions({
+        dataDir,
+        providerInstallationStatus,
+        providerInstallationRun: async () => ({
+          available: false,
+          message: "Claude Code install is not available on this host.",
+        }),
+        runtimeManager: manager,
+        streamProviderInstallation,
+      }),
+    );
+    expect(streamProviderInstallation).not.toHaveBeenCalled();
+    expect(install.events.at(-1)).toMatchObject({
+      type: "completed",
+      success: true,
+    });
   });
 
   it("accepts a Claude update that advances when the release channel is unknown", async () => {

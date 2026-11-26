@@ -11,13 +11,16 @@ Reads metadata only: never prints or saves a secret value. Only advisory lookups
 and versions go to OSV (api.osv.dev), and the threat lists come from CISA's list on GitHub and GitHub's advisories.
 """
 import base64, calendar, concurrent.futures, glob, json, math, os, platform, plistlib, re, shutil, subprocess, sys, time
-import urllib.request
+import urllib.request, xml.parsers.expat
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "workflow-scan"))
+from readers import cli  # room-cli that also starts on Windows (room-cli.cmd, arguments in ROOM_CLI_ARGV)
 
 HOME = os.path.expanduser("~")
 UA = {"User-Agent": "cloudroom-cyber-scan"}
 ROOTS = ["code", "Code", "Developer", "Documents/code", "Documents/GitHub", "GitHub", "projects", "Projects", "src", "dev",
-         "work", "repos"]
+         "work", "repos", "source/repos"]
 SKIP_DIRS = {"node_modules", "Library", ".cache", "vendor", "target", "dist", "build", ".venv", "venv", ".Trash"}
+PLIST_ERRORS = (OSError, plistlib.InvalidFileException, ValueError, xml.parsers.expat.ExpatError)  # bad XML: ExpatError (#2477)
 
 
 def run(args, timeout=30, env=None):
@@ -60,7 +63,7 @@ def mac():
         su = plistlib.load(open("/Library/Preferences/com.apple.SoftwareUpdate.plist", "rb"))
         f["auto_updates"] = {k: su.get(k) for k in ("AutomaticCheckEnabled", "AutomaticDownload", "AutomaticallyInstallMacOSUpdates",
                                                     "CriticalUpdateInstall", "ConfigDataInstall")}
-    except (OSError, plistlib.InvalidFileException, ValueError):
+    except PLIST_ERRORS:
         f["auto_updates"] = None
     f["pending_updates"] = [l.strip("* ").strip() for l in run(["softwareupdate", "--list"], timeout=150).splitlines()
                             if "Label:" in l or "Title:" in l][:12]
@@ -77,7 +80,7 @@ def apps():
     for path in sorted(glob.glob("/Applications/*.app") + glob.glob(os.path.join(HOME, "Applications/*.app"))):
         try:
             info = plistlib.load(open(os.path.join(path, "Contents/Info.plist"), "rb"))
-        except (OSError, plistlib.InvalidFileException, ValueError):
+        except PLIST_ERRORS:
             continue
         found.append(f"{os.path.basename(path)[:-4]} {info.get('CFBundleShortVersionString') or info.get('CFBundleVersion') or '?'}")
     return found
@@ -109,7 +112,7 @@ def startup_items():
             try:
                 p = plistlib.load(open(path, "rb"))
                 program = p.get("Program") or (p.get("ProgramArguments") or ["?"])[0]
-            except (OSError, plistlib.InvalidFileException, ValueError):
+            except PLIST_ERRORS:
                 program = "unreadable"
             items.append(f"{path.replace(HOME, '~')} -> {program}")
     return items[:60]
@@ -185,7 +188,7 @@ def git(repo, *args, timeout=30):
 
 
 def github_name(url):
-    m = re.search(r"github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url or "")
+    m = re.search(r"github\.com(?::\d+)?[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$", url or "")  # also ssh.github.com:443
     return m.group(1) if m else None
 
 
@@ -205,21 +208,27 @@ def local_repos():
             if top.count(os.sep) - root.count(os.sep) >= 3:
                 dirs[:] = []
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
-    try:  # Cloudroom's own projects are the user's repos too
-        for p in json.loads(run(["room-cli", "project", "list", "--json"]) or "[]"):
+    error = None
+    try:  # Cloudroom's own projects are the user's repos too; a failed lookup is not an empty list (#2345)
+        out = cli("project", "list", "--json", timeout=30)
+        if out.returncode:
+            raise OSError(((out.stderr or "").strip() or f"exit code {out.returncode}").splitlines()[-1])
+        for p in json.loads(out.stdout):
             for src in p.get("sources") or [] if isinstance(p, dict) else []:
                 path = src.get("type") == "local_path" and src.get("path")
                 if path and os.path.exists(os.path.join(path, ".git")):  # only folders on this computer
                     paths.add(os.path.realpath(path))
-    except (ValueError, TypeError, AttributeError):
-        pass
-    return sorted(paths)
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError) as e:
+        error = f"Cloudroom's project list: failed to load ({e}), so project repos outside the usual code folders were not checked"
+    return sorted(paths), error
 
 
 def active_repos(days, limit, limit_github):
     cutoff = time.time() - days * 86400
     repos = {}
-    for path in local_repos():
+    paths, error = local_repos()
+    errors = [error] if error else []
+    for path in paths:
         last = git(path, "for-each-ref", "--sort=-committerdate", "--count=1", "--format=%(committerdate:unix)", "refs/heads")
         if not last.isdigit() or int(last) < cutoff:
             continue
@@ -228,19 +237,27 @@ def active_repos(days, limit, limit_github):
             continue
         repos[name or path] = {"name": name or os.path.basename(path), "github": name, "path": path, "last": int(last)}
     if shutil.which("gh"):
-        try:
-            for r in json.loads(run(["gh", "api", "user/repos?sort=pushed&per_page=50&affiliation=owner,collaborator,organization_member"]) or "[]"):
+        try:  # a refused lookup (expired login, rate limit) is not an empty list (#2646)
+            p = subprocess.run(["gh", "api", "user/repos?sort=pushed&per_page=50&affiliation=owner,collaborator,organization_member"],
+                               capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+            if p.returncode:  # gh's last error line, without colors or control characters, capped
+                line = ((p.stderr or "").strip() or f"exit code {p.returncode}").splitlines()[-1]
+                raise OSError(re.sub(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x1f\x7f]", "", line).strip()[:200])
+            listed = json.loads(p.stdout or "[]")
+            if not isinstance(listed, list):
+                raise ValueError("not a list of repos")
+            for r in listed:
                 pushed = calendar.timegm(time.strptime(r["pushed_at"], "%Y-%m-%dT%H:%M:%SZ"))
                 if pushed >= cutoff and r["full_name"] not in repos and not r.get("archived"):
                     repos[r["full_name"]] = {"name": r["full_name"], "github": r["full_name"], "path": None, "last": int(pushed),
                                              "private": r.get("private")}
-        except (ValueError, KeyError, TypeError):
-            pass
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as e:
+            errors.append(f"GitHub's repo list: failed to load ({e}), so repos only on GitHub were not checked")
     # Every local repo active in the window; GitHub-only repos are capped (most recently pushed first).
     local = sorted((r for r in repos.values() if r["path"]), key=lambda r: -r["last"])
     remote = sorted((r for r in repos.values() if not r["path"]), key=lambda r: -r["last"])
     kept = local[:limit] + remote[:limit_github]
-    return kept, len(repos) - len(kept)
+    return kept, len(repos) - len(kept), errors
 
 
 def commit_days(repo):
@@ -546,7 +563,10 @@ def kev_matches(kev, app_list):
 
 def progress(data):
     if os.environ.get("ROOM_THREAD_ID"):
-        run(["room-cli", "loop", "scan-progress", "--data=" + json.dumps(data)])
+        try:
+            cli("loop", "scan-progress", "--data=" + json.dumps(data), timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass  # the progress card misses an update; the scan goes on
 
 
 def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
@@ -554,7 +574,7 @@ def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
     started = time.time()
     with concurrent.futures.ThreadPoolExecutor(4) as pool:
         computer_f, threats_f = pool.submit(mac), pool.submit(threats)
-        repos, skipped = active_repos(days, max_repos, max_github)
+        repos, skipped, discovery_errors = active_repos(days, max_repos, max_github)
         for r in repos:
             r["packages"] = repo_packages(r["path"]) if r["path"] else []
             r["secrets"] = repo_secrets(r["path"]) if r["path"] else []
@@ -572,9 +592,16 @@ def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
               (osv_failed, "packages: the OSV lookup failed"),
               (sum(1 for d in results if d.get("failed")), "advisories: their details failed to load"),
               (max(0, len(all_ids) - MAX_ADVISORIES), f"advisories past the first {MAX_ADVISORIES}"))
-    unchecked = [f"{n} {text}" for n, text in counts if n]
+    unchecked = [f"{n} {text}" for n, text in counts if n] + discovery_errors
+    remote = [r["name"] for r in repos if not r["path"]]  # no copy on this computer: no lockfiles to read (#2445)
+    if remote:
+        unchecked.append(f"{len(remote)} GitHub-only repos (no copy on this computer), so their packages were not checked: "
+                         + ", ".join(remote))
     unchecked += [f"{name}: failed to load" for name, ok in (("CISA's exploited list", recent["kev"]),
                                                               ("GitHub's critical advisories", recent["github_critical"])) if not ok]
+    if sys.platform != "darwin":  # mac() reads macOS only: missing computer facts must not look clean
+        unchecked.append(f"this computer ({platform.system()}): disk encryption, firewall, pending updates, ports open to the network, "
+                         "startup items, key and token files, and installed app versions: these checks run on macOS only")
     for r in repos:
         vulns = []
         for pkg in r["packages"]:
@@ -589,7 +616,7 @@ def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
             if key not in seen:
                 seen.add(key)
                 r["vulns"].append(v)
-        r["package_count"] = len(r.pop("packages"))
+        r["package_count"] = len(r.pop("packages")) if r["path"] else None  # None: not checked, unlike 0 packages
     computer["kev_matches"] = kev_matches(recent["kev"], computer.get("apps") or [])
     critical = sum(v["severity"] == "CRITICAL" for r in repos for v in r["vulns"])
     json.dump({"computer": computer, "repos": repos, "skipped_repos": skipped, "not_checked": unchecked, "threats": recent}, open(os.path.join(out, "findings.json"), "w"), indent=1)
@@ -601,7 +628,7 @@ def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
     for n, r in enumerate([r for r in repos if r["github"]][:max_readers], 1):
         key = f"{n:02d}"
         known = [f"{v['cve'] or v['id']} {v['package']} {v['version']}" for v in r["vulns"][:15]] + r["secrets"]
-        open(os.path.join(out, "slices", f"slice-{key}.txt"), "w").write(
+        open(os.path.join(out, "slices", f"slice-{key}.txt"), "w", encoding="utf-8").write(
             f"Repo: {r['github']}\nLocal copy: {'yes' if r['path'] else 'no'}\n"
             f"Already found by the package and secret checks (don't repeat these):\n" + ("\n".join(known) or "nothing") + "\n")
         per_slice[key] = {str(i): c for i, c in enumerate(r["days"]) if c}
@@ -620,8 +647,9 @@ def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
             lines.append(f"- {k}: {json.dumps(v) if isinstance(v, (dict, list)) else v}")
     lines += ["", f"## Repos active in the last {days} days ({len(repos)} checked, {skipped} more skipped)"]
     for r in repos:
+        count = "packages not checked" if r["package_count"] is None else f"{r['package_count']} packages"
         lines.append(f"### {r['name']}" + (f" ({r['path'].replace(HOME, '~')})" if r["path"] else " (GitHub only)")
-                     + f" · {r['package_count']} packages · last active {time.strftime('%Y-%m-%d', time.localtime(r['last']))}")
+                     + f" · {count} · last active {time.strftime('%Y-%m-%d', time.localtime(r['last']))}")
         for v in r["vulns"][:12]:
             lines.append(f"- {v['cve'] or v['id']} · {(str(v['score']) + ' ') if v['score'] else ''}{v['severity'] or '?'} · {v['package']} {v['version']}"
                          f" -> {v['fixed'] or 'see advisory'} · {v['summary']}")
@@ -632,13 +660,14 @@ def main(out, days=30, max_repos=60, max_github=10, max_readers=8):
     lines += [f"- {v['cveID']} {v['vendorProject']} {v['product']} ({v['dateAdded']}): {v['vulnerabilityName']}" for v in recent["kev"]]
     lines += ["GitHub critical advisories:"]
     lines += [f"- {a['id']} ({a['published']}) {', '.join(a['packages'])}: {a['summary']}" for a in recent["github_critical"]]
-    open(os.path.join(out, "summary.md"), "w").write("\n".join(lines) + "\n")
-    print(f"{len(repos)} repos, {sum(r['package_count'] for r in repos)} packages, "
+    open(os.path.join(out, "summary.md"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    print(f"{len(repos)} repos, {sum(r['package_count'] or 0 for r in repos)} packages, "
           f"{sum(len(r['vulns']) for r in repos)} advisories ({critical} critical), "
           f"{sum(len(r['secrets']) for r in repos)} secret findings, {len(per_slice)} reader slices"
           + (f", not fully checked: {'; '.join(unchecked)}" if unchecked else ""))
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(errors="backslashreplace")  # Windows code pages can't print every repo name or error (#2646)
     a = sys.argv[1:]
     opt = lambda name, default: int(a[a.index(name) + 1]) if name in a else default
     main(a[0], opt("--days", 30), opt("--max-repos", 60), opt("--max-github", 10), opt("--max-readers", 8))

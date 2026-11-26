@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ProviderInfo } from "@cloudroom/domain";
@@ -98,7 +98,7 @@ describe("ProvidersSettingsSection", () => {
 
     expect(
       screen.queryAllByRole("button", { name: /Reorder (Alpha|Beta|Gamma)/ }),
-    ).toHaveLength(0);
+    ).toHaveLength(3);
 
     fireEvent.pointerDown(
       screen.getByRole("button", { name: "Gamma actions" }),

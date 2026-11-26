@@ -48,7 +48,8 @@ interface Dismissal {
 interface PillInsert {
   editor: Editor;
   range: { from: number; to: number };
-  resource: PromptMentionResource;
+  /** Null inserts `serializedText` as plain typed text. */
+  resource: PromptMentionResource | null;
   serializedText: string;
   trailingText: string;
   dismissal: Dismissal | null;
@@ -149,8 +150,6 @@ function listCommands(
 }
 
 interface PendingModelPick {
-  from: number;
-  to: number;
   submit?: () => void;
 }
 
@@ -274,13 +273,8 @@ export function usePromptTypeahead({
     announce(next);
   };
 
-  /** Keep command ranges attached to their text as the surrounding draft changes. */
+  /** Keep a dismissed trigger's range attached to its text as the surrounding draft changes. */
   const trackEdit = (transaction: Transaction) => {
-    const pick = pendingPick.current;
-    if (pick && transaction.docChanged) {
-      pick.from = transaction.mapping.map(pick.from, 1);
-      pick.to = transaction.mapping.map(pick.to, -1);
-    }
     const dismissal = track.current.dismissal;
     if (!dismissal || !transaction.docChanged || track.current.restoringPill)
       return;
@@ -365,13 +359,15 @@ export function usePromptTypeahead({
         .focus()
         .deleteRange(pill.range)
         .insertContent([
-          {
-            type: "mention",
-            attrs: {
-              resource: pill.resource,
-              serializedText: pill.serializedText,
-            },
-          },
+          pill.resource === null
+            ? { type: "text", text: pill.serializedText }
+            : {
+                type: "mention",
+                attrs: {
+                  resource: pill.resource,
+                  serializedText: pill.serializedText,
+                },
+              },
           ...(pill.trailingText
             ? [{ type: "text", text: pill.trailingText }]
             : []),
@@ -405,10 +401,12 @@ export function usePromptTypeahead({
     insertPill({
       editor,
       range: { from: active.from, to: active.to },
-      resource: promptCommandResourceFromSuggestion({
-        suggestion: item,
-        trigger: active.char,
-      }),
+      resource: item.insertAsText
+        ? null
+        : promptCommandResourceFromSuggestion({
+            suggestion: item,
+            trigger: active.char,
+          }),
       serializedText: `${active.char}${item.name}`,
       trailingText,
       dismissal: {
@@ -450,31 +448,22 @@ export function usePromptTypeahead({
             : fastMode?.onToggle,
         );
       case "model-shortcut": {
-        const editor = api.ref.current;
         const shortcut = modelShortcuts?.find(({ name }) => name === item.name);
-        if (!shortcut || pendingPick.current || !editor?.isEditable || active?.kind !== "command") return;
-        const pick: PendingModelPick = { from: active.from, to: active.to };
-        const token = editor.state.doc.textBetween(pick.from, pick.to);
-        const saved = shortcut.onSelect();
-        const consume = () => {
-          if (
-            editor.isDestroyed || api.ref.current !== editor ||
-            pick.to <= pick.from || editor.state.doc.textBetween(pick.from, pick.to) !== token
-          ) return;
-          editor.commands.deleteRange({ from: pick.from, to: pick.to });
-          api.reveal();
-          pick.submit?.();
-        };
-        if (!saved) return consume();
-        pendingPick.current = pick;
-        void saved.then(() => {
-          if (pendingPick.current !== pick) return;
-          pendingPick.current = null;
-          consume();
-        }, () => {
-          if (pendingPick.current === pick) pendingPick.current = null;
+        if (!shortcut || pendingPick.current) return;
+        // Remove the typed text first, like every other own command. Enter waits for the switch.
+        return runOwnCommand(() => {
+          const saved = shortcut.onSelect();
+          if (!saved) return;
+          const pick: PendingModelPick = {};
+          pendingPick.current = pick;
+          void saved.then(() => {
+            if (pendingPick.current !== pick) return;
+            pendingPick.current = null;
+            pick.submit?.();
+          }, () => {
+            if (pendingPick.current === pick) pendingPick.current = null;
+          });
         });
-        return;
       }
       case "reasoning":
         return runOwnCommand(

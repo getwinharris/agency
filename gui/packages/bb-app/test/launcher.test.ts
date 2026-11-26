@@ -537,6 +537,27 @@ describe("bb-app launcher", () => {
     expect(context.serverUrl).toBe("https://bb.example.test");
   });
 
+  it("keeps the desktop app's human-click key over a saved env.json setting", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "bb-app-human-click-"));
+    writeFileSync(
+      join(dataDir, "env.json"),
+      JSON.stringify({ env: { CLOUDROOM_HUMAN_CLICK_KEY: "", BB_TELEMETRY: "0" } }),
+      "utf8",
+    );
+
+    const runtime = await resolveRuntime({
+      entrypointUrl: pathToFileURL("/repo/packages/bb-app/dist/bb-app.js").href,
+      env: { BB_DATA_DIR: dataDir, CLOUDROOM_HUMAN_CLICK_KEY: "desktop-key" },
+      homeDir: "/home/tester",
+      options: { help: false },
+      mode: "local",
+    });
+
+    expect(runtime.serverEnv.CLOUDROOM_HUMAN_CLICK_KEY).toBe("desktop-key");
+    // Other saved settings still apply.
+    expect(runtime.serverEnv.BB_TELEMETRY).toBe("0");
+  });
+
   it("uses managed config server URL over ambient env", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "bb-app-server-config-"));
     writeFileSync(
@@ -981,7 +1002,7 @@ describe("bb-app launcher", () => {
 
     expect(metadata.engines.node).toBe("^22.19.0 || ^24.0.0 || ^26.0.0");
     expect(metadata.files).toContain(
-      "host-daemon/dist/bb-plugin-host-worker.mjs",
+      "host-daemon/dist/room-plugin-host-worker.mjs",
     );
     expect(metadata.files).toContain("host-daemon/dist/room-cli");
     expect(metadata.files).toContain("host-daemon/dist/room-cli.cmd");
@@ -997,9 +1018,9 @@ describe("bb-app launcher", () => {
         context.serverEntry,
         context.daemonEntry,
         join(context.daemonBundleDir, "room-cli"),
-        join(context.daemonBundleDir, "bb-provider-bridge-worker.mjs"),
-        join(context.daemonBundleDir, "bb-parcel-watcher-child.mjs"),
-        join(context.daemonBundleDir, "bb-plugin-host-worker.mjs"),
+        join(context.daemonBundleDir, "room-provider-bridge-worker.mjs"),
+        join(context.daemonBundleDir, "room-parcel-watcher-child.mjs"),
+        join(context.daemonBundleDir, "room-plugin-host-worker.mjs"),
         join(context.appDistDir, "index.html"),
       ]) {
         mkdirSync(dirname(artifact), { recursive: true });
