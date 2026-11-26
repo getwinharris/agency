@@ -239,6 +239,9 @@ jobs:
           done
           test "$tapped" = true
           await_fixture signed-in 1
+          # Chromium batches writes to its persistent cookie store every 30 seconds.
+          # Allow a commit before simulating process death with force-stop.
+          if [[ $browser == com.android.chrome ]]; then sleep 35; fi
           previous=$(grep -cx signed-in "$fixture/fixture.log")
           "${device[@]}" shell am force-stop in.bapx.agents
           "${device[@]}" shell am force-stop "$browser"
