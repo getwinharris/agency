@@ -26,11 +26,14 @@ first-party bapX sites.
 - `gui/apps/www/` owns the landing page, docs, MediaHub and Admin assets.
   Build with `pnpm build:web` from `gui/` using Node.js 24. The Rust
   `cloudroom serve-web` process serves the output and API.
-- `gui/apps/desktop/` owns the Mac and Windows installers. Follow the desktop
+- `gui/apps/desktop/` owns the macOS, Windows, and Linux packages. Follow the desktop
   packaging docs for versions, signing, validated downloads, and updates.
   Keep upstream license notices and compatible native protocols.
 - For App CI, use the Node version in `gui/.nvmrc`, the pnpm version in
   `gui/package.json`, and the Bun version in the App workflow.
+- Ship portable agent workflows as Agent Skills and callable tool interfaces
+  through MCP. Verify native discovery in the clients listed in
+  `gui/docs/configuration.md`. Desktop UI extensions use the Agency plugin runtime.
 - `deploy/` owns the public web image and VPS deployment instructions.
   Web deployments use the verified image from `main`.
 

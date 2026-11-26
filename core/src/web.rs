@@ -103,7 +103,6 @@ impl Site {
 fn router(site: Site) -> Router {
     Router::new()
         .route("/healthz", get(health))
-        .route("/favicon.ico", get(favicon))
         .route("/favicon.svg", get(favicon))
         .route(
             INQUIRY_PATH,
@@ -192,12 +191,17 @@ fn static_path(name: &str, path: &str) -> Option<PathBuf> {
     if !relative.is_empty() && !relative.split('/').all(safe_segment) {
         return None;
     }
+    if matches!(relative, "favicon.ico" | "favicon-96x96.png") {
+        return Some(Path::new("brand").join(relative));
+    }
     if name == admin::HOST {
         return match relative {
             "" => Some("admin/index.html".into()),
-            "admin/index.css" | "admin/index.js" | "brand/favicon.svg" | "brand/mark.svg" => {
-                Some(relative.into())
-            }
+            "admin/index.css"
+            | "admin/index.js"
+            | "brand/favicon.svg"
+            | "brand/mark.svg"
+            | "brand/bapx-logo-main.svg" => Some(relative.into()),
             _ => None,
         };
     }

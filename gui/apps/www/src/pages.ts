@@ -1,12 +1,62 @@
+import { faviconLinks, wordmark } from "./brand.ts";
+
 const website = "https://bapx.in";
 const docs = "https://docs.bapx.in";
 const mediaHub = "https://mediahub.bapx.in/";
 const source = "https://github.com/getwinharris/agency";
 const contact = "bapxmediahub@gmail.com";
 
+const projectPaths = [
+  {
+    id: "coding",
+    label: "Run a coding agent",
+    title: "Work in your repository",
+    description: "Connect the desktop app to a private Linux Core. Run Codex on that machine and reopen the remote session when you reconnect.",
+    action: "Set up a private Core",
+    href: `${docs}/#private-core`,
+  },
+  {
+    id: "websites",
+    label: "Build a website",
+    title: "Scope a website with MediaHub",
+    description: "Tell us what the site needs to do, who it serves, and whether you need booking, commerce, or an editor.",
+    action: "Start a website brief",
+    href: `${mediaHub}?service=websites#brief`,
+  },
+  {
+    id: "automation",
+    label: "Automate a workflow",
+    title: "Show us the task you repeat",
+    description: "Share what starts the workflow, which tools it uses, and where a person needs to review the result.",
+    action: "Start an automation brief",
+    href: `${mediaHub}?service=automation#brief`,
+  },
+];
+
+function projectGuide() {
+  const choices = projectPaths.map(({ id, label }, index) => (
+    `<button type="button" data-project-path="${id}" aria-controls="path-${id}" aria-pressed="${index === 0}">${label}</button>`
+  )).join("");
+  const panels = projectPaths.map(({ id, label, title, description, action, href }) => (
+    `<article class="project-panel" id="path-${id}" data-project-panel="${id}">
+      <h3><span class="project-panel-label">${label}</span>${title}</h3>
+      <p>${description}</p>
+      <a class="button button-secondary" href="${href}">${action} <span class="arrow" aria-hidden="true"></span></a>
+    </article>`
+  )).join("");
+
+  return `<section class="project-guide" id="start" aria-labelledby="project-heading" data-project-guide>
+    <h2 id="project-heading">Choose a starting point.</h2>
+    <div class="project-layout">
+      <div class="project-choices" role="group" aria-label="Project type" hidden>${choices}</div>
+      <div class="project-panels">${panels}</div>
+    </div>
+  </section>`;
+}
+
 function brand(surface: "Agents" | "Docs") {
   const href = surface === "Docs" ? docs : website;
-  return `<a class="brand" href="${href}/"><img src="/brand/mark.svg" alt="" width="40" height="40"><span>bapX</span><span class="brand-divider" aria-hidden="true">/</span><span class="brand-surface">${surface}</span></a>`;
+  return `<a class="brand" href="${href}/" aria-label="bapX ${surface} home"><img src="${wordmark}" alt="" width="120" height="40"><span class="brand-divider" aria-hidden="true">/</span><span class="brand-surface">${surface}</span></a>`;
 }
 
 function page({
@@ -29,8 +79,8 @@ function page({
   <meta name="description" content="${description}">
   <meta name="theme-color" content="#0a090e">
   <link rel="canonical" href="${canonical}">
-  <link rel="icon" href="/brand/favicon.svg?v=583e9a9d" type="image/svg+xml">
-  <link rel="stylesheet" href="/site.css?v=agency">
+  ${faviconLinks}
+  <link rel="stylesheet" href="/site.css?v=project-paths">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -99,25 +149,19 @@ export function publicPages() {
       <p class="mode-caption" aria-live="polite">Keep the coding agent, files, and worktree on your Mac for a local session.</p>
     </div>
   </section>
-  <section class="features" aria-labelledby="features-heading">
-    <h2 id="features-heading">Built for your workflow.</h2>
-    <div class="feature-grid">
-      <article><h3>Use your native agents.</h3><p>Run Codex and other supported agents in the macOS app on Apple Silicon.</p></article>
-      <article><h3>Run Core on your server.</h3><p>Pair with your private Linux Core to pick up a remote session when you reconnect.</p></article>
-      <article><h3>Keep your work in Git.</h3><p>Continue using your repositories, branches, and worktrees in either environment.</p></article>
-    </div>
-  </section>
+  ${projectGuide()}
 </main>
-<script src="/brand/session-demo.js?v=agency" defer></script>`,
+<script src="/brand/session-demo.js?v=agency" defer></script>
+<script src="/brand/project-paths.js" defer></script>`,
     }),
     "docs/index.html": page({
       title: "Documentation | bapX Agents",
-      description: "Build the bapX Agents Mac app from Agency and connect it to a private Linux Core.",
+      description: "Build bapX Agents on macOS, Windows, or Linux and connect it to a private Linux Core.",
       canonical: `${docs}/`,
       surface: "Docs",
       body: `<main id="main" class="shell document">
   <h1>bapX Agents documentation</h1>
-  <p>bapX Agents is a fork of Cloudroom. The Mac app runs native coding agents and can connect to a private Linux Core.</p>
+  <p>bapX Agents is a fork of Cloudroom. The desktop app runs native coding agents and can connect to a private Linux Core.</p>
   <section id="mac">
     <h2>Build the Mac app</h2>
     <p>Build from source on Apple Silicon with macOS 13 or later. The first signed bapX download will be announced in Agency releases.</p>
@@ -126,10 +170,20 @@ export function publicPages() {
       <a class="button button-secondary" href="${source}/releases">Agency releases <span class="arrow" aria-hidden="true"></span></a>
     </div>
   </section>
-  <section>
+  <section id="windows-linux">
+    <h2>Build for Windows or Linux</h2>
+    <p>Use the Windows x64 instructions to build a per-user installer, or the Linux x64 instructions to build an AppImage.</p>
+    <p class="document-links"><a href="${source}/blob/main/gui/apps/desktop/README.md#windows-nsis-x64">Windows installer build</a><a href="${source}/blob/main/gui/apps/desktop/README.md#linux-appimage-x64">Linux AppImage build</a></p>
+  </section>
+  <section id="private-core">
     <h2>Run a private Core</h2>
-    <p>Build the Rust Core on a dedicated Ubuntu machine. Configure Codex with your own account, keep the Core private, and pair from the Mac app using the Core’s private HTTPS URL and token.</p>
+    <p>Build the Rust Core on a dedicated Ubuntu machine. Configure Codex with your own account and pair from the desktop app using the Core’s private HTTPS URL and token.</p>
     <p class="document-links"><a href="${source}/blob/main/core/docs/setup.md#1-install-tools-and-build">Core setup</a><a href="${source}/blob/main/core/docs/setup.md#connect-the-desktop-app">Pair the app</a></p>
+  </section>
+  <section id="portable-skills">
+    <h2>Install project skills</h2>
+    <p>Install Agency’s file-tree skill in your project. Codex and OpenCode discover it there, and Hermes can load it through its profile.</p>
+    <p class="document-links"><a href="${source}/blob/main/gui/docs/configuration.md#install-an-agency-skill-in-native-agents">Install and verify the skill</a></p>
   </section>
   <section>
     <h2>Source and licensing</h2>

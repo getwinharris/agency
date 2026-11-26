@@ -67,6 +67,12 @@ jobs:
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: admin.bapx.in' http://127.0.0.1:8080/api/admin/session)" = 401
           curl --fail --silent --location -H 'Host: bapx.in' http://127.0.0.1:8080/favicon.svg --output "$RUNNER_TEMP/bapx-favicon.svg"
           cmp gui/apps/www/public/brand/favicon.svg "$RUNNER_TEMP/bapx-favicon.svg"
+          for icon in favicon.ico favicon-96x96.png; do
+            curl --fail --silent -H 'Host: admin.bapx.in' "http://127.0.0.1:8080/$icon" --output "$RUNNER_TEMP/$icon"
+            cmp "gui/apps/www/public/brand/$icon" "$RUNNER_TEMP/$icon"
+          done
+          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/brand/bapx-logo-main.svg --output "$RUNNER_TEMP/bapx-logo-main.svg"
+          cmp gui/apps/www/public/brand/bapx-logo-main.svg "$RUNNER_TEMP/bapx-logo-main.svg"
           BAPX_WEB_IMAGE=agency-web:check docker compose -f deploy/compose.web.yml config --quiet
       - name: Publish main image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

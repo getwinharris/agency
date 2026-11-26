@@ -603,6 +603,39 @@ Grok reads recursive paths from `[skills].paths` in `config.toml`. It also reads
 enabled Grok and Claude-compatible plugin skills. Its Cursor and Claude
 compatibility roots follow the related config and environment switches.
 
+### Install an Agency skill in native agents
+
+From the target Git checkout, install the bundled `file-tree` skill from
+Agency’s GitHub repository. Keep any existing project copy. Use Node.js and
+Git for the installer and the bundled tree command. Set `agency_revision` to
+a reviewed Git commit to pin the skill source.
+
+```sh
+agency_revision=main
+if [ ! -e .agents/skills/file-tree ] && [ ! -L .agents/skills/file-tree ]; then
+  npx --yes skills@1.9.0 add "https://github.com/getwinharris/agency/tree/$agency_revision/skills" \
+    --agent codex opencode --skill file-tree --copy --yes &&
+    node .agents/skills/file-tree/scripts/tree.mjs .
+fi
+```
+
+Codex and OpenCode discover the same `.agents/skills/file-tree/SKILL.md` from
+the target workspace. In a fresh Codex session, open the skills picker with
+`$`. Run `opencode debug skill` from the workspace to see OpenCode's discovery.
+
+For Hermes, add the target workspace's absolute `.agents/skills` path to
+`skills.external_dirs` in the chosen profile's `config.yaml`, keeping any
+existing entries. Run `hermes skills list --source local --enabled-only` in
+that profile and check for `file-tree`. An external directory remains available
+to that Hermes profile when it changes projects, so use a dedicated profile if
+the skill should stay with one workspace.
+
+Agent Skills package instructions and supporting files. Install bb extensions
+that add desktop UI, background jobs, or server routes through `bb plugin install`.
+For callable MCP tools, register the tool server separately through the native
+client's MCP commands. Codex, OpenCode, and Hermes each provide `mcp add` and
+`mcp list` for managing their own server connections.
+
 ## Multi-machine
 
 Settings → Machines offers Manual machine setup (the built-in `manual` provider)
