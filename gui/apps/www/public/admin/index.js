@@ -301,7 +301,8 @@ function fillCopy(copy) {
 async function loadCopy() {
   if (!operator || copyOperation) return;
   const version = sessionVersion;
-  const keepDraft = hasCopyChanges(draftCopy());
+  const previous = currentCopy;
+  const draft = draftCopy();
   copyOperation = "loading";
   notice("copy-notice", "");
   renderCopy();
@@ -310,7 +311,10 @@ async function loadCopy() {
     if (version !== sessionVersion) return;
     currentCopy = result;
     copyConflict = false;
-    if (!keepDraft) fillCopy(result);
+    fillCopy({
+      headline: previous && draft.headline !== previous.headline ? draft.headline : result.headline,
+      briefIntro: previous && draft.briefIntro !== previous.briefIntro ? draft.briefIntro : result.briefIntro,
+    });
     if (hasCopyChanges(draftCopy())) {
       notice("copy-notice", "Published copy refreshed. Your edits are still here.");
     }
