@@ -4,7 +4,13 @@ on:
   pull_request:
     paths:
       - '.github/workflows/desktop-packages.yml'
-      - 'gui/apps/desktop/**'
+      - 'core/**'
+      - 'gui/**'
+      - '!gui/apps/android/**'
+      - '!gui/apps/www/**'
+      - 'skills/**'
+      - 'LICENSE'
+      - 'NOTICE'
   workflow_dispatch:
 
 permissions:
@@ -62,10 +68,15 @@ jobs:
         if: matrix.platform == 'windows-x64'
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install Electron for native package verification
+        run: |
           node apps/desktop/node_modules/electron/install.js
+          node -e "require('node:fs').accessSync(require('./apps/desktop/node_modules/electron'))"
       - name: Package
         if: matrix.platform != 'macos-arm64'
-        run: pnpm --dir apps/desktop run "${{ matrix.command }}"
+        env:
+          DESKTOP_PACKAGE_COMMAND: ${{ matrix.command }}
+        run: pnpm --dir apps/desktop run "$DESKTOP_PACKAGE_COMMAND"
       - name: Package macOS with a local test signature
         if: matrix.platform == 'macos-arm64'
         run: pnpm --dir apps/desktop run dist --ad-hoc
@@ -112,9 +123,10 @@ jobs:
       - name: Verify Linux AppImage
         if: matrix.platform == 'linux-x64'
         run: |
-          image=(apps/desktop/release.noindex/bapx-agents-*-x86_64.AppImage)
-          file "${image[0]}" | grep -F 'x86-64'
-          image="$(realpath "${image[0]}")"
+          images=(apps/desktop/release.noindex/bapx-agents-*-x86_64.AppImage)
+          [[ ${#images[@]} -eq 1 && -f ${images[0]} ]]
+          image="$(realpath "${images[0]}")"
+          file "$image" | grep -F 'x86-64'
           unpack="$(mktemp -d)"
           trap 'rm -rf -- "$unpack"' EXIT
           cd "$unpack"
