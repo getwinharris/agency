@@ -23,6 +23,9 @@ if (form) {
   const consent = form.elements.namedItem("consent");
   const campaign = new URLSearchParams(location.search);
   startedAt.value = String(Date.now());
+  const requestedProject = campaign.get("service");
+  const requestedService = [...service.options].find((option) => option.dataset.project === requestedProject);
+  if (requestedService) service.value = requestedService.value;
 
   for (const link of document.querySelectorAll("[data-service]")) {
     link.addEventListener("click", () => { service.value = link.dataset.service; });
