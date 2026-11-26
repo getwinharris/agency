@@ -129,6 +129,9 @@ jobs:
             if [[ $? -ne 0 ]]; then
               tail -100 "$fixture/emulator.log" || true
               cat "$fixture/fixture.log" || true
+              "${device[@]}" shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' || true
+              "${device[@]}" shell uiautomator dump /sdcard/bapx-final.xml >/dev/null || true
+              "${device[@]}" shell cat /sdcard/bapx-final.xml | grep -o 'text="[^"]\+"' | head -35 || true
               "${device[@]}" logcat -b crash -d || true
             fi
             "${device[@]}" emu kill || true
@@ -172,7 +175,9 @@ jobs:
           }
           browser=${browser_component%%/*}
           if [[ $browser == com.android.chrome ]]; then
-            "${device[@]}" shell 'echo "chrome --disable-fre --no-default-browser-check" > /data/local/tmp/chrome-command-line'
+            "${device[@]}" shell am set-debug-app --persistent "$browser"
+            "${device[@]}" shell 'echo "_ --disable-fre --no-default-browser-check" > /data/local/tmp/chrome-command-line && chmod 0644 /data/local/tmp/chrome-command-line'
+            "${device[@]}" shell am force-stop "$browser"
           fi
           "${device[@]}" install "$apk"
           "${device[@]}" shell cmd package resolve-activity --brief in.bapx.agents \
@@ -186,30 +191,46 @@ jobs:
             done
             return 1
           }
-          await_fixture signed-out 1
-          for _ in {1..8}; do
-            "${device[@]}" shell uiautomator dump /sdcard/bapx-qa.xml >/dev/null
-            "${device[@]}" pull /sdcard/bapx-qa.xml "$fixture/ui.xml" >/dev/null
-            if position=$(python3 - "$fixture/ui.xml" <<'PY'
+          tap_control() {
+            local position x y
+            "${device[@]}" shell uiautomator dump /sdcard/bapx-qa.xml >/dev/null || return 1
+            "${device[@]}" pull /sdcard/bapx-qa.xml "$fixture/ui.xml" >/dev/null || return 1
+            position=$(python3 - "$fixture/ui.xml" "$@" <<'PY'
           from sys import argv
           from xml.etree import ElementTree
           import re
 
+          choices = {name.casefold() for name in argv[2:]}
           for item in ElementTree.parse(argv[1]).iter("node"):
-              if any(item.get(name) == "Sign in to test workspace" for name in ("text", "content-desc")):
+              descriptions = [item.get(name, "").casefold() for name in ("text", "content-desc")]
+              descriptions.append(item.get("resource-id", "").split("/")[-1].casefold())
+              if choices.intersection(descriptions):
                   left, top, right, bottom = map(int, re.findall(r"\d+", item.get("bounds", "")))
-                  print((left + right) // 2, (top + bottom) // 2)
-                  raise SystemExit(0)
+                  if left < right and top < bottom:
+                      print((left + right) // 2, (top + bottom) // 2)
+                      raise SystemExit(0)
           raise SystemExit(1)
           PY
-            ); then
-              break
+            ) || return 1
+            read -r x y <<< "$position"
+            "${device[@]}" shell input tap "$x" "$y"
+          }
+          # Some system browser builds still show their onboarding page on a fresh AVD.
+          for _ in {1..10}; do
+            if grep -qx signed-out "$fixture/fixture.log"; then break; fi
+            if [[ $browser == com.android.chrome ]]; then
+              tap_control 'Accept & continue' 'No thanks' 'Not now' 'Continue without an account' \
+                tos_and_privacy_accept_button negative_button || true
             fi
             sleep 1
           done
-          read -r x y <<< "$position"
-          [[ -n $x && -n $y ]]
-          "${device[@]}" shell input tap "$x" "$y"
+          await_fixture signed-out 1
+          tapped=false
+          for _ in {1..8}; do
+            if tap_control 'Sign in to test workspace'; then tapped=true; break; fi
+            sleep 1
+          done
+          test "$tapped" = true
           await_fixture signed-in 1
           previous=$(grep -cx signed-in "$fixture/fixture.log")
           "${device[@]}" shell am force-stop in.bapx.agents
