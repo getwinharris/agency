@@ -83,6 +83,8 @@ a { color: var(--accent); }
 .nav-button:hover, .nav-external:hover { background: var(--control); color: #f8f2fd; }
 .nav-button[aria-current="page"] { border-color: #4b395f; background: #281d35; color: #ddbfff; }
 .nav-external { justify-content: space-between; margin-top: .7rem; }
+.external-arrow { position: relative; inline-size: .62rem; block-size: .62rem; border-block-start: 1px solid currentColor; border-inline-end: 1px solid currentColor; }
+.external-arrow::after { content: ""; position: absolute; inset: .24rem -.08rem auto; border-block-start: 1px solid currentColor; transform: rotate(-45deg); }
 .nav-icon { inline-size: .95rem; block-size: .85rem; border: 1.5px solid currentColor; border-radius: .15rem; position: relative; }
 .nav-icon::after { content: ""; position: absolute; inset: .22rem .15rem auto; border-block-start: 1.5px solid currentColor; }
 .icon-page { inline-size: .75rem; block-size: .95rem; margin-inline: .1rem; }

@@ -507,7 +507,7 @@ The canonical release summary.
     expect(screen.queryByRole("button", { name: /check/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Updates" })).toBeNull();
     expect(
-      screen.getByRole("button", { name: /^Open the full Cloudroom .* changelog$/ }),
+      await screen.findByRole("button", { name: /^Open the full Cloudroom .* changelog$/ }),
     ).toBeDefined();
     const changelog = document.querySelector(
       '[data-updates-domain="changelog"]',

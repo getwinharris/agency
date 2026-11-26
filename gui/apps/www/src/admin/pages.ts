@@ -33,7 +33,7 @@ export function adminPages(): Record<string, string> {
         <button type="button" class="nav-button" id="nav-copy" aria-controls="copy">
           <span class="nav-icon icon-page" aria-hidden="true"></span><span>Homepage</span>
         </button>
-        <a class="nav-external" href="https://mediahub.bapx.in/" target="_blank" rel="noopener noreferrer">Visit MediaHub <span aria-hidden="true">↗</span></a>
+        <a class="nav-external" href="https://mediahub.bapx.in/" target="_blank" rel="noopener noreferrer">Visit MediaHub <span class="external-arrow" aria-hidden="true"></span></a>
       </nav>
     </aside>
     <main id="main" tabindex="-1">
