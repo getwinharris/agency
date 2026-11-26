@@ -39,9 +39,9 @@ jobs:
           printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk" "$sdk" >> "$GITHUB_ENV"
           python3 -c 'print("y\n" * 100)' | sdkmanager --sdk_root="$sdk" --licenses >/dev/null
           sdkmanager --sdk_root="$sdk" 'platforms;android-36' 'build-tools;36.0.0' \
-            platform-tools emulator 'system-images;android-28;google_apis;x86_64'
+            platform-tools emulator 'system-images;android-33;google_apis;x86_64'
           printf 'no\n' | avdmanager create avd --name bapx-qa \
-            --package 'system-images;android-28;google_apis;x86_64' --device pixel_2
+            --package 'system-images;android-33;google_apis;x86_64' --device pixel_2
       - name: Verify install, HTTPS workspace open, and cookie persistence
         run: |
           set -euo pipefail
@@ -121,7 +121,7 @@ jobs:
           python3 "$fixture/fixture.py" > "$fixture/fixture.log" 2>&1 &
           fixture_pid=$!
           emulator -avd bapx-qa -port 5554 -no-window -noaudio -no-boot-anim \
-            -no-snapshot -writable-system -gpu swiftshader_indirect \
+            -no-snapshot -writable-system -gpu swiftshader -feature -Vulkan \
             > "$fixture/emulator.log" 2>&1 &
           emulator_pid=$!
           device=(adb -s emulator-5554)
@@ -146,14 +146,21 @@ jobs:
             done
             return 1
           }
+          await_root() {
+            for _ in {1..8}; do
+              timeout 10 "${device[@]}" root || true
+              timeout 20 "${device[@]}" wait-for-device || continue
+              [[ $("${device[@]}" shell id -u | tr -d '\r') == 0 ]] && return
+              sleep 2
+            done
+            return 1
+          }
           await_boot
-          "${device[@]}" root
-          "${device[@]}" wait-for-device
+          await_root
           "${device[@]}" disable-verity
           "${device[@]}" reboot
           await_boot
-          "${device[@]}" root
-          "${device[@]}" wait-for-device
+          await_root
           "${device[@]}" remount
           hash=$(openssl x509 -subject_hash_old -noout -in "$fixture/ca.pem")
           "${device[@]}" push "$fixture/ca.pem" "/system/etc/security/cacerts/$hash.0"
