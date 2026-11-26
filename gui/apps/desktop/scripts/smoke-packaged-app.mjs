@@ -13,7 +13,7 @@ import {
 import { assertPatchedBrotli, createPackagedAppLaunchArguments } from "./packaged-app-launch.mjs";
 import { resolvePackagedAppBinary } from "./packaged-app-paths.mjs";
 import { smokePackagedNpm } from "./smoke-packaged-npm.mjs";
-import { readCloudroomVersion } from "./cloudroom-version.mjs";
+import { readDesktopPackageVersion } from "./desktop-version.mjs";
 import { withPackagedAppFixture, run } from "./macos-bundle.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -107,7 +107,7 @@ function renderSmokePage(expectedDesktopPlatform, expectedDesktopVersion) {
 </script>`;
 }
 
-async function readDesktopPackageVersion(appBinary) {
+async function readPackagedVersion(appBinary) {
   if (process.platform === "darwin") {
     const { stdout } = await run("/usr/bin/plutil", [
       "-extract",
@@ -118,9 +118,9 @@ async function readDesktopPackageVersion(appBinary) {
       resolve(dirname(appBinary), "../Info.plist"),
     ]);
     const version = stdout.trim();
-    return /^\d+\.0\.0$/.test(version) ? `v${version.split(".")[0]}` : version;
+    return `v${version}`;
   }
-  return readCloudroomVersion({ allowMissing: true });
+  return `v${await readDesktopPackageVersion()}`;
 }
 
 async function startSmokeServer({
@@ -320,7 +320,7 @@ async function smokePackagedApp() {
 
 async function runPackagedSmoke(appBinary, smokeRoot) {
   await assertPatchedBrotli(appBinary);
-  const desktopVersion = await readDesktopPackageVersion(appBinary);
+  const desktopVersion = await readPackagedVersion(appBinary);
   const desktopPlatform = resolveDesktopBuildPlatform(process.platform);
   await smokePackagedNpm(appBinary);
   const dataDir = join(smokeRoot, "data");

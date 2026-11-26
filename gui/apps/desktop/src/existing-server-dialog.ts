@@ -48,7 +48,7 @@ export function formatStartedAt(startedAt: string, now: Date): string {
 }
 
 export function formatSurface(surface: string): string {
-  return surface === "desktop" ? "the Cloudroom desktop app" : "a terminal";
+  return surface === "desktop" ? "the bapX Agents desktop app" : "a terminal";
 }
 
 function buildDetailRows(args: {
@@ -97,21 +97,21 @@ export function renderExistingServerDialogHtml(
     .join("\n      ");
   const canReplace = args.details !== null;
   const replaceButtonHtml = canReplace
-    ? `<button type="button" data-choice="replace">Quit other Cloudroom</button>`
+    ? `<button type="button" data-choice="replace">Quit the other bapX Agents server</button>`
     : "";
   const replaceWarningHtml = canReplace
     ? `<p class="warning">If you stop the running copy, its agent threads stop too.</p>`
     : "";
   const introText = canReplace
     ? "This app can use the copy that is already running, or you can stop it and start a new one."
-    : "This app can use the copy that is already running. Cloudroom cannot identify that copy, so it cannot stop it for you.";
+    : "This app can use the copy that is already running. bapX Agents cannot identify that copy, so it cannot stop it for you.";
 
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
-  <title>Cloudroom is already running</title>
+  <title>bapX Agents is already running</title>
   <style>
 ${DESKTOP_DIALOG_BASE_CSS}
 
@@ -158,14 +158,14 @@ ${DESKTOP_DIALOG_BASE_CSS}
   </style>
 </head>
 <body>
-  <h1>Cloudroom is already running on this ${COMPUTER}</h1>
+  <h1>bapX Agents is already running on this ${COMPUTER}</h1>
   <p>${introText}</p>
   <div class="details">
       ${detailHtml}
   </div>
   ${replaceWarningHtml}
   <div class="actions">
-    <button type="button" data-choice="quit">Quit this Cloudroom</button>
+    <button type="button" data-choice="quit">Quit bapX Agents</button>
     ${replaceButtonHtml}
     <button type="button" data-choice="connect">Connect</button>
   </div>
@@ -179,7 +179,7 @@ export function openExistingServerDialog(
   const dialogWindow = createDesktopDialogWindow({
     parentWindow: args.parentWindow,
     preloadPath: args.preloadPath,
-    title: "Cloudroom is already running",
+    title: "bapX Agents is already running",
     width: 460,
   });
 

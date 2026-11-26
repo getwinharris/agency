@@ -1,5 +1,7 @@
-//! First-party static sites and MediaHub intake. This mode owns no agent state.
+//! First-party static sites, MediaHub intake, and operator administration.
 
+mod admin;
+mod admin_store;
 mod inquiry;
 #[cfg(test)]
 mod tests;
@@ -32,6 +34,8 @@ const MAX_STATIC_BYTES: u64 = 32 * 1024 * 1024;
 struct Site {
     root: PathBuf,
     inquiries: PathBuf,
+    mediahub_copy: PathBuf,
+    admin: Option<admin::Admin>,
 }
 
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,7 +44,14 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         .parse()?;
     let root = env::var_os("BAPX_WEB_ROOT").ok_or("BAPX_WEB_ROOT is required")?;
     let data = env::var_os("BAPX_WEB_DATA").ok_or("BAPX_WEB_DATA is required")?;
-    let site = Site::open(root.as_ref(), data.as_ref())?;
+    let mut site = Site::open(root.as_ref(), data.as_ref())?;
+    site.admin = match admin::Admin::from_env() {
+        Ok(admin) => admin,
+        Err(error) => {
+            eprintln!("Admin authentication is disabled ({})", error.kind());
+            None
+        }
+    };
     let listener = tokio::net::TcpListener::bind(listen).await?;
     eprintln!("bapx-web listening on {}", listener.local_addr()?);
     axum::serve(listener, router(site)).await?;
@@ -80,7 +91,12 @@ impl Site {
                 "The inquiries directory must be private (0700)",
             ));
         }
-        Ok(Self { root, inquiries })
+        Ok(Self {
+            root,
+            inquiries,
+            mediahub_copy: data.join("mediahub-homepage.json"),
+            admin: None,
+        })
     }
 }
 
@@ -92,6 +108,7 @@ fn router(site: Site) -> Router {
             INQUIRY_PATH,
             post(inquiry::accept).layer(DefaultBodyLimit::max(MAX_INQUIRY_BYTES)),
         )
+        .nest("/api/admin", admin::routes())
         .fallback(static_page)
         .with_state(Arc::new(site))
 }
@@ -107,17 +124,25 @@ fn public_host(host: &str) -> bool {
 
 async fn health(headers: HeaderMap) -> Response {
     match host(&headers).as_deref() {
-        Some(name) if public_host(name) || matches!(name, "localhost" | "127.0.0.1" | "[::1]") => (
-            [(header::CACHE_CONTROL, "no-store")],
-            Json(json!({"ready": true, "service": "bapx-web"})),
-        )
-            .into_response(),
+        Some(name)
+            if public_host(name)
+                || matches!(name, admin::HOST | "localhost" | "127.0.0.1" | "[::1]") =>
+        {
+            (
+                [(header::CACHE_CONTROL, "no-store")],
+                Json(json!({"ready": true, "service": "bapx-web"})),
+            )
+                .into_response()
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
 async fn favicon(headers: HeaderMap) -> Response {
-    if host(&headers).as_deref().is_some_and(public_host) {
+    if host(&headers)
+        .as_deref()
+        .is_some_and(|name| public_host(name) || name == admin::HOST)
+    {
         Redirect::permanent("/brand/favicon.svg").into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -155,13 +180,22 @@ fn safe_segment(segment: &str) -> bool {
 }
 
 fn static_path(name: &str, path: &str) -> Option<PathBuf> {
-    if !public_host(name) {
+    if !public_host(name) && name != admin::HOST {
         return None;
     }
     let relative = path.strip_prefix('/')?;
     let relative = relative.strip_suffix('/').unwrap_or(relative);
     if !relative.is_empty() && !relative.split('/').all(safe_segment) {
         return None;
+    }
+    if name == admin::HOST {
+        return match relative {
+            "" => Some("admin/index.html".into()),
+            "admin/index.css" | "admin/index.js" | "brand/favicon.svg" | "brand/mark.svg" => {
+                Some(relative.into())
+            }
+            _ => None,
+        };
     }
     if relative == "site.css" || relative.starts_with("brand/") {
         return Some(relative.into());
@@ -198,7 +232,12 @@ async fn static_page(
     method: Method,
     uri: Uri,
 ) -> Response {
-    let Some(path) = host(&headers).and_then(|name| static_path(&name, uri.path())) else {
+    let name = host(&headers);
+    let is_admin = name.as_deref() == Some(admin::HOST);
+    if is_admin && site.admin.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Some(path) = name.and_then(|name| static_path(&name, uri.path())) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if !matches!(method, Method::GET | Method::HEAD) {
@@ -212,21 +251,29 @@ async fn static_page(
         return StatusCode::NOT_FOUND.into_response();
     };
     let head = method == Method::HEAD;
+    let is_mediahub_home = path == Path::new("mediahub/index.html");
     let Ok(Ok((size, body))) = tokio::task::spawn_blocking(move || {
         let file = site.root.join(path).canonicalize()?;
         if !file.starts_with(&site.root) || !file.is_file() {
             return Err(io::Error::from(io::ErrorKind::NotFound));
         }
         let file = File::open(file)?;
-        let size = file.metadata()?.len();
+        let mut size = file.metadata()?.len();
         if size > MAX_STATIC_BYTES {
             return Err(io::Error::from(io::ErrorKind::NotFound));
         }
         let mut contents = Vec::new();
-        if !head {
+        if !head || is_mediahub_home {
             file.take(MAX_STATIC_BYTES + 1).read_to_end(&mut contents)?;
             if contents.len() as u64 != size {
                 return Err(io::Error::other("Static artifact changed while serving"));
+            }
+        }
+        if is_mediahub_home {
+            contents = admin_store::render_mediahub_home(&site.mediahub_copy, contents);
+            size = contents.len() as u64;
+            if head {
+                contents.clear();
             }
         }
         Ok((size, contents))
@@ -244,7 +291,9 @@ async fn static_page(
     headers.insert(header::CONTENT_LENGTH, size.into());
     headers.insert(
         header::CACHE_CONTROL,
-        if content_type.starts_with("text/html") {
+        if is_admin {
+            "no-store"
+        } else if content_type.starts_with("text/html") {
             "no-cache"
         } else {
             "public, max-age=3600"
@@ -260,5 +309,15 @@ async fn static_page(
         header::X_FRAME_OPTIONS,
         "DENY".parse().expect("valid header"),
     );
+    if is_admin {
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            admin::CONTENT_SECURITY_POLICY
+                .parse()
+                .expect("valid header"),
+        );
+        headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+        headers.insert("x-robots-tag", "noindex, nofollow".parse().unwrap());
+    }
     response
 }

@@ -1,22 +1,28 @@
 flowchart TD
-  source["getwinharris/agency"]
-  gui["gui/apps/app and gui/apps/desktop"]
-  core["core: native agent sessions"]
-  web["gui/apps/www: static site build"]
-  rustweb["cloudroom serve-web: isolated first-party web mode"]
-  image["deploy/web.Dockerfile"]
-  landing["bapx.in: bapX Agents landing and privacy"]
-  docs["docs.bapx.in: app and Core setup"]
-  mediahub["mediahub.bapx.in: services, portfolio and briefs"]
-  private["Private MediaHub data volume"]
-  source --> gui
-  source --> core
-  source --> web
-  gui --> core
-  web --> image
-  core --> image
-  image --> rustweb
-  rustweb --> landing
-  rustweb --> docs
-  rustweb --> mediahub
-  mediahub --> private
+  root["/root/bapx.in: getwinharris/agency"]
+  contracts["AGENTS.md, OKF.md, DESIGN.md"]
+  codex[".agents/skills: native Codex project skills"]
+  web["gui/apps/www: TypeScript templates and assets"]
+  desktop["gui/apps/desktop: Mac and Windows packages"]
+  core["core: private native agent service"]
+  webMode["cloudroom serve-web: Rust first-party web server"]
+  deploy["deploy: verified main image and Traefik routes"]
+
+  root --> contracts
+  root --> codex
+  root --> web
+  root --> desktop
+  root --> core
+  web --> webMode
+  deploy --> webMode
+
+  webMode --> landing["bapx.in: product and privacy"]
+  webMode --> docs["docs.bapx.in: documentation"]
+  webMode --> mediahub["mediahub.bapx.in: portfolio and project briefs"]
+  webMode --> admin["admin.bapx.in: authenticated operator workflow"]
+  admin --> privateData["Private Agency web volume"]
+  mediahub --> privateData
+
+  desktop --> core
+  root --> users["users/: separate user-owned projects"]
+  root --> runtimeData["data/: operator and customer runtime state"]

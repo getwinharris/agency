@@ -2,10 +2,11 @@
 
 bapX Agents is the bapX fork of Cloudroom for running native coding agents on a
 Mac and a private Linux Core. Agency is the GitHub source for the app, public
-website, documentation, and MediaHub.
+website, documentation, MediaHub, and its operator workspace.
 
 [bapX](https://bapx.in/) · [Documentation](https://docs.bapx.in/) ·
-[MediaHub](https://mediahub.bapx.in/) · [Agency releases](https://github.com/getwinharris/agency/releases)
+[MediaHub](https://mediahub.bapx.in/) · [Admin](https://admin.bapx.in/) ·
+[Agency releases](https://github.com/getwinharris/agency/releases)
 
 ## Upstream Cloudroom
 
@@ -55,16 +56,11 @@ For Apple Silicon Macs (macOS 13+), Linux x64, and Windows 11.
 
 ## Get started
 
-**Use the app.** [Download it](https://github.com/davidondrej/cloudroom/releases/latest) for macOS, Windows, or Linux. It updates itself.
+**Use the app.** [Build bapX Agents](gui/README.md) from this checkout. Published bapX builds will appear in [Agency releases](https://github.com/getwinharris/agency/releases).
 
-**Host the core yourself.** On Ubuntu 24.04:
-
-```sh
-curl -fsSL https://cloudroom.dev/install.sh -o install.sh
-sudo bash install.sh
-```
-
-Then [connect the app](core/docs/setup.md#connect-the-desktop-app) with your server's URL and token. Full guide: [setup](core/docs/setup.md). [cloudroom.dev](https://www.cloudroom.dev) hosts the same core for you.
+**Host a private Core.** Follow the [Ubuntu setup guide](core/docs/setup.md)
+and [pair the app](core/docs/setup.md#connect-the-desktop-app) with your
+server's URL and token.
 
 **Build from source.** The app: see [gui/README.md](gui/README.md). The core needs Rust 1.89+:
 

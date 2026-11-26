@@ -1,12 +1,12 @@
-# @cloudroom/desktop
+# bapX Agents desktop
 
-macOS, Linux, and Windows Electron shell for bb. The desktop app loads the existing bb
-web UI and uses the packaged `bb-app` launcher for server and host-daemon
-lifecycle.
+Electron shell for bapX Agents. The packaged `bb-app` launcher starts the embedded
+web UI, local server, and host daemon. Its upstream license and notices ship in
+each desktop package.
 
 ## Development
 
-From the repo root, run `pnpm dev` in one terminal for the source server and
+From `gui/`, run `pnpm dev` in one terminal for the source server and
 live UI updates. In a second terminal, start the Electron shell:
 
 ```bash
@@ -64,18 +64,20 @@ pnpm exec turbo run dev --filter=@cloudroom/desktop
 ## Packaging
 
 ```bash
-pnpm exec turbo run desktop:build --filter=@cloudroom/desktop
-pnpm exec turbo run smoke:packaged --filter=@cloudroom/desktop
+pnpm --dir apps/desktop run dist
+pnpm --dir apps/desktop run smoke:packaged
 ```
 
-Artifacts are written under `apps/desktop/release.noindex/`. The macOS build is Apple
-Silicon arm64-only; Intel Macs are not a target. Without signing secrets, local builds
+Artifacts are written under `gui/apps/desktop/release.noindex/`. The Mac build
+targets Apple Silicon and produces `bapx-agents-v0.1.0-arm64.dmg` and
+`bapx-agents-v0.1.0-arm64.zip`. Run packaging and its smoke check on an Apple
+Silicon Mac. Without signing secrets, local builds
 sign with a code-signing identity auto-discovered from the keychain and skip
 notarization. A valid signature matters even for local builds: macOS
 provenance-tracks unsigned apps, forcing syspolicyd to evaluate every exec in
 the app's process tree, which can stall process launches system-wide. On
 machines with no keychain identity (or with `CSC_IDENTITY_AUTO_DISCOVERY=false`,
-as CI sets for workflow-artifact-only builds), artifacts remain unsigned and
+for an unsigned local build), artifacts remain unsigned and
 macOS shows the normal Gatekeeper warning on first launch.
 
 For local verification without publishing, use
@@ -96,7 +98,7 @@ verification without opening a desktop window:
 
 ```bash
 pnpm exec turbo run smoke:packaged-npm --filter=@cloudroom/desktop
-pnpm exec turbo run smoke:packaged-npm --filter=@cloudroom/desktop -- /absolute/path/to/bb.app/Contents/MacOS/bb
+pnpm exec turbo run smoke:packaged-npm --filter=@cloudroom/desktop -- "/Applications/bapX Agents.app/Contents/MacOS/bapX Agents"
 ```
 
 On Linux, the optional argument is the executable inside `linux-unpacked/` or
@@ -123,29 +125,29 @@ native modules to verify them. Install with
 `node apps\desktop\node_modules\electron\install.js`, then from `gui/`:
 
 ```powershell
-pnpm --dir apps\desktop run package:win        # release.noindex\win-unpacked\Cloudroom.exe
-pnpm --dir apps\desktop run smoke:packaged
-pnpm --dir apps\desktop run desktop:build:win  # Cloudroom-vN-x64.exe + latest.yml
+pnpm --dir apps/desktop run dist:win
+pnpm --dir apps/desktop run smoke:packaged
 ```
 
-The installer is a one-click, per-user NSIS installer: no admin prompt, and it
-installs to `%LOCALAPPDATA%\Programs\Cloudroom` (`Cloudroom-Nightly` on the
-nightly channel). `/S` installs or uninstalls silently. It bundles Python for
-the preview helper, but not Git: users install Git for Windows. The detached
+The one-click, per-user NSIS installer is `bapx-agents-v0.1.0-x64.exe`. It installs
+`bapX Agents.exe` under `%LOCALAPPDATA%\Programs\bapx-agents`. The nightly
+installer uses `bapx-agents-nightly`. `/S` installs or uninstalls silently.
+The installer bundles Python for the preview helper. Install Git for Windows
+separately. The detached
 preview helper keeps that `python.exe` open, so before the installer replaces
 or removes files, `build/installer.nsh` asks the helper to `pause`, then
 force-stops any `python*.exe` still running from the install folder.
 electron-builder's own check misses a single process on Windows PowerShell 5.1.
 
 Without `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` the installer is unsigned,
-and SmartScreen warns before it runs. The release workflow passes them from
-the `WINDOWS_CERTIFICATE_PFX` and `WINDOWS_CERTIFICATE_PASSWORD` secrets.
+and SmartScreen can warn before it runs. Verify the signed installer from
+PowerShell using `Get-AuthenticodeSignature .\apps\desktop\release.noindex\bapx-agents-v0.1.0-x64.exe`.
 
 `afterPack` copies `@parcel/watcher-win32-x64` into the package, because
 electron-builder leaves it out, and loads it with the packaged Electron.
 
 Inside the installed app, `room-cli.cmd` and `room-cli.ps1` run on
-`Cloudroom.exe` with `ELECTRON_RUN_AS_NODE=1`, so the PC needs no Node.
+`bapX Agents.exe` with `ELECTRON_RUN_AS_NODE=1`, so the PC needs no Node.
 PowerShell picks `room-cli.ps1`, which passes arguments as JSON in
 `ROOM_CLI_ARGV`, so cmd.exe never re-parses them.
 
@@ -154,7 +156,7 @@ PowerShell picks `room-cli.ps1`, which passes arguments as JSON in
 Linux packaging targets x64 glibc-based distributions. Install `python3`,
 `make`, and `g++` so node-gyp can build node-pty during dependency installation.
 
-From the repo root, build an unpacked app, an AppImage distribution, or smoke
+From `gui/`, build an unpacked app, an AppImage distribution, or smoke
 test the current packaged output with:
 
 ```bash
@@ -171,7 +173,7 @@ Linux users whose window manager supplies all window controls can remove the
 native Electron title bar with `--no-window-frame`:
 
 ```bash
-./bb-x86_64.AppImage --no-window-frame
+./bapx-agents-v0.1.0-x86_64.AppImage --no-window-frame
 ```
 
 The native frame remains the default. Changing this startup option requires a
@@ -181,7 +183,7 @@ Linux users can opt into a transparent Electron window with
 `--transparent-window`:
 
 ```bash
-./bb-x86_64.AppImage --transparent-window
+./bapx-agents-v0.1.0-x86_64.AppImage --transparent-window
 ```
 
 The window remains opaque by default. Transparency also requires a compositor
@@ -208,47 +210,25 @@ Linux gets both update paths, but they are not equivalent:
   AppImage in a read-only location — reports new versions without installing
   them.
 
-The Linux AppImage is unsigned, and electron-updater performs no signature
-check on Linux: it verifies only the SHA-512 recorded in the update metadata
-that ships beside it. macOS installs through Squirrel, which additionally
-requires the replacement to satisfy the running app's code-signing
-requirement. Write access to the release assets is therefore sufficient to
-push code to Linux clients. Treat the release token accordingly.
+Linux AppImages are available for manual installation. The signed desktop
+update feed covers macOS and Windows.
 
 ## Releasing
 
-The release version is the `vN` from `web/app/changelog/releases.ts`. Release builds stamp it into the app bundle (`N.0.0`) and the bundled `bb-app/package.json`; source checkouts stay `0.0.0-dev`.
+Set `version` in `gui/apps/desktop/package.json` when changing the desktop
+release version. Both native package commands stamp that version into the
+bundle, installer name, and About panel. Ordinary development builds show
+`dev`. The desktop release has its own version and build process.
 
-Cloudroom releases are built and published by the root
-`.github/workflows/release-gui.yml` workflow (see the `release-gui` skill and
-[Auto-update](#auto-update)).
+The stable app uses bundle and Windows application ID `in.bapx.agents`,
+`~/.bapx-agents` for runtime data, and local ports 39888 and 39889. The desktop
+registers `bapx-agents://` and installs the `bapx-agents-cli` shell shim on
+macOS and Linux.
 
-## Nightly channel
-
-No workflow publishes nightly builds. A build made with
-`BB_DESKTOP_RELEASE_CHANNEL=nightly` (see below) still gets the nightly identity.
-
-The nightly desktop is a separate installation:
-
-- product name: `bb Nightly`
-- bundle identifier: `dev.bb.desktop.nightly`
-- Linux binary name: `bb-nightly`, so it never shadows stable `bb` on PATH
-- app/update release: `desktop-nightly`
-- update metadata: `nightly-mac.yml` and `nightly-linux.yml`
-- version feeds: `desktop-version.json` (macOS) and
-  `desktop-version-linux.json` (Linux)
-- icon: `assets/icon-nightly.icns` and `assets/icon-nightly.png`
-
-Stable and nightly desktop bundles can coexist. Electron-owned preferences,
-window state, and process supervision use separate application data
-directories; the embedded bb runtime still uses the normal `~/.bb` data and
-default server port unless the corresponding environment variables are
-overridden.
-
-Nightly builds set `BB_DESKTOP_RELEASE_CHANNEL=nightly` at build time. The value
-is baked into the Electron main/preload bundles and selects the nightly product
-identity, yellow icon, and update URLs. Omit the variable (or set it to
-`latest`) for stable and local builds.
+Set `BB_DESKTOP_RELEASE_CHANNEL=nightly` for the separate bapX Agents Nightly
+build. It uses ID `in.bapx.agents.nightly`, runtime data in
+`~/.bapx-agents-nightly`, and ports 39890 and 39891. Nightly artifacts and
+executables carry a nightly name. Its shell shim is `bapx-agents-nightly-cli`.
 
 ## About panel
 
@@ -273,27 +253,29 @@ failing the build.
 
 ## macOS signing + notarization
 
-Cloudroom releases are built, signed, and notarized by GitHub Actions (see the
-`release` skill). The [signing wrapper](scripts/run-electron-builder.mjs)
+The [signing wrapper](scripts/run-electron-builder.mjs)
 signs and notarizes when `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are all set, then notarizes
-and staples the DMG too. A partial set fails before packaging. Releases set
-`CLOUDROOM_NOTARIZE_LATER=1` instead: the wrapper only signs, and
-[notarize-once.sh](scripts/notarize-once.sh) sends just the DMG to Apple, whose
-ticket covers the app inside it. Locally,
+and staples the DMG too. A partial set fails before packaging. For the
+installer-only notarization path, set `CLOUDROOM_NOTARIZE_LATER=1` and run
+[notarize-once.sh](scripts/notarize-once.sh) after building the signed DMG. Locally,
 `APPLE_KEYCHAIN_PROFILE=<notarytool profile>` does the same with the Keychain's
 Developer ID identity. Local builds with neither sign via keychain
 auto-discovery and skip notarization.
 
 ## Auto-update
 
-Cloudroom updates itself. `electron-updater` reads `latest-mac.yml` from the latest public release of
-`davidondrej/cloudroom` (core releases there are never Latest), downloads the zip in the background, and shows
-**Relaunch** in Settings and the update banner. Only stamped stable release
-builds write `latest-*.yml`, so releases must be marked latest, not prerelease. The
-`cloudroom.dev/download/latest` version check stays as the fallback: it shows
-**Download** when the in-app updater cannot install. Local dev builds skip
-Electron auto-update unless `BB_DESKTOP_AUTO_UPDATE=1` is set.
+Desktop packages have automatic updates disabled by default. Set
+`BAPX_DESKTOP_UPDATES=1` when building signed stable releases on Mac and
+Windows. The Mac build requires notarization. The Windows build requires a
+signing certificate. The feed is the [Agency desktop release](https://github.com/getwinharris/agency/releases/tag/desktop-latest).
+Publish the signed package, generated metadata (`latest-mac.yml` for Mac or
+`latest.yml` for Windows), and associated update artifacts together under
+that tag. Native build commands use `--publish never` so publication is a
+separate release step.
+
+For local updater testing, bake a test endpoint into the build with
+`BB_DESKTOP_UPDATE_BASE_URL=http://127.0.0.1:PORT/`.
 
 On Mac, Squirrel.Mac cancels the install ("App Still Running") if the old version opens before it's done,
 e.g. from the Dock right after **Restart to update**. That old version quits once and lets it finish. A restart that
@@ -309,23 +291,18 @@ agents, copies the app, and reopens it from Applications; the agents resume. **N
 next launch, and the update banner still asks to move it.
 
 Windows reads `latest.yml` from the same release, downloads the `.exe` in the
-background, and runs it silently on quit. **Restart to update** keeps Cloudroom
+background, and runs it silently on quit. **Restart to update** keeps bapX Agents
 open until the installer's progress window shows (the installer then closes it),
-and reopens Cloudroom when it finishes. Before anything stops, it checks the downloaded installer
-is still on disk. If the installer can't start, Cloudroom reopens on the old
-version; if that failure comes after Cloudroom has quit, the next launch sees
-the old version and offers the download again. To test updates against a local feed, build both versions with
-`BB_DESKTOP_UPDATE_BASE_URL=http://127.0.0.1:PORT/`; it is read only at build
-time.
-
-`bb Nightly` follows the equivalent isolated `desktop-nightly` release and
-`nightly-mac.yml`; it never reads or moves the stable feed.
+and reopens bapX Agents when it finishes. Before anything stops, it checks the downloaded installer
+is still on disk. If the installer can't start, bapX Agents reopens on the old
+version. If the failure comes after bapX Agents has quit, the next launch sees
+the old version and offers the download again.
 
 To verify a downloaded or unpacked build:
 
 ```bash
-spctl --assess --verbose /path/to/bb.app
-codesign --verify --deep --strict --verbose=2 /path/to/bb.app
+spctl --assess --verbose "/Applications/bapX Agents.app"
+codesign --verify --deep --strict --verbose=2 "/Applications/bapX Agents.app"
 ```
 
 ## Debugging
@@ -334,11 +311,11 @@ Use the View menu to toggle DevTools. To open them automatically on launch, set
 `BB_DESKTOP_OPEN_DEVTOOLS=1`:
 
 ```bash
-BB_DESKTOP_OPEN_DEVTOOLS=1 apps/desktop/release.noindex/mac-arm64/bb.app/Contents/MacOS/bb
+BB_DESKTOP_OPEN_DEVTOOLS=1 "apps/desktop/release.noindex/mac-arm64/bapX Agents.app/Contents/MacOS/bapX Agents"
 ```
 
 When the desktop app spawns `bb-app`, server and daemon logs land under
-`~/.bb/logs/` or `$BB_DATA_DIR/logs/` when `BB_DATA_DIR` is set.
+`~/.bapx-agents/logs/` or the `logs/` directory under a custom runtime profile.
 
 To verify attach-if-found manually, start a compatible bb first, then launch the
 desktop app:

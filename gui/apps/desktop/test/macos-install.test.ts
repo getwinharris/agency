@@ -33,7 +33,7 @@ afterEach(async () => {
       "--eval",
       `import { unregisterBundle } from ${JSON.stringify(helper)}; for (const app of process.argv.slice(1)) await unregisterBundle(app);`,
       ...["source", "installed", "restored"].map((folder) =>
-        join(root, folder, "Cloudroom.app"),
+        join(root, folder, "bapX Agents.app"),
       ),
     ]);
     await rm(root, { recursive: true, force: true });
@@ -43,21 +43,21 @@ afterEach(async () => {
 async function fixture() {
   const root = join(
     await realpath(tmpdir()),
-    `cloudroom-install-test-${randomUUID()}.noindex`,
+    `bapx-agents-install-test-${randomUUID()}.noindex`,
   );
   roots.push(root);
-  const source = join(root, "source/Cloudroom.app");
-  const destination = join(root, "installed/Cloudroom.app");
+  const source = join(root, "source/bapX Agents.app");
+  const destination = join(root, "installed/bapX Agents.app");
   for (const [bundle, version] of [
     [source, "2.0.0"],
     [destination, "1.0.0"],
   ]) {
     await mkdir(join(bundle, "Contents/MacOS"), { recursive: true });
     await mkdir(join(bundle, migrationPath), { recursive: true });
-    await copyFile("/bin/sleep", join(bundle, "Contents/MacOS/Cloudroom"));
+    await copyFile("/bin/sleep", join(bundle, "Contents/MacOS/bapX Agents"));
     await writeFile(
       join(bundle, "Contents/Info.plist"),
-      `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.cloudroom.gui</string><key>CFBundleExecutable</key><string>Cloudroom</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`,
+      `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>in.bapx.agents</string><key>CFBundleExecutable</key><string>bapX Agents</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`,
     );
     await writeFile(join(bundle, migrationPath, "schema.sql"), "select 1;\n");
     await writeFile(join(bundle, "Contents/Resources/version.txt"), version);
@@ -116,17 +116,17 @@ describe.skipIf(process.platform !== "darwin")("macOS app installation", () => {
         "--verify",
         "--deep",
         "--strict",
-        join(restored, "Cloudroom.app"),
+        join(restored, "bapX Agents.app"),
       ]);
       expect(
-        await readFile(versionFile(join(restored, "Cloudroom.app")), "utf8"),
+        await readFile(versionFile(join(restored, "bapX Agents.app")), "utf8"),
       ).toBe(cycle === 0 ? "1.0.0" : "2.0.0");
       expect(
         await readlink(
-          join(restored, "Cloudroom.app/Contents/Resources/version-link"),
+          join(restored, "bapX Agents.app/Contents/Resources/version-link"),
         ),
       ).toBe("version.txt");
-      expect(await readdir(join(root, "installed"))).toEqual(["Cloudroom.app"]);
+      expect(await readdir(join(root, "installed"))).toEqual(["bapX Agents.app"]);
     }
     expect(
       (await readdir(join(root, "backups"))).filter((name) =>
@@ -141,7 +141,7 @@ describe.skipIf(process.platform !== "darwin")("macOS app installation", () => {
     const child = spawn(
       join(
         destination.replace(/^\/private(?=\/tmp\/)/, ""),
-        "Contents/MacOS/Cloudroom",
+        "Contents/MacOS/bapX Agents",
       ),
       ["60"],
     );
@@ -159,7 +159,7 @@ describe.skipIf(process.platform !== "darwin")("macOS app installation", () => {
       expect(child.exitCode).toBeNull();
       expect(await readFile(versionFile(destination), "utf8")).toBe("1.0.0");
       await run("/usr/bin/ditto", ["-x", "-k", result.backup, join(root, "restored")]);
-      expect(await readFile(versionFile(join(root, "restored/Cloudroom.app")), "utf8")).toBe("1.0.0");
+      expect(await readFile(versionFile(join(root, "restored/bapX Agents.app")), "utf8")).toBe("1.0.0");
       await expect(run(process.execPath, [installer, "--prepared", prepared!])).rejects.toThrow("App is running");
     } finally {
       child.kill();
@@ -181,7 +181,7 @@ describe.skipIf(process.platform !== "darwin")("macOS app installation", () => {
     await expect(run(process.execPath, args)).rejects.toThrow("codesign");
     await sign(source);
     await writeFile(
-      join(destination, "..", ".cloudroom-install.lock"),
+      join(destination, "..", ".bapx-agents-install.lock"),
       "another installer",
     );
     await expect(run(process.execPath, args)).rejects.toThrow(
@@ -226,7 +226,7 @@ describe.skipIf(process.platform !== "darwin")("macOS app installation", () => {
         "--input-type=module",
         "--eval",
         script,
-        join(source, "Contents/MacOS/Cloudroom"),
+        join(source, "Contents/MacOS/bapX Agents"),
         record,
       ]),
     ).rejects.toThrow("simulated test failure");
@@ -237,6 +237,6 @@ describe.skipIf(process.platform !== "darwin")("macOS app installation", () => {
     expect(
       (await run(lsregister, ["-dump"], { maxBuffer: 32 * 1024 * 1024 }))
         .stdout,
-    ).not.toContain(join(smokeRoot, "Cloudroom.app"));
+    ).not.toContain(join(smokeRoot, "bapX Agents.app"));
   }, 60_000);
 });

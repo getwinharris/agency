@@ -41,7 +41,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visibl
 .lockup { display: flex; align-items: center; gap: .65rem; inline-size: fit-content; text-decoration: none; white-space: nowrap; }
 .lockup img { inline-size: 1.95rem; block-size: 1.95rem; object-fit: contain; }
 .lockup span { font-size: 1rem; font-weight: 600; }
-.lockup strong { font-weight: 500; color: var(--muted); }
+.lockup strong { border-inline-start: 1px solid var(--line); padding-inline-start: .65rem; font-size: .875rem; font-weight: 500; color: var(--muted); }
 .desktop-links { display: flex; align-items: center; gap: clamp(1.4rem, 3vw, 3.25rem); }
 .desktop-links a { display: grid; align-items: center; min-block-size: 44px; color: var(--muted); text-decoration: none; }
 .desktop-links a:hover { color: var(--ink); text-decoration: underline; }

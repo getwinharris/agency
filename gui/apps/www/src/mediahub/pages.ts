@@ -25,7 +25,9 @@ function navigation(isHome: boolean): string {
   const links = `<a href="${home}#work">Work</a><a href="${home}#services">Services</a><a href="${home}#approach">Approach</a>`;
   return `<header class="site-header">
     <nav class="container navigation" aria-label="Primary navigation">
-      <a class="lockup" href="/" aria-label="bapX MediaHub home"><img src="/brand/mark.svg" alt=""><span>bapX <strong>MediaHub</strong></span></a>
+      <a class="lockup" href="/" aria-label="bapX MediaHub home">
+        <img src="/brand/mark.svg" width="32" height="32" alt=""><span>bapX</span><strong>MediaHub</strong>
+      </a>
       <div class="desktop-links">${links}</div>
       <a class="button button-primary nav-cta" href="${home}#brief">Start a project</a>
       <details class="mobile-links">
@@ -52,7 +54,7 @@ function documentPage(title: string, summary: string, path: string, content: str
   <meta property="og:description" content="${escapeHtml(summary)}">
   <meta property="og:url" content="${canonical}">
   <meta property="og:image" content="${mediaHubUrl}${socialImage}">
-  <link rel="stylesheet" href="/mediahub/site.css">
+  <link rel="stylesheet" href="/mediahub/site.css?v=agency">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -94,7 +96,7 @@ function briefForm(): string {
       <div>
         <p class="label">Start a project</p>
         <h2>Tell us what you need to move forward.</h2>
-        <p class="intro">Your project brief is shared with the authorised MediaHub team so we can review it and respond.</p>
+        <p class="intro"><!--agency-brief-intro-->Your project brief is shared with the authorised MediaHub team so we can review it and respond.<!--/agency-brief-intro--></p>
         <p>General enquiries <a href="mailto:${businessEmail}">${businessEmail}</a></p>
       </div>
       <div>
@@ -145,7 +147,7 @@ function homePage(): string {
     <section class="hero">
       <img class="hero-art" src="/mediahub/mediahub-fold-hero.png" alt="" fetchpriority="high" width="1672" height="941">
       <div class="container hero-content">
-        <h1>We create brands, content, social campaigns, digital marketing, and the custom systems behind growth.</h1>
+        <h1><!--agency-headline-->We create brands, content, social campaigns, digital marketing, and the custom systems behind growth.<!--/agency-headline--></h1>
         <div class="actions"><a class="button button-primary" href="#brief">Start a project brief <span aria-hidden="true">→</span></a><a class="button" href="#work">See client work</a></div>
       </div>
     </section>

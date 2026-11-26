@@ -66,7 +66,7 @@ function renderLocalView(viewModel: LocalViewModel): string {
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cloudroom</title>
+  <title>bapX Agents</title>
   <style>
     :root {
       color-scheme: light dark;

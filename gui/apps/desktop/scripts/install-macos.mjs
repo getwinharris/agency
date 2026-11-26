@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { createDesktopReleaseConfig } from "./desktop-release-channel.mjs";
 import {
   assertBundleStopped,
   lsregister,
@@ -25,7 +26,9 @@ import {
 } from "./macos-bundle.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const productionApp = "/Applications/Cloudroom.app";
+const stableRelease = createDesktopReleaseConfig("latest");
+const bundleName = `${stableRelease.applicationName}.app`;
+const productionApp = join("/Applications", bundleName);
 const migrationsPath =
   "Contents/Resources/app.asar.unpacked/node_modules/bb-app/server/dist/drizzle";
 const hasNoindexParent = (path) =>
@@ -60,10 +63,10 @@ async function validateBundle(bundle) {
   ]);
   const info = JSON.parse(stdout);
   if (
-    info.CFBundleIdentifier !== "dev.cloudroom.gui" ||
-    info.CFBundleExecutable !== "Cloudroom"
+    info.CFBundleIdentifier !== stableRelease.appId ||
+    info.CFBundleExecutable !== stableRelease.applicationName
   ) {
-    throw new Error(`Not the stable Cloudroom app: ${bundle}`);
+    throw new Error(`Expected a stable bapX Agents app bundle: ${bundle}`);
   }
   await verifyBundle(bundle);
   const migrations = await treeHash(join(bundle, migrationsPath));
@@ -87,29 +90,29 @@ async function install({
   if (
     receiptPath &&
     (basename(receiptPath) !== "prepared.json" ||
-      !/^\.cloudroom-install-.+\.noindex$/.test(basename(dirname(receiptPath))))
+      !/^\.bapx-agents-install-.+\.noindex$/.test(basename(dirname(receiptPath))))
   ) throw new Error("Not an installer preparation receipt.");
   const receipt = receiptPath
     ? JSON.parse(await readFile(receiptPath, "utf8"))
     : null;
   if (receipt) {
-    source = join(dirname(receiptPath), "Cloudroom.app");
+    source = join(dirname(receiptPath), bundleName);
     destination = receipt.destination;
     retainedPrevious = receipt.previous;
   }
   source = await realpath(source);
-  if (receiptPath && source !== join(dirname(receiptPath), "Cloudroom.app"))
+  if (receiptPath && source !== join(dirname(receiptPath), bundleName))
     throw new Error("Prepared bundle must not be a symlink.");
   destination = join(
     await realpath(dirname(destination)),
     basename(destination),
   );
   if (
-    basename(destination) !== "Cloudroom.app" ||
+    basename(destination) !== bundleName ||
     (destination !== productionApp && !hasNoindexParent(destination))
   ) {
     throw new Error(
-      "Destination must be /Applications/Cloudroom.app or Cloudroom.app inside a .noindex test directory.",
+      `Choose ${productionApp} or ${bundleName} inside a .noindex test directory.`,
     );
   }
   if (!hasNoindexParent(source) || source === destination)
@@ -170,7 +173,7 @@ async function install({
     return;
   }
 
-  const lockPath = join(dirname(destination), ".cloudroom-install.lock");
+  const lockPath = join(dirname(destination), ".bapx-agents-install.lock");
   const lock = await open(lockPath, "wx").catch((error) => {
     if (error.code === "EEXIST")
       throw new Error(
@@ -180,9 +183,9 @@ async function install({
   });
   const stage = receiptPath
     ? dirname(receiptPath)
-    : join(dirname(destination), `.cloudroom-install-${randomUUID()}.noindex`);
-  const staged = join(stage, "Cloudroom.app");
-  const previous = retainedPrevious ?? join(stage, "previous", "Cloudroom.app");
+    : join(dirname(destination), `.bapx-agents-install-${randomUUID()}.noindex`);
+  const staged = join(stage, bundleName);
+  const previous = retainedPrevious ?? join(stage, "previous", bundleName);
   let preserveStage = Boolean(receipt);
   let archive = receipt?.backup;
   try {
@@ -215,7 +218,7 @@ async function install({
       await mkdir(backups, { recursive: true, mode: 0o700 });
       archive = join(
         backups,
-        `Cloudroom-${current.version}-${randomUUID()}.zip`,
+        `bapx-agents-${current.version}-${randomUUID()}.zip`,
       );
       const pending = join(stage, "backup.zip");
       const restored = join(stage, "restore");
@@ -228,8 +231,8 @@ async function install({
         pending,
       ]);
       await run("/usr/bin/ditto", ["-x", "-k", pending, restored]);
-      await verifyBundle(join(restored, "Cloudroom.app"));
-      if ((await treeHash(join(restored, "Cloudroom.app"))) !== before)
+      await verifyBundle(join(restored, bundleName));
+      if ((await treeHash(join(restored, bundleName))) !== before)
         throw new Error("Backup verification failed; app was not replaced.");
       await rename(pending, archive);
       await unregisterBundle(restored);
@@ -302,14 +305,14 @@ const { values } = parseArgs({
   options: {
     source: {
       type: "string",
-      default: join(packageRoot, "release.noindex/mac-arm64/Cloudroom.app"),
+      default: join(packageRoot, "release.noindex", "mac-arm64", bundleName),
     },
     destination: { type: "string", default: productionApp },
     backups: {
       type: "string",
       default: join(
         homedir(),
-        "Library/Application Support/Cloudroom/installer-backups.noindex",
+        "Library/Application Support/bapX Agents/installer-backups.noindex",
       ),
     },
     previous: { type: "string" },

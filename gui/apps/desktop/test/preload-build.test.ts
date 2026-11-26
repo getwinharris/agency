@@ -309,29 +309,16 @@ async function stopElectron(
   await waitForProcessExit(child, ELECTRON_EXIT_TIMEOUT_MS);
 }
 
-async function readExpectedDesktopVersion(): Promise<string> {
-  try {
-    return (await readFile(
-      resolve(desktopPackageRoot, ".cloudroom-version"),
-      "utf8",
-    )).trim();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return "dev";
-    }
-    throw error;
-  }
-}
-
 describe("desktop build", () => {
   it("emits package-compatible Electron entries", async () => {
-    const desktopVersion = await readExpectedDesktopVersion();
-    expect(desktopVersion).toMatch(/^(v[1-9]\d*|dev)$/);
+    const { version } = JSON.parse(
+      await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"),
+    );
+    const desktopVersion = `v${version}`;
 
-    await execFileAsync(process.execPath, ["scripts/build.mjs"], {
+    await execFileAsync(process.execPath, ["scripts/build.mjs", "--stamp"], {
       cwd: desktopPackageRoot,
     });
-    expect(await readExpectedDesktopVersion()).toBe(desktopVersion);
 
     const mainSource = await readFile(
       resolve(desktopPackageRoot, "dist", "main.js"),

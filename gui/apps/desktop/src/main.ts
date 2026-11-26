@@ -170,11 +170,13 @@ import {
   getDesktopVersion,
   resolveRoomDesktopPlatform,
 } from "./desktop-platform.js";
+import { BAPX_DESKTOP_SCHEME } from "../scripts/desktop-release-channel.mjs";
 import { createDesktopUpdateService } from "./desktop-update-check.js";
 import {
   createDesktopUpdateFeedUrl,
   DESKTOP_RELEASE_CHANNEL,
   DESKTOP_RELEASE_INFO,
+  DESKTOP_UPDATES_CONFIGURED,
   resolveDesktopUpdateSupport,
 } from "./desktop-update-provider.js";
 import type { DesktopUpdateService } from "./desktop-update-scheduler.js";
@@ -749,7 +751,7 @@ const otherMacRequestLog = createOtherMacRequestLog({
 function resolveDataDirFromEnv(args: ResolveDataDirFromEnvArgs): string {
   const rawDataDir = args.env.BB_DATA_DIR?.trim();
   if (rawDataDir === undefined || rawDataDir.length === 0) {
-    return join(args.homeDir, ".gui-cloudroom");
+    return join(args.homeDir, DESKTOP_RELEASE_INFO.dataDirectoryName);
   }
   if (rawDataDir === "~") {
     return args.homeDir;
@@ -1357,19 +1359,24 @@ function startRemoteSystemConfigSync(serverUrl: string): void {
 
 const pendingOpenLinks: string[] = [];
 
+const BAPX_SHARE_URL_PREFIX = `${BAPX_DESKTOP_SCHEME}://share/`;
+
 function deliverArgvShareLink(argv: readonly string[]): void {
   if (process.platform === "darwin") return;
-  const url = argv.find((arg) => arg.startsWith("cloudroom://share/"));
+  const url = argv.find((arg) => arg.startsWith(BAPX_SHARE_URL_PREFIX));
   if (url !== undefined) deliverOpenLink(url);
 }
 
 function deliverOpenLink(url: string): void {
+  if (!url.startsWith(BAPX_SHARE_URL_PREFIX)) return;
+  // The embedded web client still consumes the upstream share-link format.
+  const shareLink = `cloudroom://share/${url.slice(BAPX_SHARE_URL_PREFIX.length)}`;
   const browserWindow = getFocusedApplicationWindow();
   if (browserWindow === null || browserWindow.webContents.isLoading()) {
-    pendingOpenLinks.push(url);
+    pendingOpenLinks.push(shareLink);
     return;
   }
-  sendToApplicationRenderer(browserWindow, ROOM_DESKTOP_OPEN_LINK_CHANNEL, url);
+  sendToApplicationRenderer(browserWindow, ROOM_DESKTOP_OPEN_LINK_CHANNEL, shareLink);
 }
 
 function registerApplicationWindow(browserWindow: DesktopBrowserWindow): void {
@@ -1469,7 +1476,7 @@ async function retryStartup(): Promise<void> {
       details: error instanceof Error ? error.message : String(error),
       logs: "",
       retryable: false,
-      title: "Could not open Cloudroom",
+      title: "Could not open bapX Agents",
     });
   } finally {
     startupRetryPending = false;
@@ -1544,7 +1551,7 @@ async function showThisMac(isCurrent: () => boolean): Promise<boolean> {
     if (startupRetryUrl === null) {
       await loadStartupError({
         details:
-          `Could not connect to the local Cloudroom server on this ${COMPUTER}. Check that the port is free or that a compatible Cloudroom server is running.`,
+          `Could not connect to the local bapX Agents server on this ${COMPUTER}. Check that the port is free or that a compatible bapX Agents server is running.`,
         logs: "",
         retryable: true,
         title: "Could not connect",
@@ -1861,7 +1868,7 @@ async function loadLogViewerWindow(
     minHeight: 520,
     minWidth: 840,
     show: false,
-    title: "Cloudroom - Server & Daemon Logs",
+    title: "bapX Agents - Server & Daemon Logs",
     titleBarStyle: "default",
     webPreferences: {
       contextIsolation: true,
@@ -2067,7 +2074,7 @@ async function loadLoadingView(): Promise<void> {
       viewModel: {
         kind: "loading",
         logoSrc: getLoadingLogoSrc(),
-        title: "Opening Cloudroom",
+        title: "Opening bapX Agents",
       },
     }),
   });
@@ -2183,9 +2190,8 @@ async function finishQuit(): Promise<void> {
 
 const quitFile = () => join(app.getPath("userData"), "quit-with-agents.json");
 
-// electron-updater's "96.0.0" as Cloudroom's "v96".
 function displayVersion(version: string): string {
-  return `v${version.replace(/\.0\.0$/u, "")}`;
+  return `v${version}`;
 }
 
 function appUpdateNeedsPassword(): boolean {
@@ -2314,7 +2320,7 @@ async function installDownloadedUpdate(): Promise<void> {
     if (process.platform === "win32" && !handedOff) {
       desktopAutoUpdateService.endInstall();
       if (stoppingForQuit) {
-        desktopLogger.error("The update didn't start after Cloudroom stopped; reopening Cloudroom.");
+        desktopLogger.error("The update didn't start after bapX Agents stopped; reopening Cloudroom.");
         autoUpdater.autoInstallOnAppQuit = false;
         app.relaunch();
         app.exit(0);
@@ -2530,7 +2536,7 @@ async function startOwnedRuntime(
   if (process.argv.includes("--attach-only")) {
     await args.windowsReady;
     await loadStartupError({
-      details: `Start the shared backend at ${args.serverUrl}, then reopen Cloudroom Dev. No backend was started and no history was changed.`,
+      details: `Start the shared backend at ${args.serverUrl}, then reopen bapX Agents Dev. No backend was started and no history was changed.`,
       logs: "",
       retryable: false,
       title: "Shared backend unavailable",
@@ -2587,12 +2593,12 @@ async function startOwnedRuntime(
       .catch(() => undefined)
       .then(() =>
         loadStartupError({
-          details: `The Cloudroom backend stopped with ${formatExitResult(
+          details: `The bapX Agents backend stopped with ${formatExitResult(
             exit,
           )}.`,
           logs: roomProcess.logs.text(),
           retryable: false,
-          title: "Cloudroom stopped",
+          title: "bapX Agents stopped",
         }),
       );
   });
@@ -2615,18 +2621,18 @@ async function startOwnedRuntime(
   if (raceResult.kind === "process-exited") {
     const retryDelayMs = MISSING_FILE_RETRY_DELAYS_MS[attempt - 1];
     if (process.platform === "win32" && retryDelayMs !== undefined && /ERR_MODULE_NOT_FOUND|Cannot find (module|package)/.test(roomProcess.logs.text())) {
-      desktopLogger.warn(`The Cloudroom backend is missing a file; starting it again in ${retryDelayMs / 1000} s.`);
+      desktopLogger.warn(`The bapX Agents backend is missing a file; starting it again in ${retryDelayMs / 1000} s.`);
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       return quitting ? null : startOwnedRuntime({ ...args, attempt: attempt + 1 });
     }
     await args.windowsReady;
     await loadStartupError({
-      details: `The Cloudroom backend exited before it was ready with ${formatExitResult(
+      details: `The bapX Agents backend exited before it was ready with ${formatExitResult(
         raceResult.exit,
       )}.`,
       logs: roomProcess.logs.text(),
       retryable: true,
-      title: "Could not start Cloudroom",
+      title: "Could not start bapX Agents",
     });
     setCurrentRuntime(null);
     return null;
@@ -2653,11 +2659,11 @@ async function startOwnedRuntime(
     await loadStartupError({
       details:
         raceResult.result.kind === "incompatible"
-          ? `Port ${args.serverUrl} is responding, but it does not look like Cloudroom: ${raceResult.result.reason}.`
-          : `Timed out waiting for Cloudroom at ${args.serverUrl}: ${raceResult.result.reason}.`,
+          ? `Port ${args.serverUrl} is responding, but it does not look like bapX Agents: ${raceResult.result.reason}.`
+          : `Timed out waiting for bapX Agents at ${args.serverUrl}: ${raceResult.result.reason}.`,
       logs,
       retryable: true,
-      title: "Could not start Cloudroom",
+      title: "Could not start bapX Agents",
     });
   }
   return null;
@@ -2741,40 +2747,40 @@ async function decideOnExistingServer(
   if (stopResult.kind === "unverified") {
     await loadStartupError({
       details:
-        `The Cloudroom at ${probe.serverUrl} records process ${String(stopResult.pid)}, but that ` +
-        "process no longer matches the record. Cloudroom did not stop it. Stop it yourself, then open Cloudroom again.",
+        `The bapX Agents server at ${probe.serverUrl} records process ${String(stopResult.pid)}, but that ` +
+        "process no longer matches the record. bapX Agents did not stop it. Stop it yourself, then open bapX Agents again.",
       logs: "",
       retryable: false,
-      title: "Could not stop the running Cloudroom",
+      title: "Could not stop the running bapX Agents server",
     });
     return "quit";
   }
   if (stopResult.kind === "still-running") {
     await loadStartupError({
-      details: `Cloudroom could not stop process ${String(stopResult.pid)}, even after SIGKILL.`,
+      details: `bapX Agents could not stop process ${String(stopResult.pid)}, even after SIGKILL.`,
       logs: "",
       retryable: false,
-      title: "Could not stop the running Cloudroom",
+      title: "Could not stop the running bapX Agents server",
     });
     return "quit";
   }
   if (stopResult.kind === "replaced") {
     await loadStartupError({
       details:
-        `Another Cloudroom started at ${probe.serverUrl} while the question was open, so Cloudroom stopped nothing. ` +
-        "Open Cloudroom again to see the copy that runs now.",
+        `Another bapX Agents server started at ${probe.serverUrl} while the question was open, so bapX Agents stopped nothing. ` +
+        "Open bapX Agents again to see the copy that runs now.",
       logs: "",
       retryable: false,
-      title: "Could not stop the running Cloudroom",
+      title: "Could not stop the running bapX Agents server",
     });
     return "quit";
   }
   if (!(await waitForServerToStop(probe.serverUrl))) {
     await loadStartupError({
-      details: `The Cloudroom at ${probe.serverUrl} stopped, but the address is still in use.`,
+      details: `The bapX Agents server at ${probe.serverUrl} stopped, but the address is still in use.`,
       logs: "",
       retryable: false,
-      title: "Could not stop the running Cloudroom",
+      title: "Could not stop the running bapX Agents server",
     });
     return "quit";
   }
@@ -2829,7 +2835,7 @@ async function initializeRuntime(args: InitializeRuntimeArgs): Promise<void> {
   if (existingProbe.kind === "incompatible") {
     await args.windowsReady;
     await loadStartupError({
-      details: `Port ${args.serverUrl} is already in use, but it is not a compatible Cloudroom server: ${existingProbe.reason}.`,
+      details: `Port ${args.serverUrl} is already in use, but it is not a compatible bapX Agents server: ${existingProbe.reason}.`,
       logs: "",
       retryable: false,
       title: "Port conflict",
@@ -2870,7 +2876,19 @@ async function runDesktopApp(): Promise<void> {
     );
   }
   if (app.isPackaged) {
-    applyPackagedDesktopRuntimeEnv({ env: process.env, homeDir: homedir() });
+    applyPackagedDesktopRuntimeEnv({
+      env: process.env,
+      homeDir: homedir(),
+      settingsEnv: {
+        ...process.env,
+        ROOM_DATA_DIR: process.env.ROOM_DATA_DIR ??
+          join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
+        ROOM_SERVER_URL: process.env.ROOM_SERVER_URL ??
+          `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
+        ROOM_HOST_DAEMON_PORT: process.env.ROOM_HOST_DAEMON_PORT ??
+          String(DESKTOP_RELEASE_INFO.localDaemonPort),
+      },
+    });
   }
   if (process.platform === "darwin") {
     process.env.CURL_SSL_BACKEND ??= "secure-transport";
@@ -2895,8 +2913,11 @@ async function runDesktopApp(): Promise<void> {
 
   const applicationName = app.isPackaged
     ? DESKTOP_RELEASE_INFO.applicationName
-    : "Cloudroom Dev";
+    : "bapX Agents Dev";
   app.setName(applicationName);
+  if (app.isPackaged && process.platform === "win32") {
+    app.setAppUserModelId(DESKTOP_RELEASE_INFO.appId);
+  }
   installAboutPanel(applicationName);
 
   if (!app.requestSingleInstanceLock()) {
@@ -2914,10 +2935,10 @@ async function runDesktopApp(): Promise<void> {
       stateKey: null,
     });
   });
-  // cloudroom:// links bring the app forward. Share links also go to the app, which copies the shared thread.
+  // A shared thread link opens the app and delivers the thread to the renderer.
   app.on("open-url", (event, url) => {
     event.preventDefault();
-    if (url.startsWith("cloudroom://share/")) deliverOpenLink(url);
+    deliverOpenLink(url);
     desktopWindowFactory?.focusFirstWindow();
   });
   if (
@@ -2925,7 +2946,7 @@ async function runDesktopApp(): Promise<void> {
     process.platform === "win32" &&
     DESKTOP_RELEASE_INFO.channel === "latest"
   ) {
-    app.setAsDefaultProtocolClient("cloudroom");
+    app.setAsDefaultProtocolClient(BAPX_DESKTOP_SCHEME);
   }
   deliverArgvShareLink(process.argv);
   // Mac: still on the version a Restart to update left means it didn't install. Read before the server reports and deletes it.
@@ -3038,7 +3059,12 @@ async function runDesktopApp(): Promise<void> {
     void ensureRoomCliShim({
       appImagePath: process.platform === "linux" ? appImagePath : undefined,
       cliPath: resolveBundledRoomCliPath(paths.appPath),
+      commandName: `${DESKTOP_RELEASE_INFO.linuxExecutableName}-cli`,
       homeDir: homedir(),
+      runtimeDefaults: {
+        dataDir: join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
+        serverUrl: `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
+      },
     })
       .then((result) => {
         if (result.kind !== "unchanged") {
@@ -3260,11 +3286,11 @@ async function runDesktopApp(): Promise<void> {
   const updateNeedsPassword = appUpdateNeedsPassword();
   if (updateNeedsMove) {
     desktopLogger.warn(
-      "Cloudroom runs from the disk image, Downloads or another disk, so it can't update itself until it's moved to Applications.",
+      "bapX Agents runs from the disk image, Downloads or another disk, so it can't update itself until it's moved to Applications.",
     );
   } else if (updateNeedsPassword) {
     desktopLogger.warn(
-      "This user can't write the Cloudroom app, so the next Restart to update asks for a password once.",
+      "This user can't write the bapX Agents app, so the next Restart to update asks for a password once.",
     );
   }
   desktopAutoUpdateService = createDesktopAutoUpdateService({
@@ -3272,6 +3298,7 @@ async function runDesktopApp(): Promise<void> {
     enabled:
       !updateNeedsMove &&
       desktopUpdateSupport.autoUpdate &&
+      (DESKTOP_UPDATES_CONFIGURED || (!app.isPackaged && process.env.BB_DESKTOP_AUTO_UPDATE === "1")) &&
       shouldEnableDesktopAutoUpdate({
         env: process.env,
         isPackaged: app.isPackaged,
@@ -3563,6 +3590,6 @@ void runDesktopApp().catch((error) => {
     details: message,
     logs: "",
     retryable: false,
-    title: "Could not open Cloudroom",
+    title: "Could not open bapX Agents",
   });
 });

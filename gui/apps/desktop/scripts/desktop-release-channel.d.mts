@@ -1,6 +1,7 @@
 export type DesktopReleaseChannel = "latest" | "nightly";
 
-export const CLOUDROOM_UPDATE_BASE_URL: string;
+export const BAPX_DESKTOP_SCHEME: "bapx-agents";
+export const BAPX_DESKTOP_UPDATE_BASE_URL: string;
 export type DesktopBuildPlatform = "macos" | "linux" | "windows";
 
 export interface DesktopUpdateMetadataFileNames {
@@ -10,16 +11,19 @@ export interface DesktopUpdateMetadataFileNames {
 }
 
 export interface DesktopReleaseConfig {
-  appId: "dev.bb.desktop" | "dev.bb.desktop.nightly";
-  applicationName: "bb" | "bb Nightly";
+  appId: "in.bapx.agents" | "in.bapx.agents.nightly";
+  applicationName: "bapX Agents" | "bapX Agents Nightly";
   artifactName: string;
+  dataDirectoryName: ".bapx-agents" | ".bapx-agents-nightly";
+  localServerPort: number;
+  localDaemonPort: number;
   iconFileName: "icon.png" | "icon-nightly.png";
-  linuxDesktopName: "cloudroom.desktop" | "cloudroom-nightly.desktop";
-  linuxExecutableName: "bb" | "bb-nightly";
+  linuxDesktopName: "bapx-agents.desktop" | "bapx-agents-nightly.desktop";
+  linuxExecutableName: "bapx-agents" | "bapx-agents-nightly";
   macIconPath: "assets/icon.icns" | "assets/icon-nightly.icns";
   releaseTag: "desktop-latest" | "desktop-nightly";
   updateMetadataFileNames: DesktopUpdateMetadataFileNames;
-  windowsInstallName: "Cloudroom" | "Cloudroom-Nightly";
+  windowsInstallName: "bapx-agents" | "bapx-agents-nightly";
 }
 
 export function resolveDesktopReleaseChannel(

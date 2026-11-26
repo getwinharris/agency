@@ -64,7 +64,7 @@ const macConfigSchema = z
 const linuxConfigSchema = z
   .object({
     category: z.literal("Development"),
-    executableName: z.enum(["gui-cloudroom", "gui-cloudroom-nightly"]),
+    executableName: z.enum(["bapx-agents", "bapx-agents-nightly"]),
     icon: z.string().min(1),
     target: z.tuple([
       z
@@ -107,6 +107,7 @@ const electronBuilderConfigSchema = z
     appId: z.string().min(1),
     artifactName: z.string().min(1),
     productName: z.string().min(1),
+    protocols: z.array(z.object({ name: z.string(), schemes: z.array(z.string()) })),
     publish: z
       .object({ provider: z.literal("generic"), url: z.string(), channel: z.literal("latest") })
       .nullable(),
@@ -556,7 +557,7 @@ describe("electron-builder signing config", () => {
 
     expect(config.linux).toMatchObject({
       category: "Development",
-      executableName: "gui-cloudroom",
+      executableName: "bapx-agents",
       target: [{ arch: ["x64"], target: "AppImage" }],
     });
     expect(config.toolsets.appimage).toBe("1.0.3");
@@ -565,7 +566,7 @@ describe("electron-builder signing config", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("packages a per-user NSIS installer for Windows x64 in a Cloudroom folder", async () => {
+  it("packages a per-user NSIS installer for Windows x64 in a bapX-only folder", async () => {
     const win = await runConfigScript({}, ["--win", "--x64"]);
     const linux = await runConfigScript({}, ["--linux", "--x64"]);
     expect(win.exitCode).toBe(0);
@@ -576,11 +577,11 @@ describe("electron-builder signing config", () => {
     expect(config.win.extraResources[0].to).toBe(
       "app.asar.unpacked/node_modules/bb-app/server/dist/assets/python",
     );
-    expect(config.extraMetadata.name).toBe("Cloudroom");
+    expect(config.extraMetadata.name).toBe("bapx-agents");
     expect(JSON.parse(linux.stdout).extraMetadata.name).toBeUndefined();
   });
 
-  it("stops the preview helper and finds Cloudroom in the NSIS hooks without quoting the install path into PowerShell", async () => {
+  it("stops the preview helper and finds the app in the NSIS hooks without quoting the install path into PowerShell", async () => {
     const script = await readFile(resolve(desktopPackageRoot, "build", "installer.nsh"), "utf8");
     const powershell = script.split("\n").filter((line) => line.includes("powershell.exe"));
 
@@ -676,8 +677,9 @@ describe("electron-builder signing config", () => {
     );
     const config = electronBuilderConfigSchema.parse(JSON.parse(configText));
 
-    expect(config.appId).toBe("dev.cloudroom.gui");
-    expect(config.productName).toBe("Cloudroom");
+    expect(config.appId).toBe("in.bapx.agents");
+    expect(config.productName).toBe("bapX Agents");
+    expect(config.protocols).toEqual([{ name: "bapX Agents", schemes: ["bapx-agents"] }]);
     expect(config.publish).toBeNull();
     const generated = await readResolvedConfig({});
     expect(generated.config.appId).toBe(config.appId);
@@ -691,14 +693,15 @@ describe("electron-builder signing config", () => {
     });
     const nightlyRelease = createDesktopReleaseInfo("nightly");
 
-    expect(config.appId).toBe("dev.cloudroom.gui.nightly");
+    expect(config.appId).toBe("in.bapx.agents.nightly");
     expect(config.productName).toBe(nightlyRelease.applicationName);
     expect(config.artifactName).toBe(
-      "gui-cloudroom-nightly-${version}-${arch}.${ext}",
+      "bapx-agents-nightly-v${version}-${arch}.${ext}",
     );
     expect(config.linux.icon).toBe("assets/icon-nightly.png");
-    expect(config.linux.executableName).toBe("gui-cloudroom-nightly");
+    expect(config.linux.executableName).toBe("bapx-agents-nightly");
     expect(config.mac.icon).toBe("assets/icon-nightly.icns");
+    expect(config.protocols).toEqual([]);
     await expect(
       access(resolve(desktopPackageRoot, config.mac.icon)),
     ).resolves.toBeUndefined();
@@ -708,36 +711,46 @@ describe("electron-builder signing config", () => {
     expect(config.publish).toBeNull();
   });
 
-  it("names installers with the corner version while keeping macOS bundle versions numeric", async () => {
-    const packageRoot = await mkdtemp(resolve(tmpdir(), "cloudroom-version-"));
-    try {
-      await cp(resolve(desktopPackageRoot, "scripts"), resolve(packageRoot, "scripts"), { recursive: true });
-      await cp(resolve(desktopPackageRoot, "electron-builder.config.json"), resolve(packageRoot, "electron-builder.config.json"));
-      await writeFile(resolve(packageRoot, ".cloudroom-version"), "v17\n");
-      for (const channel of ["latest", "nightly"]) {
-        const result = await runConfigScript({
-          BB_CLOUDROOM_STAMP: "1",
-          BB_DESKTOP_RELEASE_CHANNEL: channel,
-        }, ["--ad-hoc"], packageRoot);
-        expect(result.exitCode).toBe(0);
-        const config = JSON.parse(result.stdout);
-        expect(config.extraMetadata.version).toBe("17.0.0");
-        expect(config.buildVersion).toBe("17.0.0");
-        expect(config.artifactName).toBe(channel === "latest"
-          ? "${productName}-v17-${arch}.${ext}"
-          : "gui-cloudroom-nightly-v17-${arch}.${ext}");
-        expect(config.publish).toBeNull();
-      }
-      const release = await runConfigScript({ BB_CLOUDROOM_STAMP: "1" }, [], packageRoot);
-      expect(release.exitCode).toBe(0);
-      expect(JSON.parse(release.stdout).publish).toEqual({
-        provider: "generic",
-        url: "https://github.com/davidondrej/cloudroom/releases/latest/download/",
-        channel: "latest",
-      });
-    } finally {
-      await rm(packageRoot, { recursive: true, force: true });
+  it("uses the tracked package version for both native installers", async () => {
+    const { version } = JSON.parse(await readFile(resolve(desktopPackageRoot, "package.json"), "utf8"));
+    for (const [channel, target] of [["latest", "--mac"], ["nightly", "--win"]]) {
+      const result = await runConfigScript({ BB_DESKTOP_RELEASE_CHANNEL: channel }, [target, "--stamp", "--ad-hoc"]);
+      expect(result.exitCode).toBe(0);
+      const config = JSON.parse(result.stdout);
+      expect(config.extraMetadata.version).toBe(version);
+      expect(config.buildVersion).toBe(version);
+      expect(config.artifactName).toBe(
+        channel === "latest"
+          ? "bapx-agents-v${version}-${arch}.${ext}"
+          : "bapx-agents-nightly-v${version}-${arch}.${ext}",
+      );
+      expect(config.publish).toBeNull();
     }
+  });
+
+  it("keeps local packages off the update feed and points a signed stable build at Agency", async () => {
+    const local = await runConfigScript({}, ["--stamp", "--win"]);
+    expect(local.exitCode).toBe(0);
+    expect(JSON.parse(local.stdout).publish).toBeNull();
+
+    const unsigned = await runConfigScript({ BAPX_DESKTOP_UPDATES: "1" }, ["--stamp", "--win"]);
+    expect(unsigned.exitCode).toBe(1);
+    expect(unsigned.stderr).toContain("requires Windows signing");
+
+    const windows = await runConfigScript({
+      BAPX_DESKTOP_UPDATES: "1",
+      WIN_CSC_LINK: "base64-pfx",
+      WIN_CSC_KEY_PASSWORD: "password",
+    }, ["--stamp", "--win"]);
+    expect(windows.exitCode).toBe(0);
+    expect(JSON.parse(windows.stdout)).toMatchObject({
+      forceCodeSigning: true,
+      publish: {
+        provider: "generic",
+        url: "https://github.com/getwinharris/agency/releases/download/desktop-latest/",
+        channel: "latest",
+      },
+    });
   });
 
   it("rejects unknown desktop release channels", async () => {

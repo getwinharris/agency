@@ -1,23 +1,10 @@
-# Run Cloudroom on Ubuntu 24.04
+# Run a private Core on Ubuntu 24.04
 
-Cloudroom Core runs Codex or Pi through an HTTP API. No Cloudroom account or GUI is required. Start with Codex below; [Pi configuration](harnesses.md#configure) uses the same service and API.
+Agency's Cloudroom-derived Core runs Codex or Pi through an HTTP API. Start with Codex below. [Pi configuration](harnesses.md#configure) uses the same service and API.
 
 Use a **fresh VM for one trusted user**, with sudo access, systemd, cgroup v2, and space for your repositories and tools. Disk warnings start at 5 GB available; there is no fixed agent allowance or additional reserve. The installer does not configure quotas or change `/etc/fstab`. Containers and other Linux distributions are outside this guide.
 
 Agents run without approval prompts and share their account's files. Do not give that account sudo or access to a Docker socket.
-
-## Quick install
-
-On an x86_64 or arm64 machine (a VPS, a home server, or a spare laptop), one script does most of the manual setup below, using the newest CI-tested release instead of a source build:
-
-```sh
-curl -fsSL https://cloudroom.dev/install.sh -o install.sh
-sudo bash install.sh
-```
-
-It checks the download's checksum, installs Node.js 24 if it is missing, creates both accounts, writes `/etc/cloudroom/core.env` with a new token, and starts the service. It never prints the token. History stays on this machine ([saved history](#3-saved-history)). When it finishes, it prints the remaining step: sign in to a harness. Use `--version X.Y.Z` to pick a release. It refuses to run over an existing installation.
-
-To build from source instead, follow the manual steps below.
 
 ## 1. Install tools and build
 
@@ -31,8 +18,8 @@ sudo apt-get install -y build-essential curl git ca-certificates pkg-config pyth
 Install [current stable Rust](https://rustup.rs/) and [Node.js 24](https://nodejs.org/en/download). Node and npm must be installed system-wide, under `/usr/local/bin` or `/usr/bin`, not only in your administrator's nvm directory.
 
 ```sh
-git clone https://github.com/davidondrej/cloudroom.git
-cd cloudroom/core
+git clone https://github.com/getwinharris/agency.git
+cd agency/core
 cargo build --locked --release --jobs 2
 sudo npm install --global --prefix /usr/local @openai/codex@0.154.0
 ```
@@ -180,7 +167,7 @@ Never use `tailscale funnel` for Core: it opens the API to the whole internet.
 
 ## Connect the desktop app
 
-In the [Cloudroom app](https://github.com/davidondrej/cloudroom/releases/latest), open **Settings → Cloudroom account → Connect your own Core** (v83 or newer). From v154, first-run setup also offers **Use my own Core** at the top right. Enter the HTTPS URL and the token from `sudo grep ^CLOUDROOM_TOKEN= /etc/cloudroom/core.env`; the whole `CLOUDROOM_TOKEN=…` line works too. No Cloudroom account is needed. Cloud threads then run on this machine and share its files.
+In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Settings or **Use my own Core** during first-run setup. Enter the private HTTPS URL and the Core token from `/etc/cloudroom/core.env`. Cloud threads then run on this machine and share its files.
 
 ## Your own server vs Cloudroom Cloud
 

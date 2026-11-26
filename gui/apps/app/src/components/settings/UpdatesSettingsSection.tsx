@@ -83,7 +83,6 @@ import {
 import { useHostDaemon } from "@/hooks/useHostDaemon";
 import {
   DESKTOP_DOWNLOAD_URL,
-  LATEST_DESKTOP_RELEASE_QUERY_KEY,
   useDesktopUpdateInfo,
 } from "@/hooks/useDesktopUpdateInfo";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
@@ -793,7 +792,7 @@ export function RoomAppUpdateRows({
   );
   if (isDesktop && desktopInfo === null) {
     return row(
-      <RowName name="Cloudroom app" current={null} latest={null} />,
+      <RowName name="bapX Agents" current={null} latest={null} />,
       <RowStateControl live state="in-progress" />,
     );
   }
@@ -803,7 +802,7 @@ export function RoomAppUpdateRows({
       desktopInfo.pendingVersion ?? desktopInfo.latestVersion;
     const latest = desktopInfo.updateAvailable ? pendingVersion : null;
     const name = (
-      <RowName name="Cloudroom app" current={desktopInfo.version} latest={latest} />
+      <RowName name="bapX Agents" current={desktopInfo.version} latest={latest} />
     );
     const agentInstall = (
       <FixPrompt className="mb-2" prompt={appUpdateFixPrompt(desktopInfo.version, pendingVersion)} />
@@ -816,7 +815,7 @@ export function RoomAppUpdateRows({
           state="restart-required"
           buttonLeading={<RoomLogo className="size-3" />}
           buttonLabel="Relaunch"
-          actionLabel="Relaunch Cloudroom to finish updating"
+          actionLabel="Relaunch bapX Agents to finish updating"
           loading={isRelaunching}
           onClick={() => onRelaunchDesktop?.()}
         />,
@@ -848,7 +847,7 @@ export function RoomAppUpdateRows({
             state="update-available"
             buttonLeading={<Icon aria-hidden name="Download" className="size-3" />}
             buttonLabel="Download"
-            actionLabel="Download the new Cloudroom app"
+            actionLabel="Download the new bapX Agents"
             onClick={() => openUrlInExternalBrowser(DESKTOP_DOWNLOAD_URL)}
           />,
         )}
@@ -862,12 +861,12 @@ export function RoomAppUpdateRows({
     systemVersion?.desktopVersion ?? systemVersion?.currentVersion ?? null;
   if (hostUpdate !== null) {
     return row(
-      <RowName name="Cloudroom app" current={current} latest={hostUpdate.version} />,
+      <RowName name="bapX Agents" current={current} latest={hostUpdate.version} />,
       <RowStateControl
         state="restart-required"
         buttonLeading={<RoomLogo className="size-3" />}
         buttonLabel="Relaunch"
-        actionLabel="Relaunch Cloudroom to finish updating"
+        actionLabel="Relaunch bapX Agents to finish updating"
         loading={hostUpdate.restarting}
         onClick={hostUpdate.restart}
       />,
@@ -876,14 +875,14 @@ export function RoomAppUpdateRows({
 
   if (systemVersion === undefined) {
     return row(
-      <RowName name="Cloudroom app" current={null} latest={null} />,
+      <RowName name="bapX Agents" current={null} latest={null} />,
       <RowStateControl state="in-progress" />,
     );
   }
 
   const name = (
     <RowName
-      name="Cloudroom app"
+      name="bapX Agents"
       detail={
         systemVersion.updateAvailable ? (
           <span className="hidden truncate font-mono text-2xs text-muted-foreground sm:inline">
@@ -1413,12 +1412,7 @@ export function UpdatesSettingsSection({
   function handleCheckForUpdates(): void {
     startAppUpdateCheck(async () => {
       if (desktopApi !== null) {
-        await Promise.all([
-          desktopApi.checkForUpdates(),
-          queryClient.refetchQueries({
-            queryKey: LATEST_DESKTOP_RELEASE_QUERY_KEY,
-          }),
-        ]);
+        await desktopApi.checkForUpdates();
       } else {
         const version = await sdk.system.version({ force: true });
         hydrateSystemVersionCache({ queryClient, version });

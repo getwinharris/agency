@@ -52,17 +52,22 @@ wait_for_container() {
 }
 
 check_public() {
-    local url marker page host
+    local url marker page host status
     while read -r url marker; do
         host=${url#https://}
         host=${host%%/*}
         page=$(curl --noproxy '*' --resolve "$host:443:127.0.0.1" --fail --silent --max-time 10 "$url") || return 1
         [[ ${page,,} == *"${marker,,}"* ]] || return 1
     done <<'ROUTES'
-https://bapx.in/ Coding agents,
+https://bapx.in/ Start on your Mac.
 https://docs.bapx.in/ bapX Agents documentation
 https://mediahub.bapx.in/clients/nebo-lifestyle-clinic/ Nebo Lifestyle Clinic
+https://admin.bapx.in/ bapX Admin
 ROUTES
+    status=$(curl --noproxy '*' --resolve 'admin.bapx.in:443:127.0.0.1' \
+        --silent --max-time 10 --output /dev/null --write-out '%{http_code}' \
+        https://admin.bapx.in/api/admin/session) || return 1
+    [[ $status == 401 ]]
 }
 
 runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?branch=main&event=push&per_page=1")
