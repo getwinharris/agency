@@ -228,7 +228,8 @@ export async function createApp({ config, sendEmail, google = null, reportError 
 
   return createServer({ requestTimeout: 20_000, headersTimeout: 10_000 }, async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    response.setHeader("Referrer-Policy", "no-referrer");
+    // Retain the Origin on browser form POSTs without sending link tokens in the referrer.
+    response.setHeader("Referrer-Policy", "strict-origin");
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     try {
