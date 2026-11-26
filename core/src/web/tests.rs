@@ -4,6 +4,27 @@ use std::fs;
 
 struct Fixture(PathBuf);
 
+impl Fixture {
+    fn open(&self) -> Site {
+        let root = self.0.join("site");
+        for (page, content) in [
+            ("index.html", "Landing"),
+            ("privacy/index.html", "Privacy"),
+            ("mediahub/index.html", "MediaHub"),
+            ("mediahub/clients/example/index.html", "Story"),
+            ("docs/index.html", "Docs"),
+            ("brand/favicon.svg", "<svg/>"),
+            ("brand/favicon.ico", "ICO"),
+            ("brand/favicon-96x96.png", "PNG"),
+        ] {
+            let path = root.join(page);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, content).unwrap();
+        }
+        Site::open(&root, &self.0.join("data")).unwrap()
+    }
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
@@ -19,24 +40,10 @@ async fn public_routes_and_private_intake() {
     )));
     let root = fixture.0.join("site");
     let data = fixture.0.join("data");
-    for (page, content) in [
-        ("index.html", "Landing"),
-        ("privacy/index.html", "Privacy"),
-        ("mediahub/index.html", "MediaHub"),
-        ("mediahub/clients/example/index.html", "Story"),
-        ("docs/index.html", "Docs"),
-        ("brand/favicon.svg", "<svg/>"),
-        ("brand/favicon.ico", "ICO"),
-        ("brand/favicon-96x96.png", "PNG"),
-    ] {
-        let path = root.join(page);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, content).unwrap();
-    }
+    let site = fixture.open();
     let private = fixture.0.join("private.txt");
     fs::write(&private, "private").unwrap();
     std::os::unix::fs::symlink(private, root.join("brand/private.txt")).unwrap();
-    let site = Site::open(&root, &data).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, router(site)).await.unwrap() });
@@ -170,6 +177,139 @@ async fn public_routes_and_private_intake() {
     assert_eq!(
         get(MEDIAHUB, INQUIRY_PATH).send().await.unwrap().status(),
         StatusCode::METHOD_NOT_ALLOWED
+    );
+    server.abort();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn published_host_serves_its_own_artifacts_and_never_enters_first_party_routes() {
+    use crate::site_release::{SiteGrant, SiteStore, stage};
+
+    const PILOT: &str = "sandbox-check.app.bapx.in";
+    let build = "var testFixture = 'published';\n".repeat(8192);
+    let fixture = Fixture(env::temp_dir().join(format!(
+        "bapx-web-published-test-{}-{}",
+        std::process::id(),
+        crate::observability::now_ms()
+    )));
+    let mut site = fixture.open();
+    fs::set_permissions(&fixture.0, fs::Permissions::from_mode(0o700)).unwrap();
+    let published = fixture.0.join("published");
+    let users = fixture.0.join("users");
+    let dist = users.join("owner/business/projects/website/dist");
+    let snapshot = fixture.0.join("staging");
+    let grant = SiteGrant {
+        slug: "sandbox-check",
+        account: "owner",
+        business: "business",
+        project: "website",
+    };
+    fs::create_dir_all(&dist).unwrap();
+    fs::create_dir(&published).unwrap();
+    fs::write(dist.join("index.html"), "<h1>Built site</h1>").unwrap();
+    fs::write(dist.join("app.JS"), &build).unwrap();
+    fs::write(dist.join("favicon.ico"), b"test bytes").unwrap();
+    fs::write(dist.join("data.blob"), b"opaque asset").unwrap();
+    fs::write(dist.parent().unwrap().join("source.txt"), "private").unwrap();
+    stage(&users, &snapshot, &grant).unwrap();
+    SiteStore::open(&published)
+        .unwrap()
+        .publish(&snapshot, &grant)
+        .unwrap();
+    fs::remove_dir_all(&users).unwrap();
+    fs::remove_dir_all(&snapshot).unwrap();
+    assert!(site.enable_published(&fixture.0.join("data")).is_err());
+    assert!(site.enable_published(&fixture.0.join("site")).is_err());
+    site.enable_published(&published).unwrap();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(site)).await.unwrap() });
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let request = |method, hostname, path| {
+        client
+            .request(method, format!("http://{addr}{path}"))
+            .header(header::HOST, hostname)
+    };
+    let response = request(Method::GET, PILOT, "/app.JS").send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+    assert_eq!(response.text().await.unwrap(), build);
+    let head = request(Method::HEAD, PILOT, "/app.JS")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(
+        head.headers()[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
+    assert_eq!(
+        head.headers()[header::CONTENT_LENGTH],
+        build.len().to_string()
+    );
+    assert!(head.bytes().await.unwrap().is_empty());
+    let icon = request(Method::GET, PILOT, "/favicon.ico")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(icon.status(), StatusCode::OK);
+    assert_eq!(icon.bytes().await.unwrap(), "test bytes");
+    let opaque = request(Method::GET, PILOT, "/data.blob")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        opaque.headers()[header::CONTENT_TYPE],
+        "application/octet-stream"
+    );
+    assert_eq!(opaque.bytes().await.unwrap(), "opaque asset");
+
+    for (method, hostname, path) in [
+        (Method::GET, "unknown.app.bapx.in", "/"),
+        (Method::GET, "app.bapx.in", "/"),
+        (Method::GET, PILOT, "/source.txt"),
+        (Method::GET, PILOT, "/healthz"),
+        (Method::GET, PILOT, "/%2e%2e/source.txt"),
+        (Method::GET, PILOT, "/api/admin/session"),
+        (Method::POST, PILOT, "/api/admin/login"),
+        (Method::POST, PILOT, INQUIRY_PATH),
+        (Method::GET, PILOT, "/v1/health"),
+    ] {
+        let response = request(method.clone(), hostname, path)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "{method} {hostname}{path}"
+        );
+    }
+    let blocked = request(Method::POST, PILOT, "/").send().await.unwrap();
+    assert_eq!(blocked.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(blocked.headers()[header::ALLOW], "GET, HEAD");
+    assert_eq!(
+        request(Method::GET, "bapx.in", "/healthz")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        fs::read_dir(fixture.0.join("data/inquiries"))
+            .unwrap()
+            .count(),
+        0
     );
     server.abort();
 }

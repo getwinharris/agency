@@ -74,6 +74,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().map(String::as_str) == Some("terminal") {
         std::process::exit(cloudroom::runtime::terminal::local_cli(&args[1..]));
     }
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("publish-site") {
+        return Ok(cloudroom::site_release::cli(&args[1..])?);
+    }
     // Everything else runs on the async runtime; the short commands above, which the app runs often, skip its start.
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
