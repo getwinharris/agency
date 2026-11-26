@@ -6,6 +6,7 @@ const statuses = {
 
 const signupMethods = { email: "Email", google: "Google" };
 const roles = { owner: "Owner", staff: "Staff", customer: "Customer" };
+const previewSegments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const dateFormat = new Intl.DateTimeFormat("en", {
   dateStyle: "medium",
   timeStyle: "short",
@@ -155,7 +156,11 @@ function submissionPreview(fields) {
   const contact = fields.find((field) => field.type === "email" && field.value);
   const brief = fields.find((field) => field.type === "textarea" && field.value);
   if (!contact && !brief) return "";
-  const summary = brief && (brief.value.length > 160 ? `${brief.value.slice(0, 157)}…` : brief.value);
+  let summary = brief?.value;
+  if (summary?.length > 160) {
+    const end = previewSegments.segment(summary).containing(157).index;
+    summary = `${summary.slice(0, end)}…`;
+  }
   return `<dl class="record-preview">
     ${contact ? `<dt>${escapeHtml(contact.label)}</dt><dd>${escapeHtml(contact.value)}</dd>` : ""}
     ${brief ? `<dt>${escapeHtml(brief.label)}</dt><dd>${escapeHtml(summary)}</dd>` : ""}
