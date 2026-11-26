@@ -80,7 +80,7 @@ function page({
   <meta name="theme-color" content="#0a090e">
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
-  <link rel="stylesheet" href="/site.css?v=project-paths">
+  <link rel="stylesheet" href="/site.css?v=violet-accent">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>

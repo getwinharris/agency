@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
+- Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
 - Compare draft and published MediaHub copy before publishing in Admin.
@@ -13,6 +14,6 @@
 - Add an interactive walkthrough of local and remote Core sessions.
 - Rebuild MediaHub and its seven case studies with a persistent Rust brief endpoint.
 - Add an authenticated MediaHub inquiry inbox and homepage editor at Admin.
-- Apply the violet bapX mark and retain Cloudroom’s lime UI accent.
+- Use the bapX violet accent for primary buttons and keyboard navigation on the Agents, Docs, and Privacy pages.
 - Rebrand the macOS and Windows desktop package sources as bapX Agents v0.1.0 with an Agency update channel.
 - Update public contact and repository links.

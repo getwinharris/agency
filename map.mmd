@@ -12,6 +12,8 @@ flowchart TD
   root --> contracts
   root --> codex
   root --> web
+  root --> appStarter["starters/app-admin: opt-in customer site and its own /admin"]
+  appStarter --> appData["Private app data: project-specific volume outside the release"]
   root --> desktop
   root --> sharedSkills
   root --> core
