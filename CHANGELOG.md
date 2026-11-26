@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
 - Compare draft and published MediaHub copy before publishing in Admin.

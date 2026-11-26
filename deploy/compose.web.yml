@@ -8,8 +8,10 @@ services:
     environment:
       BAPX_ADMIN_PASSWORD_FILE: /run/secrets/bapx-admin-password
       BAPX_ADMIN_USERNAME: operator
+      BAPX_SITE_RELEASE_ROOT: /var/lib/bapx-sites
     volumes:
       - agency-web-data:/var/lib/bapx-web
+      - agency-web-sites:/var/lib/bapx-sites:ro
       - type: bind
         source: /etc/bapx-agency/admin-password
         target: /run/secrets/bapx-admin-password
@@ -41,6 +43,13 @@ services:
       traefik.http.routers.agency-admin-login.rule: >-
         Host(`admin.bapx.in`) && Path(`/api/admin/login`) && Method(`POST`)
       traefik.http.routers.agency-admin-login.middlewares: agency-admin-rate
+      traefik.http.routers.agency-sandbox-check.entrypoints: websecure
+      traefik.http.routers.agency-sandbox-check.tls: "true"
+      traefik.http.routers.agency-sandbox-check.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-sandbox-check.service: agency-web
+      traefik.http.routers.agency-sandbox-check.priority: "500"
+      traefik.http.routers.agency-sandbox-check.rule: Host(`sandbox-check.app.bapx.in`)
+      traefik.http.routers.agency-sandbox-check.middlewares: agency-sandbox-headers
       traefik.http.routers.agency-mediahub-brief.entrypoints: websecure
       traefik.http.routers.agency-mediahub-brief.tls: "true"
       traefik.http.routers.agency-mediahub-brief.tls.certresolver: letsencrypt
@@ -50,6 +59,8 @@ services:
         Host(`mediahub.bapx.in`) && Path(`/api/mediahub/inquiries`) && Method(`POST`)
       traefik.http.routers.agency-mediahub-brief.middlewares: agency-mediahub-rate,agency-public
       traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie: ""
+      traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Cookie: ""
+      traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Authorization: ""
       traefik.http.middlewares.agency-mediahub-rate.ratelimit.average: "8"
       traefik.http.middlewares.agency-mediahub-rate.ratelimit.period: 1m
       traefik.http.middlewares.agency-mediahub-rate.ratelimit.burst: "4"
@@ -59,3 +70,4 @@ services:
 
 volumes:
   agency-web-data:
+  agency-web-sites:

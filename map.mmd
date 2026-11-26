@@ -28,4 +28,8 @@ flowchart TD
 
   desktop --> core
   root --> users["users/: separate user-owned projects"]
+  users --> publish["cloudroom publish-site: operator-approved dist snapshot"]
+  publish --> siteReleases["Site release volume: read-only in web service"]
+  siteReleases --> webMode
+  webMode --> sandboxPilot["sandbox-check.app.bapx.in: static site pilot"]
   root --> runtimeData["data/: operator and customer runtime state"]

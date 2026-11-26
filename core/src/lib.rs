@@ -23,6 +23,8 @@ pub mod runtime;
 pub mod secrets;
 #[cfg(unix)]
 pub mod session;
+#[cfg(target_os = "linux")]
+pub mod site_release;
 #[cfg(unix)]
 pub mod sync;
 #[cfg(unix)]

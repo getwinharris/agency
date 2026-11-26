@@ -31,11 +31,16 @@ const INQUIRY_PATH: &str = "/api/mediahub/inquiries";
 const MAX_INQUIRY_BYTES: usize = 16 * 1024;
 const MAX_STATIC_BYTES: u64 = 32 * 1024 * 1024;
 
+#[cfg(target_os = "linux")]
+mod published;
+
 struct Site {
     root: PathBuf,
     inquiries: PathBuf,
     mediahub_copy: PathBuf,
     admin: Option<admin::Admin>,
+    #[cfg(target_os = "linux")]
+    published: Option<Arc<published::PublishedSites>>,
 }
 
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,6 +50,10 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let root = env::var_os("BAPX_WEB_ROOT").ok_or("BAPX_WEB_ROOT is required")?;
     let data = env::var_os("BAPX_WEB_DATA").ok_or("BAPX_WEB_DATA is required")?;
     let mut site = Site::open(root.as_ref(), data.as_ref())?;
+    #[cfg(target_os = "linux")]
+    if let Some(published) = env::var_os("BAPX_SITE_RELEASE_ROOT") {
+        site.enable_published(published.as_ref())?;
+    }
     site.admin = match admin::Admin::from_env() {
         Ok(admin) => admin,
         Err(error) => {
@@ -59,6 +68,22 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 impl Site {
+    #[cfg(target_os = "linux")]
+    fn enable_published(&mut self, path: &Path) -> io::Result<()> {
+        let directory = path.canonicalize()?;
+        let data = self.inquiries.parent().expect("data contains inquiries");
+        if [&self.root, data]
+            .iter()
+            .any(|other| directory.starts_with(other) || other.starts_with(&directory))
+        {
+            return Err(io::Error::other(
+                "Website releases must be stored outside first-party web roots",
+            ));
+        }
+        self.published = Some(Arc::new(published::PublishedSites::open(path)?));
+        Ok(())
+    }
+
     fn open(root: &Path, data: &Path) -> io::Result<Self> {
         let root = root.canonicalize()?;
         for page in [
@@ -96,12 +121,15 @@ impl Site {
             inquiries,
             mediahub_copy: data.join("mediahub-homepage.json"),
             admin: None,
+            #[cfg(target_os = "linux")]
+            published: None,
         })
     }
 }
 
 fn router(site: Site) -> Router {
-    Router::new()
+    let state = Arc::new(site);
+    let router = Router::new()
         .route("/healthz", get(health))
         .route("/favicon.svg", get(favicon))
         .route(
@@ -110,7 +138,13 @@ fn router(site: Site) -> Router {
         )
         .nest("/api/admin", admin::routes())
         .fallback(static_page)
-        .with_state(Arc::new(site))
+        .with_state(Arc::clone(&state));
+    #[cfg(target_os = "linux")]
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        state,
+        published::dispatch,
+    ));
+    router
 }
 
 fn host(headers: &HeaderMap) -> Option<String> {
@@ -154,6 +188,7 @@ async fn favicon(headers: HeaderMap) -> Response {
 
 fn asset_type(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()? {
+        "avif" => Some("image/avif"),
         "css" => Some("text/css; charset=utf-8"),
         "gif" => Some("image/gif"),
         "html" => Some("text/html; charset=utf-8"),
@@ -166,8 +201,11 @@ fn asset_type(path: &Path) -> Option<&'static str> {
         "pdf" => Some("application/pdf"),
         "png" => Some("image/png"),
         "svg" => Some("image/svg+xml"),
+        "wasm" => Some("application/wasm"),
         "webm" => Some("video/webm"),
+        "webmanifest" => Some("application/manifest+json"),
         "webp" => Some("image/webp"),
+        "woff" => Some("font/woff"),
         "woff2" => Some("font/woff2"),
         "xml" => Some("application/xml"),
         _ => None,
@@ -290,34 +328,16 @@ async fn static_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let mut response = Body::from(body).into_response();
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        content_type.parse().expect("valid content type"),
-    );
-    headers.insert(header::CONTENT_LENGTH, size.into());
-    headers.insert(
-        header::CACHE_CONTROL,
-        if is_admin {
-            "no-store"
-        } else if content_type.starts_with("text/html") {
-            "no-cache"
-        } else {
-            "public, max-age=3600"
-        }
-        .parse()
-        .expect("valid cache control"),
-    );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        "nosniff".parse().expect("valid header"),
-    );
-    headers.insert(
-        header::X_FRAME_OPTIONS,
-        "DENY".parse().expect("valid header"),
-    );
+    let cache = if is_admin {
+        "no-store"
+    } else if content_type.starts_with("text/html") {
+        "no-cache"
+    } else {
+        "public, max-age=3600"
+    };
+    let mut response = static_response(Body::from(body), size, content_type, cache);
     if is_admin {
+        let headers = response.headers_mut();
         headers.insert(
             header::CONTENT_SECURITY_POLICY,
             admin::CONTENT_SECURITY_POLICY
@@ -327,5 +347,28 @@ async fn static_page(
         headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
         headers.insert("x-robots-tag", "noindex, nofollow".parse().unwrap());
     }
+    response
+}
+
+fn static_response(body: Body, size: u64, content_type: &str, cache: &str) -> Response {
+    let mut response = body.into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        content_type.parse().expect("valid content type"),
+    );
+    headers.insert(header::CONTENT_LENGTH, size.into());
+    headers.insert(
+        header::CACHE_CONTROL,
+        cache.parse().expect("valid cache control"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        "nosniff".parse().expect("valid header"),
+    );
+    headers.insert(
+        header::X_FRAME_OPTIONS,
+        "DENY".parse().expect("valid header"),
+    );
     response
 }
