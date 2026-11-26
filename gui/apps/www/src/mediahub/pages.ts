@@ -48,7 +48,7 @@ function documentPage(title: string, summary: string, path: string, content: str
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(summary)}">
   <link rel="canonical" href="${canonical}">
-  <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg?v=583e9a9d">
   <meta property="og:type" content="website">
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(summary)}">

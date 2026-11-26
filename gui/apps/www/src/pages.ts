@@ -29,7 +29,7 @@ function page({
   <meta name="description" content="${description}">
   <meta name="theme-color" content="#0a090e">
   <link rel="canonical" href="${canonical}">
-  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/brand/favicon.svg?v=583e9a9d" type="image/svg+xml">
   <link rel="stylesheet" href="/site.css?v=agency">
 </head>
 <body>

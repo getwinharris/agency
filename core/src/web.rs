@@ -104,6 +104,7 @@ fn router(site: Site) -> Router {
     Router::new()
         .route("/healthz", get(health))
         .route("/favicon.ico", get(favicon))
+        .route("/favicon.svg", get(favicon))
         .route(
             INQUIRY_PATH,
             post(inquiry::accept).layer(DefaultBodyLimit::max(MAX_INQUIRY_BYTES)),
