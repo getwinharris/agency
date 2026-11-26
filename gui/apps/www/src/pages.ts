@@ -89,8 +89,8 @@ function page({
   <nav aria-label="Main">
     <a href="${howItWorks}">How it works</a>
     <a href="${docs}/"${surface === "Docs" ? ' aria-current="page"' : ""}>Docs</a>
-    <a href="${mediaHub}">MediaHub</a>
-    <a href="${source}">GitHub <span class="arrow" aria-hidden="true"></span></a>
+    <a href="${mediaHub}">MediaHub</a>${landing ? "" : `
+    <a href="${source}">GitHub <span class="arrow" aria-hidden="true"></span></a>`}
   </nav>
 </header>
 ${body}
