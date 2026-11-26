@@ -192,26 +192,9 @@ window shaping and unreliable resize behavior on some platforms. The flag can
 be combined with `--no-window-frame`, and changing it requires a full desktop
 app restart.
 
-CI builds Linux artifacts on the pinned `ubuntu-22.04` runner. The AppImage
-links against the build machine's glibc, so that pin sets the oldest
-distribution that can run a published build. Raise it deliberately.
-
-Linux gets both update paths, but they are not equivalent:
-
-- The JSON version feed (`desktop-version-linux.json`) is polled on every Linux
-  install and reports that a newer release exists.
-- Self-installing auto-update runs only inside an AppImage whose directory the
-  app can write to. electron-updater detects the AppImage through the `APPIMAGE`
-  environment variable, and its install step unlinks the running file _before_
-  moving the replacement in — so a read-only directory would delete the app and
-  leave nothing behind. Both the startup check and the install handler verify
-  write and search access on the parent directory first.
-- Everything else — an extracted directory, a distribution package, or an
-  AppImage in a read-only location — reports new versions without installing
-  them.
-
-Linux AppImages are available for manual installation. The signed desktop
-update feed covers macOS and Windows.
+The Desktop packages workflow builds the Linux x64 AppImage on Ubuntu 24.04.
+The package links against the build machine's glibc. Agency Linux builds use
+manual installation and updates.
 
 ## Releasing
 
@@ -219,6 +202,13 @@ Set `version` in `gui/apps/desktop/package.json` when changing the desktop
 release version. Both native package commands stamp that version into the
 bundle, installer name, and About panel. Ordinary development builds show
 `dev`. The desktop release has its own version and build process.
+
+The Desktop packages workflow builds native Apple Silicon, Windows x64, and
+Linux x64 artifacts and uploads verified packages with SHA-256 checksums.
+The macOS job uses an ad-hoc signature for launch checks. Distributable macOS
+builds require an Apple Developer ID signature and notarization. Windows
+verification uses a silent install on a Windows Server runner. Verify the
+intended desktop OS before publishing the release in Agency.
 
 The stable app uses bundle and Windows application ID `in.bapx.agents`,
 `~/.bapx-agents` for runtime data, and local ports 39888 and 39889. The desktop

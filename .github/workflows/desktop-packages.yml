@@ -64,7 +64,11 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node apps/desktop/node_modules/electron/install.js
       - name: Package
+        if: matrix.platform != 'macos-arm64'
         run: pnpm --dir apps/desktop run "${{ matrix.command }}"
+      - name: Package macOS with a local test signature
+        if: matrix.platform == 'macos-arm64'
+        run: pnpm --dir apps/desktop run dist --ad-hoc
       - name: Smoke test packaged app
         if: matrix.platform != 'linux-x64'
         run: pnpm --dir apps/desktop run smoke:packaged

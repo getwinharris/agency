@@ -126,7 +126,7 @@ describe("room-cli shim", () => {
 
   it("starts the bapX CLI with its own defaults without replacing the upstream shim", async () => {
     const cliPath = await installApp("bapX Agents.app");
-    await writeFile(cliPath, '#!/bin/sh\nprintf "%s\\n%s\\n%s" "$ROOM_DATA_DIR" "$ROOM_SERVER_URL" "$1"\n');
+    await writeFile(cliPath, '#!/bin/sh\nprintf "%s\\n%s\\n%s\\n%s" "$ROOM_DATA_DIR" "$ROOM_SERVER_URL" "$ROOM_HOST_DAEMON_PORT" "$1"\n');
     await mkdir(dirname(shimPath), { recursive: true });
     await symlink("/Applications/Cloudroom.app/Contents/room-cli", shimPath);
     const dataDir = join(homeDir, "Ada's bapX Agents");
@@ -135,7 +135,7 @@ describe("room-cli shim", () => {
       cliPath,
       commandName: "bapx-agents-cli",
       homeDir,
-      runtimeDefaults: { dataDir, serverUrl },
+      runtimeDefaults: { dataDir, serverUrl, hostDaemonPort: 39889 },
     });
 
     expect(result.kind).toBe("created");
@@ -143,7 +143,11 @@ describe("room-cli shim", () => {
     expect(execFileSync(result.shimPath, ["one argument"], {
       encoding: "utf8",
       env: {},
-    })).toBe(`${dataDir}\n${serverUrl}\none argument`);
+    })).toBe(`${dataDir}\n${serverUrl}\n39889\none argument`);
+    expect(execFileSync(result.shimPath, ["one argument"], {
+      encoding: "utf8",
+      env: { ROOM_HOST_DAEMON_PORT: "43210" },
+    })).toBe(`${dataDir}\n${serverUrl}\n43210\none argument`);
   });
 
   it("runs the AppImage itself, so a new mount after a restart still works", async () => {

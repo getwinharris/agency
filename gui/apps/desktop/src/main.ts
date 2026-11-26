@@ -3064,6 +3064,7 @@ async function runDesktopApp(): Promise<void> {
       runtimeDefaults: {
         dataDir: join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
         serverUrl: `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
+        hostDaemonPort: DESKTOP_RELEASE_INFO.localDaemonPort,
       },
     })
       .then((result) => {
