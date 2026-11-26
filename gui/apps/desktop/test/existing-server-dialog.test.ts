@@ -32,7 +32,7 @@ describe("formatStartedAt", () => {
 
 describe("formatSurface", () => {
   it("names how bb was started", () => {
-    expect(formatSurface("desktop")).toBe("the Cloudroom desktop app");
+    expect(formatSurface("desktop")).toBe("the bapX Agents desktop app");
     expect(formatSurface("web")).toBe("a terminal");
   });
 });
@@ -48,8 +48,8 @@ describe("renderExistingServerDialogHtml", () => {
     for (const choice of EXISTING_SERVER_DIALOG_CHOICES) {
       expect(html).toContain(`data-choice="${choice}"`);
     }
-    expect(html).toContain(">Quit this Cloudroom<");
-    expect(html).toContain(">Quit other Cloudroom<");
+    expect(html).toContain(">Quit bapX Agents<");
+    expect(html).toContain(">Quit the other bapX Agents server<");
     expect(html).toContain(">Connect<");
   });
 

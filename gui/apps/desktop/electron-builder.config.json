@@ -1,7 +1,7 @@
 {
-  "appId": "dev.cloudroom.gui",
-  "productName": "Cloudroom",
-  "artifactName": "${productName}-${version}-${arch}.${ext}",
+  "appId": "in.bapx.agents",
+  "productName": "bapX Agents",
+  "artifactName": "bapx-agents-v${version}-${arch}.${ext}",
   "toolsets": {
     "appimage": "1.0.3"
   },
@@ -40,7 +40,7 @@
     { "from": "../../NOTICE", "to": "NOTICE.bb.txt" }
   ],
   "publish": null,
-  "protocols": [{ "name": "Cloudroom", "schemes": ["cloudroom"] }],
+  "protocols": [{ "name": "bapX Agents", "schemes": ["bapx-agents"] }],
   "mac": {
     "category": "public.app-category.developer-tools",
     "minimumSystemVersion": "13.0.0",
@@ -52,10 +52,9 @@
     "identity": null,
     "notarize": false,
     "extendInfo": {
-      "CFBundleAlternateNames": ["Room"],
-      "NSDesktopFolderUsageDescription": "Cloudroom agents read and write files you ask them to work on.",
-      "NSDocumentsFolderUsageDescription": "Cloudroom agents read and write files you ask them to work on.",
-      "NSDownloadsFolderUsageDescription": "Cloudroom agents read and write files you ask them to work on."
+      "NSDesktopFolderUsageDescription": "bapX Agents reads and write files you ask them to work on.",
+      "NSDocumentsFolderUsageDescription": "bapX Agents reads and write files you ask them to work on.",
+      "NSDownloadsFolderUsageDescription": "bapX Agents reads and write files you ask them to work on."
     },
     "extraResources": [
       {
@@ -79,7 +78,7 @@
   },
   "linux": {
     "category": "Development",
-    "executableName": "gui-cloudroom",
+    "executableName": "bapx-agents",
     "icon": "assets/icon.png",
     "syncDesktopName": true,
     "extraResources": [
@@ -107,7 +106,7 @@
   },
   "dmg": {
     "sign": false,
-    "title": "Cloudroom",
+    "title": "bapX Agents",
     "iconSize": 120,
     "contents": [
       { "x": 180, "y": 190, "type": "file" },

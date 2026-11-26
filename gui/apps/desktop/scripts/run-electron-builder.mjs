@@ -3,15 +3,14 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CLOUDROOM_UPDATE_BASE_URL,
+  BAPX_DESKTOP_UPDATE_BASE_URL,
   createDesktopReleaseConfig,
   resolveDesktopReleaseChannel,
 } from "./desktop-release-channel.mjs";
 import {
-  cloudroomBundleVersion,
-  readCloudroomVersion,
+  readDesktopPackageVersion,
   stampRequested,
-} from "./cloudroom-version.mjs";
+} from "./desktop-version.mjs";
 
 import { prepareCore, prepareRuntimes } from "./prepare-runtimes.mjs";
 import { unregisterBundle } from "./macos-bundle.mjs";
@@ -192,8 +191,9 @@ function resolveElectronBuilderConfig(
   baseConfig,
   env,
   adHoc = false,
-  cloudroomVersion,
+  desktopVersion,
   windows = false,
+  macTarget = false,
 ) {
   // Windows signs with WIN_CSC_* or CSC_* itself; the Apple signing rules don't apply.
   const signingPlan = windows === "only"
@@ -222,7 +222,11 @@ function resolveElectronBuilderConfig(
   }
 
   config.mac = mac;
-  config.dmg = { ...config.dmg, sign: signingPlan.notarizationEnabled };
+  config.dmg = {
+    ...config.dmg,
+    sign: signingPlan.notarizationEnabled,
+    title: releaseConfig.applicationName,
+  };
   config.linux = {
     ...config.linux,
     executableName: releaseConfig.linuxExecutableName,
@@ -236,21 +240,35 @@ function resolveElectronBuilderConfig(
   config.appId = releaseConfig.appId;
   config.artifactName = releaseConfig.artifactName;
   config.productName = releaseConfig.applicationName;
+  if (releaseChannel === "nightly") config.protocols = [];
   config.extraMetadata = {
     ...config.extraMetadata,
     desktopName: releaseConfig.linuxDesktopName,
   };
-  config.publish =
-    releaseChannel === "latest" && cloudroomVersion !== undefined && signingPlan.mode !== "ad-hoc"
-      ? { provider: "generic", url: CLOUDROOM_UPDATE_BASE_URL, channel: "latest" }
-      : null;
-  if (cloudroomVersion !== undefined) {
-    const bundleVersion = cloudroomBundleVersion(cloudroomVersion);
-    config.artifactName = config.artifactName.replace("${version}", cloudroomVersion);
-    config.buildVersion = bundleVersion;
+  config.publish = null;
+  if (env.BAPX_DESKTOP_UPDATES === "1") {
+    if (releaseChannel !== "latest" || desktopVersion === undefined) {
+      throw new Error("The bapX desktop update feed requires a stamped stable build.");
+    }
+    const signedWindows = windows === "only" &&
+      [env.WIN_CSC_LINK, env.CSC_LINK].some(envValueIsSet);
+    const notarizedMac = macTarget && windows === false &&
+      signingPlan.notarizationEnabled && !notarizeLater(env);
+    if (!signedWindows && !notarizedMac) {
+      throw new Error("The bapX desktop update feed requires Windows signing or macOS notarization.");
+    }
+    config.forceCodeSigning = true;
+    config.publish = {
+      provider: "generic",
+      url: BAPX_DESKTOP_UPDATE_BASE_URL,
+      channel: "latest",
+    };
+  }
+  if (desktopVersion !== undefined) {
+    config.buildVersion = desktopVersion;
     config.extraMetadata = {
       ...config.extraMetadata,
-      version: bundleVersion,
+      version: desktopVersion,
     };
   }
 
@@ -338,20 +356,22 @@ async function main() {
   const electronBuilderArgs = args.filter(
     (arg) => arg !== printConfigFlag && arg !== "--ad-hoc" && arg !== stampFlag,
   );
+  const macTarget = electronBuilderArgs.includes("--mac");
   const windows = !electronBuilderArgs.includes("--win")
     ? false
-    : electronBuilderArgs.includes("--mac") ? "with-mac" : "only";
+    : macTarget ? "with-mac" : "only";
   const prepackaged = electronBuilderArgs.includes("--prepackaged");
   const baseConfig = await readBaseConfig();
-  const cloudroomVersion = stampRequested(process.env) || args.includes(stampFlag)
-    ? await readCloudroomVersion()
+  const desktopVersion = stampRequested(process.env, args)
+    ? await readDesktopPackageVersion()
     : undefined;
   const { config, signingPlan } = resolveElectronBuilderConfig(
     baseConfig,
     process.env,
     adHoc,
-    cloudroomVersion,
+    desktopVersion,
     windows,
+    macTarget,
   );
 
   if (printConfig) {

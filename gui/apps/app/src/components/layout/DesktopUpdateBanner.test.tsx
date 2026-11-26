@@ -33,7 +33,7 @@ describe("app-wide banners", () => {
   it("asks for Git for Windows only while it is missing", () => {
     status.value = { gitMissing: true };
     render(<GitForWindowsBanner pinned={false} />);
-    expect(screen.getByRole("alert").textContent).toContain("Cloudroom needs Git for Windows.");
+    expect(screen.getByRole("alert").textContent).toContain("bapX Agents needs Git for Windows.");
     expect(screen.getByRole("button", { name: "Download Git" })).toBeTruthy();
     expect(document.documentElement.style.getPropertyValue(HEIGHT)).toBe("");
     cleanup();

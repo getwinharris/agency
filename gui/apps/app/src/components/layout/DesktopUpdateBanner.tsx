@@ -102,8 +102,8 @@ export function GitForWindowsBanner({ pinned = true }: { pinned?: boolean }) {
     >
       <Icon name="AlertTriangle" className="size-4 shrink-0 text-destructive-text" />
       <span className="min-w-0 flex-1 truncate">
-        <strong>Cloudroom needs Git for Windows.</strong> Install it, then
-        restart Cloudroom.
+        <strong>bapX Agents needs Git for Windows.</strong> Install it, then
+        restart bapX Agents.
       </span>
       <Button size="sm" onClick={() => openUrlInExternalBrowser(GIT_FOR_WINDOWS_URL)}>
         Download Git
@@ -177,7 +177,7 @@ function useDesktopUpdate() {
   return { desktopInfo, version, ready, failed, offered, restarting, restart, download };
 }
 
-// App-wide notice: Restart once the in-app update is ready; the website link only when the app can't update itself.
+// Offer the release link if the app needs a manual update.
 export function DesktopUpdateBanner() {
   const { desktopInfo, version, ready, failed, offered, restarting, restart, download } =
     useDesktopUpdate();
@@ -198,11 +198,11 @@ export function DesktopUpdateBanner() {
           <>
             <strong>The last update didn't install.</strong>{" "}
             {ready ? "Restart to try again, or download" : "Download"} the new
-            version from the website.
+            version from the release page.
           </>
         ) : ready ? (
           <>
-            <strong>A new version of Cloudroom is ready.</strong> Restart to
+            <strong>A new version of bapX Agents is ready.</strong> Restart to
             update.{" "}
             {desktopInfo?.installNeedsPassword
               ? "Enter your Mac password once, and future updates install by themselves."
@@ -210,13 +210,13 @@ export function DesktopUpdateBanner() {
           </>
         ) : desktopInfo?.installNeedsMove ? (
           <>
-            <strong>Cloudroom {version} is available.</strong> Move Cloudroom
+            <strong>bapX Agents {version} is available.</strong> Move bapX Agents
             to your Applications folder and open it from there, so it can
             update itself.
           </>
         ) : (
           <>
-            <strong>Cloudroom {version} is available.</strong> You have{" "}
+            <strong>bapX Agents {version} is available.</strong> You have{" "}
             {desktopInfo?.version}. Download it to get the latest fixes.
           </>
         )}
@@ -277,7 +277,7 @@ export function DesktopUpdateCard({ attached }: { attached: boolean }) {
   };
   return (
     <PromptStackCard
-      ariaLabel="Update Cloudroom"
+      ariaLabel="Update bapX Agents"
       className={cn(
         "mx-3 overflow-hidden rounded-xl border-primary/40 bg-[color-mix(in_oklab,var(--primary)_10%,var(--surface-raised-solid))] sm:mx-4",
         attached && PROMPT_STACK_ON_INPUT_CLASS,

@@ -1,0 +1,61 @@
+services:
+  agency-web:
+    image: ${BAPX_WEB_IMAGE:?Set BAPX_WEB_IMAGE to the verified Agency image}
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      BAPX_ADMIN_PASSWORD_FILE: /run/secrets/bapx-admin-password
+      BAPX_ADMIN_USERNAME: operator
+    volumes:
+      - agency-web-data:/var/lib/bapx-web
+      - type: bind
+        source: /etc/bapx-agency/admin-password
+        target: /run/secrets/bapx-admin-password
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.agency-web.loadbalancer.server.port: "8080"
+      traefik.http.routers.agency-web.entrypoints: websecure
+      traefik.http.routers.agency-web.tls: "true"
+      traefik.http.routers.agency-web.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-web.service: agency-web
+      traefik.http.routers.agency-web.priority: "500"
+      traefik.http.routers.agency-web.middlewares: agency-public
+      traefik.http.routers.agency-web.rule: >-
+        Host(`bapx.in`) || Host(`www.bapx.in`) || Host(`docs.bapx.in`) || Host(`mediahub.bapx.in`)
+      traefik.http.routers.agency-admin.entrypoints: websecure
+      traefik.http.routers.agency-admin.tls: "true"
+      traefik.http.routers.agency-admin.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-admin.service: agency-web
+      traefik.http.routers.agency-admin.priority: "500"
+      traefik.http.routers.agency-admin.rule: Host(`admin.bapx.in`)
+      traefik.http.routers.agency-admin-login.entrypoints: websecure
+      traefik.http.routers.agency-admin-login.tls: "true"
+      traefik.http.routers.agency-admin-login.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-admin-login.service: agency-web
+      traefik.http.routers.agency-admin-login.priority: "510"
+      traefik.http.routers.agency-admin-login.rule: >-
+        Host(`admin.bapx.in`) && Path(`/api/admin/login`) && Method(`POST`)
+      traefik.http.routers.agency-admin-login.middlewares: agency-admin-rate
+      traefik.http.routers.agency-mediahub-brief.entrypoints: websecure
+      traefik.http.routers.agency-mediahub-brief.tls: "true"
+      traefik.http.routers.agency-mediahub-brief.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-mediahub-brief.service: agency-web
+      traefik.http.routers.agency-mediahub-brief.priority: "510"
+      traefik.http.routers.agency-mediahub-brief.rule: >-
+        Host(`mediahub.bapx.in`) && Path(`/api/mediahub/inquiries`) && Method(`POST`)
+      traefik.http.routers.agency-mediahub-brief.middlewares: agency-mediahub-rate,agency-public
+      traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie: ""
+      traefik.http.middlewares.agency-mediahub-rate.ratelimit.average: "8"
+      traefik.http.middlewares.agency-mediahub-rate.ratelimit.period: 1m
+      traefik.http.middlewares.agency-mediahub-rate.ratelimit.burst: "4"
+      traefik.http.middlewares.agency-admin-rate.ratelimit.average: "12"
+      traefik.http.middlewares.agency-admin-rate.ratelimit.period: 1m
+      traefik.http.middlewares.agency-admin-rate.ratelimit.burst: "6"
+
+volumes:
+  agency-web-data:

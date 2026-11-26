@@ -6,7 +6,7 @@ import {
 } from "@/lib/room-desktop";
 import { cn } from "@cloudroom/shared-ui/lib/utils";
 
-/** The Cloudroom logo and name, shown in the top bar (Settings > Appearance). */
+/** The bapX Agents logo and name, shown in the top bar (Settings > Appearance). */
 export function BrandMark() {
   return (
     <div
@@ -16,7 +16,7 @@ export function BrandMark() {
     >
       <RoomLogo className="size-[1.125rem] rounded-[22%]" />
       <span>
-        cloudroom
+        bapX Agents
         <span className="ml-[0.08em] inline-block size-[0.18em] bg-primary" />
       </span>
     </div>

@@ -1,7 +1,8 @@
 const DESKTOP_RELEASE_CHANNEL_ENV_NAME = "BB_DESKTOP_RELEASE_CHANNEL";
 
-export const CLOUDROOM_UPDATE_BASE_URL =
-  "https://github.com/davidondrej/cloudroom/releases/latest/download/";
+export const BAPX_DESKTOP_SCHEME = "bapx-agents";
+export const BAPX_DESKTOP_UPDATE_BASE_URL =
+  "https://github.com/getwinharris/agency/releases/download/desktop-latest/";
 
 export function resolveDesktopReleaseChannel(env) {
   const rawChannel = env[DESKTOP_RELEASE_CHANNEL_ENV_NAME]?.trim();
@@ -36,14 +37,17 @@ export function resolveDesktopBuildPlatform(nodePlatform) {
 export function createDesktopReleaseConfig(channel) {
   if (channel === "nightly") {
     return {
-      appId: "dev.cloudroom.gui.nightly",
-      applicationName: "Cloudroom Nightly",
-      artifactName: "gui-cloudroom-nightly-${version}-${arch}.${ext}",
+      appId: "in.bapx.agents.nightly",
+      applicationName: "bapX Agents Nightly",
+      artifactName: "bapx-agents-nightly-v${version}-${arch}.${ext}",
+      dataDirectoryName: ".bapx-agents-nightly",
+      localServerPort: 39890,
+      localDaemonPort: 39891,
       iconFileName: "icon-nightly.png",
-      linuxDesktopName: "cloudroom-nightly.desktop",
+      linuxDesktopName: "bapx-agents-nightly.desktop",
       // The Linux binary name must differ from stable so both channels can be
       // installed at once without one shadowing the other on PATH.
-      linuxExecutableName: "gui-cloudroom-nightly",
+      linuxExecutableName: "bapx-agents-nightly",
       macIconPath: "assets/icon-nightly.icns",
       releaseTag: "desktop-nightly",
       updateMetadataFileNames: {
@@ -52,18 +56,21 @@ export function createDesktopReleaseConfig(channel) {
         windows: "nightly.yml",
       },
       // electron-builder names the per-user install folder after the package:
-      // %LOCALAPPDATA%\Programs\Cloudroom-Nightly.
-      windowsInstallName: "Cloudroom-Nightly",
+      // %LOCALAPPDATA%\Programs\bapx-agents-nightly.
+      windowsInstallName: "bapx-agents-nightly",
     };
   }
 
   return {
-    appId: "dev.cloudroom.gui",
-    applicationName: "Cloudroom",
-    artifactName: "${productName}-${version}-${arch}.${ext}",
+    appId: "in.bapx.agents",
+    applicationName: "bapX Agents",
+    artifactName: "bapx-agents-v${version}-${arch}.${ext}",
+    dataDirectoryName: ".bapx-agents",
+    localServerPort: 39888,
+    localDaemonPort: 39889,
     iconFileName: "icon.png",
-    linuxDesktopName: "cloudroom.desktop",
-    linuxExecutableName: "gui-cloudroom",
+    linuxDesktopName: "bapx-agents.desktop",
+    linuxExecutableName: "bapx-agents",
     macIconPath: "assets/icon.icns",
     releaseTag: "desktop-latest",
     updateMetadataFileNames: {
@@ -71,6 +78,6 @@ export function createDesktopReleaseConfig(channel) {
       macos: "latest-mac.yml",
       windows: "latest.yml",
     },
-    windowsInstallName: "Cloudroom",
+    windowsInstallName: "bapx-agents",
   };
 }

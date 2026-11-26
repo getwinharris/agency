@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 import { build } from "esbuild";
 import { resolveDesktopReleaseChannel } from "./desktop-release-channel.mjs";
 import {
-  readCloudroomVersion,
+  readDesktopPackageVersion,
   stampRequested,
-} from "./cloudroom-version.mjs";
+} from "./desktop-version.mjs";
 
 const packageRoot = process.cwd();
 const distDir = resolve(packageRoot, "dist");
@@ -64,9 +64,9 @@ function readBuildDate(env) {
 
 await rm(distDir, { force: true, recursive: true });
 
-const desktopVersion = await readCloudroomVersion({
-  allowMissing: !stampRequested(process.env),
-});
+const desktopVersion = stampRequested(process.env, process.argv.slice(2))
+  ? `v${await readDesktopPackageVersion()}`
+  : "dev";
 const pluginSdkVersion = readPackageVersion(
   await readFile(pluginSdkPackageJsonPath, "utf8"),
   "packages/plugin-sdk/package.json",
@@ -78,6 +78,11 @@ const desktopBuildDate = readBuildDate(process.env);
 const commonOptions = {
   bundle: true,
   define: {
+    "process.env.BAPX_DESKTOP_UPDATES": JSON.stringify(
+      process.env.BAPX_DESKTOP_UPDATES === "1" && desktopReleaseChannel === "latest" && desktopVersion !== "dev"
+        ? "1"
+        : "",
+    ),
     "process.env.BB_DESKTOP_BUILD_DATE": JSON.stringify(desktopBuildDate),
     "process.env.BB_DESKTOP_COMMIT": JSON.stringify(desktopCommit),
     "process.env.BB_DESKTOP_PLUGIN_SDK_VERSION":

@@ -71,14 +71,14 @@ export function InstallAppSheet() {
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Add Cloudroom to your home screen" data-testid="install-app-sheet"
+    <div role="dialog" aria-modal="true" aria-label="Add bapX Agents to your home screen" data-testid="install-app-sheet"
       className="fixed inset-0 z-50 flex items-end bg-black/40 duration-200 animate-in fade-in-0" onClick={close}>
       <div onClick={(event) => event.stopPropagation()}
         className="w-full rounded-t-xl border-t bg-background px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+20px)] duration-300 animate-in slide-in-from-bottom">
         <div className="flex items-center gap-3">
           <RoomLogo className="size-10 shrink-0" />
           <div>
-            <h2 className="text-base font-semibold">Add Cloudroom to your home screen</h2>
+            <h2 className="text-base font-semibold">Add bapX Agents to your home screen</h2>
             <p className="text-sm text-muted-foreground">It opens full screen, like a normal app.</p>
           </div>
         </div>

@@ -507,7 +507,7 @@ The canonical release summary.
     expect(screen.queryByRole("button", { name: /check/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Updates" })).toBeNull();
     expect(
-      screen.getByRole("button", { name: /^Open the full Cloudroom .* changelog$/ }),
+      await screen.findByRole("button", { name: /^Open the full Cloudroom .* changelog$/ }),
     ).toBeDefined();
     const changelog = document.querySelector(
       '[data-updates-domain="changelog"]',
@@ -712,7 +712,7 @@ The canonical release summary.
       .getByText("Cloudroom daemon")
       .closest("[data-resource-row]");
     expect(daemonRow).not.toBeNull();
-    expect(screen.getByText("Cloudroom app")).toBeDefined();
+    expect(screen.getByText("bapX Agents")).toBeDefined();
     expect(
       screen.getByRole("button", { name: "Open homelab settings" }),
     ).toBeDefined();
@@ -976,7 +976,7 @@ The canonical release summary.
     const machineName = screen.getByText("workstation");
     expect(machineHeading.querySelector('[data-icon="Laptop"]')).not.toBeNull();
     expect(machineName.nextElementSibling).toBeNull();
-    expect(screen.getByText("Cloudroom app")).toBeDefined();
+    expect(screen.getByText("bapX Agents")).toBeDefined();
     expect(screen.queryByLabelText(/available update/)).toBeNull();
     expect(screen.getAllByText("workstation")).toHaveLength(1);
     expect(screen.getByText("Codex")).toBeDefined();
@@ -1428,7 +1428,7 @@ The canonical release summary.
 
     renderSection();
     const relaunch = screen.getByRole("button", {
-      name: /Relaunch Cloudroom to finish updating/,
+      name: /Relaunch bapX Agents to finish updating/,
     });
     expect(relaunch.querySelector("img")?.className).toContain("size-3");
     expect(relaunch.className).toContain("border");
@@ -1462,11 +1462,11 @@ The canonical release summary.
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Update available · Download the new Cloudroom app",
+        name: "Update available · Download the new bapX Agents",
       }),
     );
     expect(openUrlInExternalBrowserMock).toHaveBeenCalledWith(
-      "https://www.cloudroom.dev/download",
+      "https://github.com/getwinharris/agency/releases",
     );
     expect(screen.queryByText("Downloading in the background…")).toBeNull();
   });

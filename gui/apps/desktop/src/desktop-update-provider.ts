@@ -3,33 +3,30 @@ import {
   type RoomDesktopVersionFeedPlatform,
 } from "@cloudroom/desktop-contract";
 
-type DesktopReleaseChannel = "latest" | "nightly";
+import {
+  BAPX_DESKTOP_UPDATE_BASE_URL,
+  createDesktopReleaseConfig,
+  type DesktopReleaseChannel,
+  type DesktopReleaseConfig,
+} from "../scripts/desktop-release-channel.mjs";
 
-// BB_DESKTOP_UPDATE_BASE_URL is set only at build time, for update tests against a local feed.
-export const CLOUDROOM_UPDATE_BASE_URL =
-  process.env.BB_DESKTOP_UPDATE_BASE_URL ||
-  "https://github.com/davidondrej/cloudroom/releases/latest/download/";
+// This override is set at build time for update tests against a local feed.
+const testUpdateBaseUrl = process.env.BB_DESKTOP_UPDATE_BASE_URL;
+export const DESKTOP_UPDATES_CONFIGURED =
+  Boolean(testUpdateBaseUrl) || process.env.BAPX_DESKTOP_UPDATES === "1";
 
-interface DesktopReleaseInfo {
-  applicationName: "Cloudroom" | "Cloudroom Nightly";
+type DesktopReleaseInfo = DesktopReleaseConfig & {
   channel: DesktopReleaseChannel;
-  iconFileName: "icon.png" | "icon-nightly.png";
-  releaseTag: "desktop-latest" | "desktop-nightly";
   updateReleaseBaseUrl: string;
-}
+};
 
 export function createDesktopReleaseInfo(
   channel: DesktopReleaseChannel,
 ): DesktopReleaseInfo {
-  const nightly = channel === "nightly";
-  const releaseTag = nightly ? "desktop-nightly" : "desktop-latest";
-
   return {
-    applicationName: nightly ? "Cloudroom Nightly" : "Cloudroom",
+    ...createDesktopReleaseConfig(channel),
     channel,
-    iconFileName: nightly ? "icon-nightly.png" : "icon.png",
-    releaseTag,
-    updateReleaseBaseUrl: CLOUDROOM_UPDATE_BASE_URL,
+    updateReleaseBaseUrl: testUpdateBaseUrl || BAPX_DESKTOP_UPDATE_BASE_URL,
   };
 }
 

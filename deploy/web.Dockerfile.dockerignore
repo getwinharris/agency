@@ -1,0 +1,10 @@
+**
+!core/
+!core/**
+!gui/
+!gui/apps/
+!gui/apps/www/
+!gui/apps/www/**
+core/target
+gui/apps/www/dist
+gui/apps/www/node_modules

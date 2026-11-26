@@ -219,10 +219,16 @@
     "@cloudroom/desktop#build": {
       "cache": false,
       "dependsOn": ["bb-app#build", "topo"],
-      "env": ["BB_CLOUDROOM_STAMP", "BB_DESKTOP_RELEASE_CHANNEL"],
+      "env": [
+        "BAPX_DESKTOP_UPDATES",
+        "BB_CLOUDROOM_STAMP",
+        "BB_DESKTOP_BUILD_DATE",
+        "BB_DESKTOP_COMMIT",
+        "BB_DESKTOP_RELEASE_CHANNEL",
+        "BB_DESKTOP_UPDATE_BASE_URL"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
-        ".cloudroom-version",
         "$TURBO_ROOT$/packages/bb-app/package.json",
         "$TURBO_ROOT$/packages/plugin-sdk/package.json",
         "$TURBO_ROOT$/pnpm-lock.yaml",
@@ -234,7 +240,6 @@
     "@cloudroom/desktop#test": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        ".cloudroom-version",
         "$TURBO_ROOT$/packages/plugin-sdk/package.json",
         "$TURBO_ROOT$/vitest.shared.ts"
       ]

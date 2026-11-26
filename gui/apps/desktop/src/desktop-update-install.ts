@@ -179,7 +179,7 @@ const OWNERSHIP_PROMPT_TIMEOUT_MS = 2 * 60_000;
 
 const TAKE_OWNERSHIP_SCRIPT = [
   "on run argv",
-  'do shell script "/usr/sbin/chown -R " & item 1 of argv & " " & quoted form of item 2 of argv & " && /bin/chmod -R u+w " & quoted form of item 2 of argv with prompt "Cloudroom needs your password once, so future updates install by themselves." with administrator privileges',
+  'do shell script "/usr/sbin/chown -R " & item 1 of argv & " " & quoted form of item 2 of argv & " && /bin/chmod -R u+w " & quoted form of item 2 of argv with prompt "bapX Agents needs your password once, so future updates install by themselves." with administrator privileges',
   "end run",
 ].flatMap((line) => ["-e", line]);
 

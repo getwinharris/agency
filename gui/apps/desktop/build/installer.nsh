@@ -1,3 +1,10 @@
+; Use the per-channel home directory from the desktop release configuration.
+!if "${APP_ID}" == "in.bapx.agents.nightly"
+  !define BAPX_PREVIEW_DIR "$PROFILE\.bapx-agents-nightly\cloudroom-preview"
+!else
+  !define BAPX_PREVIEW_DIR "$PROFILE\.bapx-agents\cloudroom-preview"
+!endif
+
 ; Windows installer hooks (electron-builder NSIS).
 !macro customHeader
   ; Without DPI awareness Windows stretches the installer on scaled displays, so text is blurry.
@@ -205,8 +212,8 @@
   System::Call 'shell32::IsUserAnAdmin()i .r0'
   ${If} $0 == 0
   ${AndIf} ${FileExists} "$INSTDIR\resources\app.asar.unpacked\node_modules\bb-app\server\dist\assets\python\python.exe"
-  ${AndIf} ${FileExists} "$PROFILE\.gui-cloudroom\cloudroom-preview\client.py"
-    nsExec::Exec `"$INSTDIR\resources\app.asar.unpacked\node_modules\bb-app\server\dist\assets\python\python.exe" -B -E -s "$PROFILE\.gui-cloudroom\cloudroom-preview\client.py" pause "$PROFILE\.gui-cloudroom\cloudroom-preview"`
+  ${AndIf} ${FileExists} "${BAPX_PREVIEW_DIR}\client.py"
+    nsExec::Exec `"$INSTDIR\resources\app.asar.unpacked\node_modules\bb-app\server\dist\assets\python\python.exe" -B -E -s "${BAPX_PREVIEW_DIR}\client.py" pause "${BAPX_PREVIEW_DIR}"`
     Pop $0
     DetailPrint "Preview helper pause exit code: $0"
   ${EndIf}
@@ -218,7 +225,7 @@
   nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$$left = { @(Get-CimInstance Win32_Process | ? { $$_.Name -like 'python*.exe' -and $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$env:CLOUDROOM_INSTALL_DIR, 'OrdinalIgnoreCase') }) }; & $$left | % { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; for ($$i = 0; $$i -lt 20 -and @(& $$left).Count -gt 0; $$i++) { Start-Sleep -Milliseconds 500 }; if (@(& $$left).Count -gt 0) { exit 1 }; exit 0"`
   Pop $0
   ${If} $0 == 1
-    MessageBox MB_OK|MB_ICONSTOP "Cloudroom's preview helper (python.exe) is still running, so Cloudroom can't be updated or removed. End it in Task Manager, then try again." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "${PRODUCT_NAME}'s preview helper (python.exe) is still running. End it in Task Manager, then try again." /SD IDOK
     Quit
   ${EndIf}
   cloudroomHelperStopped:
@@ -285,9 +292,9 @@
       ; Pass the text by register: it holds apostrophes that would break the quoted call.
       StrCpy $R2 "Still running: $R1$\nEnd it in Task Manager (Details tab), then click Retry. If it won't end, restart Windows and run the update again."
       StrCpy $R3 0
-      System::Call 'comctl32::TaskDialog(p $HWNDPARENT, p 0, w "Cloudroom Setup", w "Cloudroom is still running", w R2, i 0x18, p 0xFFFF, *i .R3) i .R4'
+      System::Call 'comctl32::TaskDialog(p $HWNDPARENT, p 0, w "${PRODUCT_NAME} Setup", w "${PRODUCT_NAME} is still running", w R2, i 0x18, p 0xFFFF, *i .R3) i .R4'
       ${If} $R4 != 0
-        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Cloudroom is still running.$\n$\n$R2" IDRETRY cloudroomStopApp
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${PRODUCT_NAME} is still running.$\n$\n$R2" IDRETRY cloudroomStopApp
         Quit
       ${EndIf}
       ${If} $R3 == 4

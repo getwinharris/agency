@@ -26,6 +26,8 @@ pub mod session;
 #[cfg(unix)]
 pub mod sync;
 #[cfg(unix)]
+pub mod web;
+#[cfg(unix)]
 pub mod workspace;
 
 /// Bumped by `tools/release-core.py` on every release (ADR 0120).

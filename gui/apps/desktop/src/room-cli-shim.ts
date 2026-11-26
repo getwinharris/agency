@@ -2,13 +2,18 @@ import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 const BUNDLED_CLI_TARGET = /\/node_modules\/bb-app\/host-daemon\/dist\/[^/]+$/;
-const SHIM_MARKER = "#!/bin/sh\n# Managed by Cloudroom";
-// Agent sandboxes often hide FUSE (#1091), so run the bundled CLI Cloudroom
+const SHIM_MARKER = "#!/bin/sh\n# Managed by bapX Agents";
+const SHIM_HEAD = `${SHIM_MARKER}, which rewrites it on launch. Delete this line to keep your own edits.\n`;
+// Agent sandboxes often hide FUSE (#1091), so run the bundled CLI bapX Agents
 // puts in ROOM_CLI before mounting the AppImage (the CLI's own re-exec rule).
-const SHIM_HEAD = `${SHIM_MARKER}, which rewrites it on launch. Delete this line to keep your own edits.
-[ "$ROOM_CLI_REEXEC" != 1 ] && [ -f "$ROOM_CLI" ] && [ -x "$ROOM_CLI" ] && ROOM_CLI_REEXEC=1 exec "$ROOM_CLI" "$@"
+const APPIMAGE_SHIM = `[ "$ROOM_CLI_REEXEC" != 1 ] && [ -f "$ROOM_CLI" ] && [ -x "$ROOM_CLI" ] && ROOM_CLI_REEXEC=1 exec "$ROOM_CLI" "$@"
 ELECTRON_RUN_AS_NODE=1 exec `;
 const SHIM_TAIL = ` --input-type=module --eval 'if (process.argv.at(-1) === "--no-sandbox") process.argv.pop(); process.argv[1] = process.env.APPDIR + "/resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist/room-cli"; await import(process.getBuiltinModule("node:url").pathToFileURL(process.argv[1]).href);' -- room-cli "$@" --no-sandbox\n`;
+
+interface RoomCliRuntimeDefaults {
+  dataDir: string;
+  serverUrl: string;
+}
 
 export type RoomCliShimResult =
   | { kind: "created" | "repaired" | "unchanged"; shimPath: string }
@@ -21,7 +26,9 @@ export type RoomCliShimResult =
 interface EnsureRoomCliShimArgs {
   appImagePath?: string;
   cliPath: string;
+  commandName?: string;
   homeDir: string;
+  runtimeDefaults?: RoomCliRuntimeDefaults;
 }
 
 export function resolveBundledRoomCliPath(appPath: string): string {
@@ -35,8 +42,21 @@ export function resolveBundledRoomCliPath(appPath: string): string {
   );
 }
 
-export function appImageRoomCliShim(appImagePath: string): string {
-  return `${SHIM_HEAD}'${appImagePath.replaceAll("'", "'\\''")}'${SHIM_TAIL}`;
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function runtimeExports(defaults: RoomCliRuntimeDefaults | undefined): string {
+  if (defaults === undefined) return "";
+  return `if [ -z "$ROOM_DATA_DIR" ]; then export ROOM_DATA_DIR=${shellQuote(defaults.dataDir)}; fi
+if [ -z "$ROOM_SERVER_URL" ]; then export ROOM_SERVER_URL=${shellQuote(defaults.serverUrl)}; fi\n`;
+}
+
+export function appImageRoomCliShim(
+  appImagePath: string,
+  defaults?: RoomCliRuntimeDefaults,
+): string {
+  return `${SHIM_HEAD}${runtimeExports(defaults)}${APPIMAGE_SHIM}${shellQuote(appImagePath)}${SHIM_TAIL}`;
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -60,7 +80,7 @@ async function readShimTarget(
 export async function ensureRoomCliShim(
   args: EnsureRoomCliShimArgs,
 ): Promise<RoomCliShimResult> {
-  const shimPath = join(args.homeDir, ".local", "bin", "room-cli");
+  const shimPath = join(args.homeDir, ".local", "bin", args.commandName ?? "room-cli");
   if (args.cliPath.includes("/AppTranslocation/")) {
     return { kind: "skipped", reason: "translocated", shimPath };
   }
@@ -71,8 +91,10 @@ export async function ensureRoomCliShim(
   }
 
   const script = args.appImagePath
-    ? appImageRoomCliShim(args.appImagePath)
-    : null;
+    ? appImageRoomCliShim(args.appImagePath, args.runtimeDefaults)
+    : args.runtimeDefaults
+      ? `${SHIM_HEAD}${runtimeExports(args.runtimeDefaults)}exec ${shellQuote(args.cliPath)} "$@"\n`
+      : null;
   const current = await readShimTarget(shimPath);
   if (current === "not-a-link") {
     const stat = await fs.lstat(shimPath);

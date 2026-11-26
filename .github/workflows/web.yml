@@ -1,0 +1,55 @@
+name: Public web
+
+on:
+  pull_request:
+    paths: ['core/**', 'gui/apps/www/**', 'deploy/**', '.github/workflows/web.yml']
+  push:
+    branches: [main]
+    paths: ['core/**', 'gui/apps/www/**', 'deploy/**', '.github/workflows/web.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: |
+          docker build --file deploy/web.Dockerfile --tag agency-web:check \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" .
+      - name: Smoke test
+        run: |
+          umask 077
+          admin_password="$(mktemp)"
+          openssl rand -hex 32 > "$admin_password"
+          sudo chown 10001:10001 "$admin_password"
+          sudo chmod 0400 "$admin_password"
+          docker run --detach --rm --name agency-web --publish 127.0.0.1:8080:8080 \
+            --env BAPX_ADMIN_PASSWORD_FILE=/run/secrets/bapx-admin-password \
+            --mount "type=bind,src=$admin_password,dst=/run/secrets/bapx-admin-password,readonly" agency-web:check
+          trap 'docker logs agency-web; docker stop agency-web' EXIT
+          curl --retry 10 --retry-connrefused --fail --silent http://127.0.0.1:8080/healthz
+          curl --fail --silent -H 'Host: bapx.in' http://127.0.0.1:8080/ | grep -F 'Start on your Mac.'
+          curl --fail --silent -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ | grep -F 'bapX Agents documentation'
+          curl --fail --silent -H 'Host: mediahub.bapx.in' http://127.0.0.1:8080/clients/nebo-lifestyle-clinic/ | grep -iF 'Nebo Lifestyle Clinic'
+          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/ | grep -F '<title>bapX Admin</title>'
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: admin.bapx.in' http://127.0.0.1:8080/api/admin/session)" = 401
+      - name: Publish main image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image="ghcr.io/${REPO,,}-web"
+          docker tag agency-web:check "$image:$GITHUB_SHA"
+          docker push "$image:$GITHUB_SHA"

@@ -540,13 +540,13 @@ function BrandMarkSetting() {
   const [showBrandMark, setShowBrandMark] = useBrandMark();
   return (
     <SettingsWithControl
-      label="Show Cloudroom name"
-      description="The Cloudroom logo and name at the top of the window."
+      label="Show bapX Agents name"
+      description="Display the logo and name at the top of the window."
     >
       <Switch
         checked={showBrandMark}
         onCheckedChange={setShowBrandMark}
-        aria-label="Show Cloudroom name"
+        aria-label="Show bapX Agents name"
       />
     </SettingsWithControl>
   );

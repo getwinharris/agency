@@ -102,7 +102,7 @@ describe("room-cli shim", () => {
     const appImagePath = "/opt/Cloudroom.AppImage";
     const ours = appImageRoomCliShim(appImagePath);
     const mine = ours
-      .replace(/\n# Managed by Cloudroom.*/u, "")
+      .replace(/\n# Managed by bapX Agents.*/u, "")
       .replace("exec ", "exec env ROOM_SERVER_URL=http://127.0.0.1:9 ");
     await writeFile(shimPath, mine);
     await expect(
@@ -122,6 +122,28 @@ describe("room-cli shim", () => {
       ensureRoomCliShim({ cliPath, homeDir }),
     ).resolves.toMatchObject({ reason: "user-owned" });
     expect(await readlink(shimPath)).toBe("/Users/me/code/room-cli-dev");
+  });
+
+  it("starts the bapX CLI with its own defaults without replacing the upstream shim", async () => {
+    const cliPath = await installApp("bapX Agents.app");
+    await writeFile(cliPath, '#!/bin/sh\nprintf "%s\\n%s\\n%s" "$ROOM_DATA_DIR" "$ROOM_SERVER_URL" "$1"\n');
+    await mkdir(dirname(shimPath), { recursive: true });
+    await symlink("/Applications/Cloudroom.app/Contents/room-cli", shimPath);
+    const dataDir = join(homeDir, "Ada's bapX Agents");
+    const serverUrl = "http://127.0.0.1:39888";
+    const result = await ensureRoomCliShim({
+      cliPath,
+      commandName: "bapx-agents-cli",
+      homeDir,
+      runtimeDefaults: { dataDir, serverUrl },
+    });
+
+    expect(result.kind).toBe("created");
+    expect(await readlink(shimPath)).toBe("/Applications/Cloudroom.app/Contents/room-cli");
+    expect(execFileSync(result.shimPath, ["one argument"], {
+      encoding: "utf8",
+      env: {},
+    })).toBe(`${dataDir}\n${serverUrl}\none argument`);
   });
 
   it("runs the AppImage itself, so a new mount after a restart still works", async () => {

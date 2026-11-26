@@ -1,6 +1,6 @@
-# Build Cloudroom from source
+# Build bapX Agents from source
 
-You need macOS on Apple Silicon, Git, Node.js 22.19+, pnpm 10.34.9, Python 3.11+, and Xcode Command Line Tools. Building needs no Cloudroom account.
+You need macOS on Apple Silicon, Git, Node.js 22.19+, pnpm 10.34.9, Bun 1.4.5, Python 3.11+, and Xcode Command Line Tools.
 
 Run these from this folder:
 
@@ -30,4 +30,4 @@ pnpm exec turbo run test --filter=@cloudroom/scripts --filter=@cloudroom/config 
 
 Desktop integration tests open real apps, so run them only in a test environment. The sync and preview helpers in `apps/server/src/assets/` are copies from the core, so change them there.
 
-The build makes runnable bundles, not a signed installer.
+See [desktop packaging](apps/desktop/README.md) for installer builds and signing.
