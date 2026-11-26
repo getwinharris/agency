@@ -208,7 +208,7 @@ async fn published_host_serves_its_own_artifacts_and_never_enters_first_party_ro
     fs::create_dir_all(&dist).unwrap();
     fs::create_dir(&published).unwrap();
     fs::write(dist.join("index.html"), "<h1>Built site</h1>").unwrap();
-    fs::write(dist.join("app.js"), &build).unwrap();
+    fs::write(dist.join("app.JS"), &build).unwrap();
     fs::write(dist.join("favicon.ico"), b"test bytes").unwrap();
     fs::write(dist.join("data.blob"), b"opaque asset").unwrap();
     fs::write(dist.parent().unwrap().join("source.txt"), "private").unwrap();
@@ -235,7 +235,7 @@ async fn published_host_serves_its_own_artifacts_and_never_enters_first_party_ro
             .request(method, format!("http://{addr}{path}"))
             .header(header::HOST, hostname)
     };
-    let response = request(Method::GET, PILOT, "/app.js").send().await.unwrap();
+    let response = request(Method::GET, PILOT, "/app.JS").send().await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.headers()[header::CONTENT_TYPE],
@@ -243,11 +243,15 @@ async fn published_host_serves_its_own_artifacts_and_never_enters_first_party_ro
     );
     assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
     assert_eq!(response.text().await.unwrap(), build);
-    let head = request(Method::HEAD, PILOT, "/app.js")
+    let head = request(Method::HEAD, PILOT, "/app.JS")
         .send()
         .await
         .unwrap();
     assert_eq!(head.status(), StatusCode::OK);
+    assert_eq!(
+        head.headers()[header::CONTENT_TYPE],
+        "text/javascript; charset=utf-8"
+    );
     assert_eq!(
         head.headers()[header::CONTENT_LENGTH],
         build.len().to_string()

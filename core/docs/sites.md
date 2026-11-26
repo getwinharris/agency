@@ -25,6 +25,8 @@ creates a protected copy outside the workspace before Docker opens the mount
 source. The one-shot publisher runs with network disabled and a read-only
 container filesystem. It reads that copy and writes complete revisions to the
 named release volume. The active pointer changes atomically.
+Asset requests use the active revision. If a release removes an asset that an
+older open page still needs, reload the page to load the current release.
 
 The public Rust service mounts the release store read-only. It handles app
 hosts before first-party API routing. Published files support GET and HEAD

@@ -187,7 +187,7 @@ async fn favicon(headers: HeaderMap) -> Response {
 }
 
 fn asset_type(path: &Path) -> Option<&'static str> {
-    match path.extension()?.to_str()? {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "avif" => Some("image/avif"),
         "css" => Some("text/css; charset=utf-8"),
         "gif" => Some("image/gif"),
