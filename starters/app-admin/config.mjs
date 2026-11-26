@@ -59,6 +59,13 @@ export async function loadConfig(env = process.env) {
       !(origin.protocol === "http:" && loopback))) {
     throw new Error("APP_ORIGIN must be an HTTPS site origin or a loopback HTTP origin.");
   }
+  const bindAddress = env.APP_BIND_ADDRESS ?? "127.0.0.1";
+  if (!["127.0.0.1", "::1", "0.0.0.0"].includes(bindAddress)) {
+    throw new Error("APP_BIND_ADDRESS must be 127.0.0.1, ::1, or 0.0.0.0.");
+  }
+  if (bindAddress === "0.0.0.0" && origin.protocol !== "https:") {
+    throw new Error("APP_BIND_ADDRESS=0.0.0.0 requires an HTTPS APP_ORIGIN.");
+  }
   if (!path.isAbsolute(env.APP_DATA_DIR ?? "")) throw new Error("APP_DATA_DIR must be an absolute path.");
   const dataDir = await physicalPath(env.APP_DATA_DIR);
   const release = await realpath(releaseRoot);
@@ -78,6 +85,7 @@ export async function loadConfig(env = process.env) {
     ownerEmail,
     origin: origin.origin,
     host: origin.host,
+    bindAddress,
     port,
     dataDir,
     forms: validateForms(forms.forms),

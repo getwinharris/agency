@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Let an app Admin starter listen on a private bridge behind its TLS proxy.
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
