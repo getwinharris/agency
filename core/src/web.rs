@@ -104,6 +104,7 @@ fn router(site: Site) -> Router {
     Router::new()
         .route("/healthz", get(health))
         .route("/favicon.ico", get(favicon))
+        .route("/favicon.svg", get(favicon))
         .route(
             INQUIRY_PATH,
             post(inquiry::accept).layer(DefaultBodyLimit::max(MAX_INQUIRY_BYTES)),
@@ -128,9 +129,12 @@ async fn health(headers: HeaderMap) -> Response {
             if public_host(name)
                 || matches!(name, admin::HOST | "localhost" | "127.0.0.1" | "[::1]") =>
         {
+            let revision = env::var("BAPX_WEB_REVISION")
+                .ok()
+                .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()));
             (
                 [(header::CACHE_CONTROL, "no-store")],
-                Json(json!({"ready": true, "service": "bapx-web"})),
+                Json(json!({"ready": true, "service": "bapx-web", "revision": revision})),
             )
                 .into_response()
         }

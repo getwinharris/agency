@@ -7,7 +7,7 @@
 - `BAPX_WEB_LISTEN` defaults to `127.0.0.1:8080`. A container may bind an internal network address behind the first-party HTTPS proxy.
 - `BAPX_ADMIN_PASSWORD_FILE` points to a private password file readable by the service. Set `BAPX_ADMIN_USERNAME` to change the default username, `operator`.
 
-The apex and `www` serve the landing and `/privacy/`. The MediaHub host serves its landing and `/clients/<slug>/` portfolio pages. The Docs host serves the generated `docs/` subtree. Admin provides the sign-in page and same-origin `/api/admin/` endpoints on `admin.bapx.in`. Hosts share `/brand/` assets and MediaHub has its own `/mediahub/` assets. `GET /healthz` returns `{"ready":true,"service":"bapx-web"}`.
+The apex and `www` serve the landing and `/privacy/`. The MediaHub host serves its landing and `/clients/<slug>/` portfolio pages. The Docs host serves the generated `docs/` subtree. Admin provides the sign-in page and same-origin `/api/admin/` endpoints on `admin.bapx.in`. Hosts share `/brand/` assets and MediaHub has its own `/mediahub/` assets. `GET /healthz` returns `ready: true`, `service: "bapx-web"`, and the image's Git SHA in `revision`. Local builds without `BAPX_WEB_REVISION` report a null revision.
 
 `POST https://mediahub.bapx.in/api/mediahub/inquiries` accepts the first-party JSON form with a 16 KiB request limit. It requires the MediaHub web origin, a form start time between two seconds and one day ago, and express consent. A successful response returns the inquiry reference and creation time in Unix milliseconds. The service confirms receipt after writing a complete file to `BAPX_WEB_DATA/inquiries`.
 

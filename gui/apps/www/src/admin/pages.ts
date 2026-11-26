@@ -7,7 +7,7 @@ export function adminPages(): Record<string, string> {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>bapX Admin</title>
-  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/brand/favicon.svg?v=583e9a9d" type="image/svg+xml">
   <link rel="stylesheet" href="/admin/index.css">
   <script src="/admin/index.js" defer></script>
 </head>

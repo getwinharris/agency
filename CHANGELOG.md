@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.
 - Add bapX Agents landing and documentation on the Cloudroom fork.
 - Add an interactive walkthrough of local and remote Core sessions.
 - Rebuild MediaHub and its seven case studies with a persistent Rust brief endpoint.

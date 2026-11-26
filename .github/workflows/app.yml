@@ -1,12 +1,10 @@
 name: App
 
 on:
-  push:
-    branches: [main]
-    paths: ['gui/**', 'skills/**', '.github/workflows/app.yml']
   pull_request:
     paths: ['gui/**', 'skills/**', '.github/workflows/app.yml']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
