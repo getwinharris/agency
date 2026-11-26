@@ -3,7 +3,6 @@ set -euo pipefail
 umask 077
 
 repo=getwinharris/agency
-registry=ghcr.io/getwinharris/agency-web
 project_dir=/docker/traefik-vmm1
 compose_file="$project_dir/docker-compose.yml"
 override_file="$project_dir/agency-web.compose.yml"
@@ -13,6 +12,7 @@ failed_file="$state_dir/failed-run"
 pending_file="$state_dir/pending.json"
 service=agency-web
 image_pattern='^ghcr\.io/getwinharris/agency-web@sha256:[a-f0-9]{64}$'
+image_id_pattern='^sha256:[a-f0-9]{64}$'
 sha_pattern='^[a-f0-9]{40}$'
 hash_pattern='^[a-f0-9]{64}$'
 
@@ -130,7 +130,7 @@ check_public() {
 bapx.in / Start on your Mac.
 docs.bapx.in / bapX Agents documentation
 mediahub.bapx.in /clients/nebo-lifestyle-clinic/ Nebo Lifestyle Clinic
-admin.bapx.in / <title>bapX Admin</title>
+admin.bapx.in / <h1 id="login-title">Sign in</h1>
 ROUTES
     status=$(curl --noproxy '*' --resolve 'admin.bapx.in:443:127.0.0.1' \
         --silent --show-error --max-time 8 --output /dev/null --write-out '%{http_code}' \
@@ -141,14 +141,21 @@ ROUTES
     fi
 }
 
+check_current_release() {
+    local image=$1 revision=$2 hash=$3
+    [[ $(file_hash "$override_file") == "$hash" ]] &&
+        check_container "$image" "$revision" && check_public "$revision"
+}
+
 abandon_pending() {
     rm -f -- "$pending_file"
 }
 
 restore_pending() {
-    local prior config_hash revision candidate candidate_hash run attempt snapshot= remaining
+    local prior config_hash revision candidate candidate_hash run attempt recorded restored_sha snapshot= remaining
     if [[ -f $state_file ]] && jq -e --slurpfile pending "$pending_file" '
-        . as $state | $pending[0] | .sha == $state.sha and .image == $state.image and
+        . as $state | $pending[0] | .rollbackRecorded != true and
+            .sha == $state.sha and .image == $state.image and
             .composeSha256 == $state.composeSha256 and .run == $state.run and .attempt == $state.attempt
         ' "$state_file" >/dev/null; then
         abandon_pending
@@ -162,6 +169,7 @@ restore_pending() {
     candidate_hash=$(jq -er '.composeSha256' "$pending_file") || return 1
     run=$(jq -er '.run' "$pending_file") || return 1
     attempt=$(jq -er '.attempt' "$pending_file") || return 1
+    recorded=$(jq -r '.rollbackRecorded // false' "$pending_file") || return 1
     [[ $candidate =~ $image_pattern && $candidate_hash =~ $hash_pattern &&
         $run =~ ^[0-9]+$ && $attempt =~ ^[0-9]+$ ]] || return 1
     [[ -z $revision || $revision =~ $sha_pattern ]] || return 1
@@ -170,8 +178,13 @@ restore_pending() {
         snapshot=$(snapshot_path "$config_hash")
         [[ $(file_hash "$snapshot") == "$config_hash" ]] || return 1
     fi
+    if [[ $recorded == true ]]; then
+        restored_sha=$(jq -er '.prior.sha' "$pending_file") || return 1
+        [[ -n $prior && $restored_sha =~ $sha_pattern &&
+            ( -z $revision || $revision == "$restored_sha" ) ]] || return 1
+    fi
     if [[ -n $prior ]]; then
-        [[ -n $snapshot && ( $prior =~ $image_pattern || $prior =~ ^sha256:[a-f0-9]{64}$ ) ]] || return 1
+        [[ -n $snapshot && ( $prior =~ $image_pattern || $prior =~ $image_id_pattern ) ]] || return 1
         install_override "$snapshot" &&
             compose "$prior" up -d --no-deps --pull never "$service" &&
             wait_for 20 check_container "$prior" "$revision" &&
@@ -185,10 +198,40 @@ restore_pending() {
         [[ -z $remaining ]] || return 1
         install_override "$snapshot" || return 1
     fi
+    if [[ $recorded == true ]]; then
+        jq '.prior | {sha, image, composeSha256, revision, run, attempt}' \
+            "$pending_file" > "$stage/last-good.json" &&
+            mv -f -- "$stage/last-good.json" "$state_file" || return 1
+    fi
     printf '%s/%s\n' "$run" "$attempt" > "$stage/failed-run" &&
         mv -f -- "$stage/failed-run" "$failed_file" &&
         abandon_pending || return 1
+    if [[ $recorded == true ]]; then
+        printf 'Restored Agency web %s as %s.\n' "$restored_sha" "$prior"
+    fi
     printf 'Restored and verified the state before Public web run %s/%s.\n' "$run" "$attempt"
+}
+
+prepare_recorded_rollback() {
+    local fallback hash fallback_sha fallback_revision
+    fallback=$(jq -er '.previousImage // ""' "$state_file") || return 1
+    hash=$(jq -er '.previousComposeSha256 // ""' "$state_file") || return 1
+    [[ ( $fallback =~ $image_pattern || $fallback =~ $image_id_pattern ) && $hash =~ $hash_pattern ]] || return 1
+    [[ $(file_hash "$(snapshot_path "$hash")") == "$hash" ]] || return 1
+    fallback_sha=$(jq -er '.previousRelease.sha // ""' "$state_file") || return 1
+    if [[ -z $fallback_sha ]]; then
+        fallback_sha=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$fallback") || return 1
+    fi
+    if ! fallback_revision=$(jq -er '.previousRelease.revision | strings' "$state_file"); then
+        fallback_revision=$(image_health_revision "$fallback") || return 1
+    fi
+    [[ $fallback_sha =~ $sha_pattern && ( -z $fallback_revision || $fallback_revision == "$fallback_sha" ) ]] || return 1
+    jq --arg fallback "$fallback" --arg hash "$hash" --arg sha "$fallback_sha" --arg revision "$fallback_revision" '
+        {sha, image, composeSha256, run, attempt, rollbackRecorded: true,
+         prior: {sha: $sha, image: $fallback, composeSha256: $hash, revision: $revision,
+                 run: .previousRelease.run, attempt: .previousRelease.attempt}}
+        ' "$state_file" > "$stage/pending.json" &&
+        mv -f -- "$stage/pending.json" "$pending_file"
 }
 
 install -d -m 0700 "$state_dir"
@@ -217,7 +260,7 @@ if [[ -f $pending_file ]] && ! restore_pending; then
 fi
 
 sha=$(main_sha)
-runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?branch=main&event=push&per_page=1")
+runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?branch=main&event=push&head_sha=$sha&per_page=1")
 run=$(jq -c --arg repo "$repo" --arg sha "$sha" '.workflow_runs[0] | select(.name == "Public web"
     and .event == "push" and .head_branch == "main" and .head_repository.full_name == $repo
     and .head_sha == $sha and .status == "completed" and .conclusion == "success")' <<< "$runs")
@@ -234,24 +277,43 @@ if [[ -f $failed_file && $(<"$failed_file") == "$run_id/$attempt" ]]; then
 fi
 
 prior_image=
+prior_sha=
 prior_hash=
 prior_revision=
+prior_run=
+prior_attempt=
 if [[ -f $state_file ]]; then
     prior_image=$(jq -er '.image' "$state_file")
     prior_sha=$(jq -er '.sha' "$state_file")
     prior_hash=$(jq -er '.composeSha256 // ""' "$state_file")
-    [[ $prior_image =~ $image_pattern && $prior_sha =~ $sha_pattern ]] || exit 1
+    prior_run=$(jq -er '.run // ""' "$state_file")
+    prior_attempt=$(jq -er '.attempt // ""' "$state_file")
+    [[ ( $prior_image =~ $image_pattern || $prior_image =~ $image_id_pattern ) && $prior_sha =~ $sha_pattern ]] || exit 1
     if [[ -n $prior_hash ]]; then
         [[ $prior_hash =~ $hash_pattern ]] || exit 1
-        prior_revision=$prior_sha
+        prior_revision=$(jq -er '.revision // .sha' "$state_file")
+        [[ -z $prior_revision || $prior_revision == "$prior_sha" ]] || exit 1
         if jq -e --arg sha "$sha" --arg run "$run_id" --arg attempt "$attempt" \
             '.sha == $sha and .run == $run and .attempt == $attempt' "$state_file" >/dev/null; then
-            if [[ $(file_hash "$override_file") == "$prior_hash" ]] &&
-                check_container "$prior_image" "$sha" && check_public "$sha" && [[ $(main_sha) == "$sha" ]]; then
+            healthy=false
+            if wait_for 3 check_current_release "$prior_image" "$prior_revision" "$prior_hash"; then
+                healthy=true
+            fi
+            verified_sha=$(main_sha)
+            if [[ $verified_sha != "$sha" ]]; then
+                printf 'Main advanced while verifying Agency web %s.\n' "$sha"
+                exit 0
+            fi
+            if $healthy; then
                 printf 'Agency web %s is current and verified.\n' "$sha"
                 exit 0
             fi
             printf 'Current Agency web release %s failed verification.\n' "$sha" >&2
+            if prepare_recorded_rollback; then
+                changed=true
+            else
+                echo 'No previously verified Agency web release is available for rollback.' >&2
+            fi
             exit 1
         fi
         [[ $(file_hash "$(snapshot_path "$prior_hash")") == "$prior_hash" ]] || exit 1
@@ -284,7 +346,7 @@ if [[ -z $prior_image && -e $override_file ]]; then
     running=$(compose "$image" ps -q "$service")
     if [[ -n $running ]]; then
         prior_image=$(docker inspect --format '{{.Image}}' "$running")
-        [[ $prior_image =~ ^sha256:[a-f0-9]{64}$ ]] || exit 1
+        [[ $prior_image =~ $image_id_pattern ]] || exit 1
         prior_revision=$(image_health_revision "$prior_image")
     fi
 fi
@@ -317,9 +379,11 @@ jq -e --arg sha "$sha" --arg attempt "$attempt" \
 
 jq -n --arg sha "$sha" --arg image "$image" --arg composeHash "$compose_hash" \
     --arg run "$run_id" --arg attempt "$attempt" --arg priorImage "$prior_image" \
-    --arg priorHash "$prior_hash" --arg priorRevision "$prior_revision" \
+    --arg priorSha "$prior_sha" --arg priorHash "$prior_hash" --arg priorRevision "$prior_revision" \
+    --arg priorRun "$prior_run" --arg priorAttempt "$prior_attempt" \
     '{sha: $sha, image: $image, composeSha256: $composeHash, run: $run, attempt: $attempt,
-      prior: {image: $priorImage, composeSha256: $priorHash, revision: $priorRevision}}' > "$stage/pending.json"
+      prior: {sha: $priorSha, image: $priorImage, composeSha256: $priorHash, revision: $priorRevision,
+              run: $priorRun, attempt: $priorAttempt}}' > "$stage/pending.json"
 prepared_sha=$(main_sha)
 if [[ $prepared_sha != "$sha" ]]; then
     printf 'Main advanced while preparing Agency web %s. Waiting for the next verified image.\n' "$sha"
@@ -338,7 +402,8 @@ if [[ $verified_sha != "$sha" ]]; then
     exit 1
 fi
 jq '{sha, image, composeSha256, run, attempt,
-     previousImage: .prior.image, previousComposeSha256: .prior.composeSha256}' \
+     previousImage: .prior.image, previousComposeSha256: .prior.composeSha256,
+     previousRelease: (.prior | {sha, revision, run, attempt})}' \
     "$pending_file" > "$stage/last-good.json"
 mv -f -- "$stage/last-good.json" "$state_file"
 changed=false
