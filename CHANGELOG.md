@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Keep app Admin enquiries and account controls readable on narrow screens.
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
