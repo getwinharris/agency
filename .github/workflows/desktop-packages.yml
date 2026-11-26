@@ -79,6 +79,9 @@ jobs:
         run: pnpm --dir apps/desktop run "$DESKTOP_PACKAGE_COMMAND"
       - name: Package macOS with a local test signature
         if: matrix.platform == 'macos-arm64'
+        env:
+          # electron-builder's PR gate also covers local ad-hoc signatures.
+          CSC_FOR_PULL_REQUEST: 'true'
         run: pnpm --dir apps/desktop run dist --ad-hoc
       - name: Smoke test packaged app
         if: matrix.platform != 'linux-x64'
