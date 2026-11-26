@@ -5,8 +5,9 @@ import sharp from "sharp";
 
 const appDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const publicDir = join(appDir, "public");
+const assetsDir = join(appDir, "../../assets");
 const checkOnly = process.argv.includes("--check");
-const source = await sharp(join(appDir, "../../assets/room-logo.png"))
+const source = await sharp(join(assetsDir, "room-logo.png"))
   .ensureAlpha()
   .raw()
   .toBuffer({ resolveWithObject: true });
@@ -16,7 +17,7 @@ const raw = {
   channels: 4,
 };
 const colors = {
-  default: "#BFFF00",
+  default: "#8851d9",
   red: "#e5484d",
   orange: "#f76b15",
   yellow: "#ffba18",
@@ -28,8 +29,8 @@ const colors = {
 };
 const mismatches = [];
 
-async function writeOrCheck(name, content) {
-  const target = join(publicDir, name);
+async function writeOrCheck(name, content, directory = publicDir) {
+  const target = join(directory, name);
   if (!checkOnly) return writeFile(target, content);
   const existing = await readFile(target).catch((error) => {
     if (error.code !== "ENOENT") throw error;
@@ -60,9 +61,15 @@ function imagePixels(color, monochrome = false) {
 const baseManifest = JSON.parse(
   await readFile(join(publicDir, "manifest.webmanifest"), "utf8"),
 );
+await writeOrCheck(
+  "bapx-logo.png",
+  await sharp(imagePixels(colors.default), { raw }).png().toBuffer(),
+  assetsDir,
+);
+
 for (const [color, hex] of Object.entries(colors)) {
   const suffix = color === "default" ? "" : `-${color}`;
-  const pixels = color === "default" ? source.data : imagePixels(hex);
+  const pixels = imagePixels(hex);
   for (const size of [192, 512]) {
     await writeOrCheck(
       `icon-${size}${suffix}.png`,
@@ -122,8 +129,8 @@ for (const size of [192, 512]) {
   );
 }
 for (const [suffix, color] of [
-  ["", "#151515"],
-  ["-dark", "#f8f4e2"],
+  ["", colors.default],
+  ["-dark", colors.default],
   ["-dev", "#626262"],
 ]) {
   for (const size of [16, 32]) {
@@ -138,7 +145,7 @@ for (const [suffix, color] of [
 }
 if (mismatches.length) {
   console.error(
-    `Generated Cloudroom icons are out of date:\n${mismatches.join("\n")}\nRun pnpm --filter @cloudroom/app generate:pwa-icons.`,
+    `Generated bapX Agents icons are out of date:\n${mismatches.join("\n")}\nRun pnpm --filter @cloudroom/app generate:pwa-icons.`,
   );
   process.exitCode = 1;
 }

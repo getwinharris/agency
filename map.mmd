@@ -1,0 +1,22 @@
+flowchart TD
+  source["getwinharris/agency"]
+  gui["gui/apps/app and gui/apps/desktop"]
+  core["core: native agent sessions"]
+  web["gui/apps/www: static site build"]
+  rustweb["cloudroom serve-web: isolated first-party web mode"]
+  image["deploy/web.Dockerfile"]
+  landing["bapx.in: bapX Agents landing and privacy"]
+  docs["docs.bapx.in: app and Core setup"]
+  mediahub["mediahub.bapx.in: services, portfolio and briefs"]
+  private["Private MediaHub data volume"]
+  source --> gui
+  source --> core
+  source --> web
+  gui --> core
+  web --> image
+  core --> image
+  image --> rustweb
+  rustweb --> landing
+  rustweb --> docs
+  rustweb --> mediahub
+  mediahub --> private

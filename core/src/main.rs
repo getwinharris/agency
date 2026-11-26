@@ -84,6 +84,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(unix)]
 async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    if args.first().map(String::as_str) == Some("serve-web") {
+        if args.len() != 1 {
+            return Err("Usage: cloudroom serve-web".into());
+        }
+        return cloudroom::web::serve().await;
+    }
     if args.first().map(String::as_str) == Some("helper") {
         if let Err(error) = cloudroom::helper::cli(&args[1..]).await {
             eprintln!("{error}");

@@ -21,6 +21,7 @@
     "dev:restart-host-daemon": "node --import tsx scripts/set-env.mjs NODE_ENV=development node --conditions=source --import tsx packages/scripts/src/commands/request-dev-restart.ts host-daemon",
     "dev:host-daemon": "node --import tsx scripts/set-env.mjs NODE_ENV=development dotenv -c development -- node --conditions=source --import tsx packages/scripts/src/commands/run-host-daemon.ts",
     "build": "turbo run build --filter=@cloudroom/scripts --filter=@cloudroom/app --filter=@cloudroom/server --filter=@cloudroom/host-daemon --filter=@cloudroom/cli --filter=bb-app",
+    "build:web": "node apps/www/src/build.ts",
     "bb-app:prepare": "turbo run build --filter=bb-app --output-logs=none --log-prefix=none --summarize=false",
     "start": "node --import tsx scripts/set-env.mjs NODE_ENV=production dotenv -c production -- node --conditions=source --import tsx scripts/start-app.mjs",
     "start:host-daemon": "node --import tsx scripts/set-env.mjs NODE_ENV=production dotenv -c production -- pnpm run --silent bb-app:prepare && node --import tsx scripts/set-env.mjs NODE_ENV=production dotenv -c production -- node packages/bb-app/dist/bb-app.js host-daemon",

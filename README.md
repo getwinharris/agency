@@ -1,3 +1,17 @@
+# bapX Agents
+
+bapX Agents is the bapX fork of Cloudroom for running native coding agents on a
+Mac and a private Linux Core. Agency is the GitHub source for the app, public
+website, documentation, and MediaHub.
+
+[bapX](https://bapx.in/) · [Documentation](https://docs.bapx.in/) ·
+[MediaHub](https://mediahub.bapx.in/) · [Agency releases](https://github.com/getwinharris/agency/releases)
+
+## Upstream Cloudroom
+
+The following upstream overview describes the architecture and Cloudroom's
+original distribution. Follow bapX documentation for bapX releases.
+
 <p align="center">
   <img src=".github/readme/runtime.png" alt="Any harness, in the cloud. Claude Code, Codex, Pi, and OpenCode each run their own CLI in an isolated sandbox, with Cloudroom core next to it. Sessions stream live to the app and teleport between your Mac and the cloud." width="100%">
 </p>

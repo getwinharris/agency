@@ -3,7 +3,7 @@ import { Button } from "@cloudroom/shared-ui/button";
 import { useDesktopUpdateInfo } from "@/hooks/useDesktopUpdateInfo";
 import { useBrowserDimmingModal } from "@/hooks/useBrowserDimmingModal";
 
-const APP_ICON = "/apple-touch-icon.png?v=room";
+const APP_ICON = "/apple-touch-icon.png?v=bapx";
 
 // The macOS Applications folder: blue folder, App Store "A", shortcut arrow.
 function ApplicationsFolder() {

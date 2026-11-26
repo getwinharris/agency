@@ -748,6 +748,8 @@ importers:
         specifier: npm:@typescript/typescript6@^6.0.2
         version: '@typescript/typescript6@6.0.2'
 
+  apps/www: {}
+
   examples/plugins/agent-enrichment:
     dependencies:
       zod:

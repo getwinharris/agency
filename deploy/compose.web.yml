@@ -1,0 +1,39 @@
+services:
+  agency-web:
+    image: ${BAPX_WEB_IMAGE:?Set BAPX_WEB_IMAGE to the verified Agency image}
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - agency-web-data:/var/lib/bapx-web
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.agency-web.loadbalancer.server.port: "8080"
+      traefik.http.routers.agency-web.entrypoints: websecure
+      traefik.http.routers.agency-web.tls: "true"
+      traefik.http.routers.agency-web.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-web.service: agency-web
+      traefik.http.routers.agency-web.priority: "500"
+      traefik.http.routers.agency-web.middlewares: agency-public
+      traefik.http.routers.agency-web.rule: >-
+        (Host(`bapx.in`) || Host(`www.bapx.in`)) &&
+        (Path(`/`) || Path(`/index.html`) || Path(`/privacy`) || PathPrefix(`/privacy/`) ||
+        Path(`/favicon.ico`) || Path(`/site.css`) || Path(`/brand/mark.svg`) ||
+        Path(`/brand/favicon.svg`) || Path(`/brand/mac-to-cloud.webp`) || Path(`/brand/session-demo.js`))
+        || Host(`docs.bapx.in`) || Host(`mediahub.bapx.in`)
+      traefik.http.routers.agency-mediahub-brief.entrypoints: websecure
+      traefik.http.routers.agency-mediahub-brief.tls: "true"
+      traefik.http.routers.agency-mediahub-brief.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-mediahub-brief.service: agency-web
+      traefik.http.routers.agency-mediahub-brief.priority: "510"
+      traefik.http.routers.agency-mediahub-brief.rule: >-
+        Host(`mediahub.bapx.in`) && Path(`/api/mediahub/inquiries`) && Method(`POST`)
+      traefik.http.routers.agency-mediahub-brief.middlewares: agency-mediahub-rate,agency-public
+      traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie: ""
+      traefik.http.middlewares.agency-mediahub-rate.ratelimit.average: "8"
+      traefik.http.middlewares.agency-mediahub-rate.ratelimit.period: 1m
+      traefik.http.middlewares.agency-mediahub-rate.ratelimit.burst: "4"
+
+volumes:
+  agency-web-data:

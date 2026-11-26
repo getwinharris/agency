@@ -7,8 +7,9 @@ import {
 import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
 import { CHANGELOG_LINKS } from "./changelog-preview";
 
-const WEBSITE_URL = "https://www.cloudroom.dev";
-const GITHUB_REPO_URL = "https://github.com/davidondrej/cloudroom";
+const WEBSITE_URL = "https://bapx.in";
+const GITHUB_REPO_URL = "https://github.com/getwinharris/agency";
+const UPSTREAM_REPO_URL = "https://github.com/davidondrej/cloudroom";
 const ROOM_CREDIT_URL = "https://github.com/get-bb/bb";
 
 interface CommunityLinkRowProps {
@@ -53,40 +54,53 @@ export function CommunitySettingsSection() {
   return (
     <SettingsSection
       title="Community"
-      description="Follow Cloudroom development and learn how to get started."
+      description="Follow bapX Agents development and learn how to get started."
     >
       <div className="space-y-5">
         <CommunityLinkRow
           label="Website"
-          description="Product updates, blog posts, and security details."
+          description="Learn about bapX Agents and contact the bapX team."
           href={WEBSITE_URL}
           icon="Globe"
-          openLabel="Visit cloudroom.dev"
+          openLabel="Visit bapx.in"
         />
         <CommunityLinkRow
           label="GitHub"
-          description="Source code, issues, and contributions for the Cloudroom GUI."
+          description="Source code, issues, and contributions for bapX Agents."
           href={GITHUB_REPO_URL}
           icon="GithubLogo"
           openLabel="View on GitHub"
         />
         <CommunityLinkRow
           label="Getting started"
-          description="Build the GUI and connect to Cloudroom."
+          description="Build the app from source or learn about self-hosting."
           href={`${GITHUB_REPO_URL}#readme`}
           icon="Explore"
           openLabel="Read the guide"
         />
         {CHANGELOG_LINKS.page !== null ? (
           <CommunityLinkRow
-            label="Changelog"
-            description="Cloudroom release notes and manual update information."
+            label="Upstream changelog"
+            description="Release notes for the Cloudroom project."
             href={CHANGELOG_LINKS.page}
             icon="ExternalLink"
             openLabel="Read the changelog"
           />
         ) : null}
         <p className="text-xs text-muted-foreground">
+          <a
+            href={UPSTREAM_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-sm underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={(event) => {
+              event.preventDefault();
+              openUrlInExternalBrowser(UPSTREAM_REPO_URL);
+            }}
+          >
+            Based on Cloudroom
+          </a>
+          {" · "}
           <a
             href={ROOM_CREDIT_URL}
             target="_blank"

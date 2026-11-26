@@ -1,0 +1,9 @@
+{
+  "name": "@bapx/www",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "node src/build.ts"
+  }
+}
