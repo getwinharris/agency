@@ -29,7 +29,7 @@ function callbackPage(success: boolean, message: string, nonce: string): string 
   const title = success ? "You’re signed in" : "Sign-in not completed";
   const escaped = message.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>${title} | Cloudroom</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>${title} | bapX Agents</title>
 <style nonce="${nonce}">
 :root{--accent:#bfff00}*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100svh;display:grid;place-items:center;padding:24px;background:#0a0a0a;color:#fafafa;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
 main{width:100%;max-width:560px;padding:48px;border:1px solid #303030;background:#141414}.brand{color:inherit;text-decoration:none;font-size:28px;font-weight:700;letter-spacing:-1px}.brand span{color:var(--accent)}.brand:focus-visible{outline:2px solid var(--accent);outline-offset:8px}
@@ -37,13 +37,13 @@ main{width:100%;max-width:560px;padding:48px;border:1px solid #303030;background
 h1{margin:0 0 20px;font-size:clamp(28px,5vw,40px);font-weight:500;letter-spacing:-1.5px;line-height:1.15}p{margin:0;color:#b5b5b5;font-size:17px;line-height:1.65;overflow-wrap:anywhere}.next{margin-top:32px;padding-top:28px;border-top:1px solid #303030}.next strong{display:block;margin-bottom:8px;font-size:16px;font-weight:500}.next p{font-size:14px}.open{display:flex;align-items:center;justify-content:space-between;gap:16px}.button{flex-shrink:0;padding:12px 18px;background:var(--accent);color:#0a0a0a;font-size:14px;font-weight:700;text-decoration:none}.button:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.local{margin-top:32px;font-size:12px;color:#999}
 @media(max-width:480px){main{padding:32px 24px}.status{margin-top:32px}.open{flex-direction:column;align-items:flex-start}}
 </style></head><body><main>
-<a class="brand" href="https://www.cloudroom.dev">cloudroom<span>.</span></a>
+<a class="brand" href="https://bapx.in/">bapX Agents<span>.</span></a>
 <div class="status"><span class="symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${success ? '<path d="m5 12 4 4L19 6"/>' : '<path d="M12 5v9m0 3v2"/>'}</svg></span>${success ? "Sign-in complete" : "Please try again"}</div>
 <h1>${title}</h1><p>${escaped}</p>
 ${success
-    ? '<div class="next open"><div><strong>Head back to Cloudroom</strong><p>Next, connect Claude Code and Codex in the app. You can close this browser tab.</p></div><a class="button" href="cloudroom://open">Open Cloudroom</a></div>'
-    : '<div class="next"><strong>Start sign-in again from the Cloudroom app</strong><p>You can close this browser tab.</p></div>'}
-<p class="local">This page is served by Cloudroom on your ${COMPUTER}.</p>
+    ? '<div class="next open"><div><strong>Head back to bapX Agents</strong><p>Next, connect Claude Code and Codex in the app. You can close this browser tab.</p></div><a class="button" href="bapx-agents://open">Open bapX Agents</a></div>'
+    : '<div class="next"><strong>Start sign-in again from bapX Agents</strong><p>You can close this browser tab.</p></div>'}
+<p class="local">This page is served by bapX Agents on your ${COMPUTER}.</p>
 </main></body></html>`;
 }
 

@@ -22,7 +22,7 @@ original distribution. Follow bapX documentation for bapX releases.
   <a href="core/docs/harnesses.md">Harness adapters</a> ·
   <a href="core/docs/setup.md">Self-host</a> ·
   <a href="core/docs/api.md">HTTP API</a> ·
-  <a href="https://github.com/davidondrej/cloudroom/releases/latest">Download</a>
+  <a href="https://github.com/davidondrej/cloudroom/releases/latest">Upstream Cloudroom releases</a>
 </p>
 
 <p align="center">
