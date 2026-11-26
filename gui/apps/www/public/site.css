@@ -6,7 +6,6 @@
   --muted: #beb9ca;
   --line: #352e42;
   --violet: #ccaaff;
-  --lime: #d3fb72;
   font-family: Inter, "Segoe UI", Arial, "Liberation Sans", sans-serif;
   background: var(--background);
   color: var(--text);
@@ -20,7 +19,7 @@ a { color: inherit; text-underline-offset: .23em; }
 button { font: inherit; }
 img { display: block; max-width: 100%; height: auto; }
 [hidden] { display: none !important; }
-:focus-visible { outline: 2px solid var(--lime); outline-offset: 5px; }
+:focus-visible { outline: 2px solid var(--violet); outline-offset: 5px; }
 
 .shell { width: min(84rem, calc(100% - clamp(2.5rem, 8.4vw, 8rem))); margin-inline: auto; }
 .skip {
@@ -29,7 +28,7 @@ img { display: block; max-width: 100%; height: auto; }
   padding: .65rem .9rem;
   z-index: 2;
   color: var(--background);
-  background: var(--lime);
+  background: var(--violet);
   border-radius: .3rem;
 }
 .skip:not(:focus) { clip-path: inset(100%); }
@@ -165,8 +164,8 @@ img { display: block; max-width: 100%; height: auto; }
   transition: background-color .18s ease, border-color .18s ease, transform .18s ease;
 }
 .button:hover { transform: translateY(-2px); }
-.button-primary { background: var(--lime); color: #141906; }
-.button-primary:hover { background: #e5ffac; }
+.button-primary { background: var(--violet); color: var(--background); }
+.button-primary:hover { background: #dfcaff; }
 .button-secondary { background: #15111cc4; border-color: #594d68; }
 .button-secondary:hover { border-color: var(--violet); background: #21182d; }
 
