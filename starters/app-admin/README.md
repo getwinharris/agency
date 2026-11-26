@@ -38,12 +38,13 @@ provider's message status for a live check. [Google OpenID Connect](https://deve
 
 The process listens on loopback by default. For a TLS proxy in a separate
 container, set `APP_BIND_ADDRESS=0.0.0.0` and attach the app and proxy to a
-private bridge. Keep the app port unpublished on the host. Configure the proxy
+dedicated private bridge with no unrelated containers. Keep the app port
+unpublished on the host. Configure the proxy
 to terminate TLS for the exact hostname in `APP_ORIGIN` and preserve the
-browser's `Host`, `Origin`, and the app's host-only session cookies. Keep platform
-credentials out of upstream requests. A direct upstream health check must send
-the configured `Host` for `GET /healthz` to return 204. Provide outbound HTTPS
-access to the configured sign-in providers when using live credentials.
+browser's `Host`, `Origin`, and the app's host-only sign-in and session cookies.
+Strip unrelated cookies and Authorization headers. A direct upstream health
+check must send the configured `Host` for `GET /healthz` to return 204. When
+using live credentials, allow outbound HTTPS to the configured sign-in providers.
 
 Apply per-source limits for starting sign-in at the hosting edge. The starter
 limits challenge volume by provider, browser, and email address as applicable.
