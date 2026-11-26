@@ -1,0 +1,13 @@
+{
+  "forms": [
+    {
+      "id": "enquiry",
+      "title": "Project enquiry",
+      "fields": [
+        { "id": "name", "label": "Name", "type": "text", "required": true },
+        { "id": "email", "label": "Email address", "type": "email", "required": true },
+        { "id": "message", "label": "How can we help?", "type": "textarea", "required": true }
+      ]
+    }
+  ]
+}

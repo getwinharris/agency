@@ -2,7 +2,7 @@ name: App
 
 on:
   pull_request:
-    paths: ['gui/**', 'skills/**', '.github/workflows/app.yml']
+    paths: ['gui/**', 'skills/**', 'starters/app-admin/**', '.github/workflows/app.yml']
   workflow_dispatch:
   workflow_call:
 
@@ -36,3 +36,8 @@ jobs:
         run: pnpm exec turbo run build typecheck --filter=@cloudroom/app --filter=@cloudroom/server --filter=@cloudroom/desktop --concurrency=2
       - name: Tests
         run: pnpm exec turbo run test --filter=@cloudroom/config --concurrency=2
+      - name: App starter tests
+        working-directory: starters/app-admin
+        run: |
+          npm ci --ignore-scripts
+          npm test

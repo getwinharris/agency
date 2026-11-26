@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.
 - Add bapX Agents landing and documentation on the Cloudroom fork.
 - Add an interactive walkthrough of local and remote Core sessions.
