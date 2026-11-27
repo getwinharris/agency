@@ -181,6 +181,12 @@ def verify(binary, image, socket):
                     origin, alice, "alpha", "notes", ["node", "-e", "process.exit(7)"]
                 )
                 assert status == 200 and output["exit_code"] == 7, (status, output)
+                status, output = run(
+                    origin, alice, "alpha", "notes",
+                    ["node", "-e", "process.stdout.write('finished'); process.exitCode = 125;"],
+                )
+                assert status == 200 and output["exit_code"] == 125, (status, output)
+                assert output["stdout"] == "finished" and not output["stderr"], output
                 policy["businesses"]["alpha"]["members"] = []
                 write_policy(path, policy)
                 assert run(origin, alice, "alpha", "notes", argv) == absent

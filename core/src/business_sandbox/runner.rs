@@ -202,10 +202,21 @@ async fn start(settings: &Settings, name: &str) -> Result<Output, Error> {
         .await
         .map_err(|_| Error::Timeout)?
         .map_err(|_| Error::Backend)?;
-    let exit_code = status
-        .code()
-        .filter(|code| *code != 125)
-        .ok_or(Error::Backend)?;
+    let exit_code = status.code().ok_or(Error::Backend)?;
+    if exit_code == 125 {
+        // The CLI can also use 125 for its own errors.
+        let state = inspect(docker(settings).args([
+            "container",
+            "inspect",
+            "--format",
+            "{{.State.Status}}:{{.State.ExitCode}}:{{.State.Error}}",
+            name,
+        ]))
+        .await;
+        if state.as_deref() != Some("exited:125:") {
+            return Err(Error::Backend);
+        }
+    }
     Ok(Output {
         exit_code,
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
