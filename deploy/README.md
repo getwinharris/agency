@@ -157,58 +157,22 @@ Set `BAPX_PILOT_KEEP=1` to retain the staging proxy at VPS loopback port
 8443. The script prints the temporary CA and the hostname to resolve to
 127.0.0.1. This uses neither production DNS nor first-party proxy configuration.
 
-## Release the customer app sample
+## Test the isolated customer app sample
 
-The **Public web** workflow builds and tests the sample separately. On a
-successful `main` build it uploads `agency-app-sample-release-ATTEMPT`,
-containing the sample image digest, exact SHA and checksummed proxy and Compose
-files. The artifact name identifies the sample job's build attempt.
-Its result does not block the first-party deployment job. The sample job
-runs the exact-release gate fixture with
-`node --test deploy/app-sample/release.test.mjs` before building.
+Public web runs the sample fixture after its PR web job passes. The fixture
+builds the exact job SHA and checks the app revision, signup and enquiry
+persistence across replacement, and separate member and Admin access. It
+runs with private test data and removes the Compose volumes on exit.
 
-After an exact `main` Public web push run completes successfully, **Deploy app
-sample** requests the sample rollout with that run's SHA, ID and attempt. The
-Hostinger worker requires the latest successful deploy and sample jobs for the
-same SHA, the deploy attempt's verified receipt, the current `main` SHA on
-bapx.in, and one artifact from the successful sample attempt. A jobs-only rerun
-can reuse an earlier successful sibling on the same SHA. A superseded SHA
-fails this gate. The worker checks the candidate image label,
-sample HTTPS revision and signed-out Admin status before promoting the bundle.
-On failure it restores the previous verified sample, or removes sample
-containers on first placement. It preserves the sample data volume.
-
-The named route is [dynamic-check.app.bapx.in](https://dynamic-check.app.bapx.in/).
-Only the edge proxy joins the ingress network. The app shares neither storage
-nor account credentials with the Rust web service. The static sandbox pilot
-keeps its own route and publishing path.
-
-Before first activation, provision a separate `bapx-sample-deploy` SSH user
-with only the forced command below and place its dedicated key, pinned VPS
-host keys, and host name in the `app-sample-production` Actions environment.
-Use the existing secret names `VPS_SSH_PRIVATE_KEY`, `VPS_SSH_KNOWN_HOSTS`
-and `VPS_SSH_HOST`.
-
-```text
-restrict,command="sudo -n /usr/local/libexec/bapx-agency-app-sample-ssh" ssh-ed25519 <sample-deploy-public-key>
-```
-
-Install the approved scripts and sudoers rule. Store the sample owner password
-in `/etc/bapx-agency/sample-owner-password`, with owner UID/GID 1000 and mode
-0400. Keep it separate from the bapX operator credential. Confirm the ingress
-network in `deploy/app-sample/compose.yml` and the route's TLS setup before
-approving the sample deployment.
+On a disposable Linux Docker host, build the fixture from the checked-out
+revision and run the same test.
 
 ```sh
-sudo install -o root -g root -m 0755 deploy/app-sample/deploy-ssh.sh /usr/local/libexec/bapx-agency-app-sample-ssh
-sudo install -o root -g root -m 0755 deploy/app-sample/deploy.sh /usr/local/libexec/bapx-agency-app-sample-deploy
-sudo visudo -cf deploy/app-sample/deploy.sudoers
-sudo install -o root -g root -m 0440 deploy/app-sample/deploy.sudoers /etc/sudoers.d/bapx-sample-deploy
+sha=$(git rev-parse HEAD)
+docker build -f deploy/dynamic-pilot/Dockerfile --build-arg "SOURCE_SHA=$sha" -t agency-app-sample:check .
+bash deploy/app-sample/test.sh agency-app-sample:check "$sha"
 ```
 
-Verify `X-BapX-App-Revision` on sample `/healthz` and record the exact SHA,
-Public web run and attempt, sample deployment run, image digest and rollback
-bundle. After approval for synthetic sample data, exercise signup, enquiry,
-owner access and member Admin denial. Use `deploy/app-sample/probe.mjs seed`
-and `reopen` to check persistence across an approved restart. Keep their proof
-file private because it contains sample session credentials.
+This is a local and PR CI fixture. The first-party Rust image and its release
+workflow remain independent of the sample. A public sample requires a
+separately reviewed deployment that meets the repository runtime policy.

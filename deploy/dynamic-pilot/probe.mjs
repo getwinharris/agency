@@ -10,6 +10,7 @@ const email = "owner@example.test";
 const enquiry = "Disposable HTTPS enquiry survives replacement.";
 const phase = process.argv[2];
 const expected = process.env.EXPECTED_REVISION;
+const candidatePhase = phase === "upgrade" || phase === "restart";
 const proofPath = "/fixture-data/probe.json";
 
 function send(path, { body, host = origin.host, requestOrigin = origin.origin } = {}) {
@@ -55,7 +56,12 @@ async function ready() {
   for (let attempt = 0; attempt < 45; attempt++) {
     try {
       const health = await send("/healthz");
-      if (health.code === 204 && health.headers["x-bapx-fixture-revision"] === expected) return;
+      if (health.code === 204 && health.headers["x-bapx-fixture-revision"] === expected) {
+        if (candidatePhase) {
+          assert.equal(health.headers["x-bapx-app-revision"], expected, "Expected the app's own revision header");
+        }
+        return;
+      }
     } catch (error) {
       if (error.code !== "ECONNREFUSED" && error.code !== "ECONNRESET") throw error;
     }

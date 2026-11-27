@@ -122,7 +122,6 @@
   "workspace_config": "gui/pnpm-workspace.yaml",
   "sources": {
     "workflows": [
-      ".github/workflows/app-sample-release.yml",
       ".github/workflows/app.yml",
       ".github/workflows/core.yml",
       ".github/workflows/desktop-packages.yml",

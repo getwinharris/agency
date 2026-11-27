@@ -12,7 +12,7 @@ git -C "$repo" grep -q APP_BIND_ADDRESS "$source_sha" -- starters/app-admin/conf
 
 node_image=node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd
 edge_image=nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
-host=dynamic-check.app.bapx.in
+host=dynamic-check.example.test
 origin="https://$host:8443"
 work=$(mktemp -d "${TMPDIR:-/tmp}/bapx-dynamic-hosting.XXXXXXXX")
 suffix=${work##*.}
@@ -134,7 +134,7 @@ if (( keep == 1 )); then
     curl --noproxy '*' --fail --silent --show-error --max-time 10 \
         --cacert "$work/tls/cert.pem" --resolve "$host:8443:127.0.0.1" \
         --dump-header "$work/health.headers" --output /dev/null "$origin/healthz"
-    grep -Fqi "X-BapX-Fixture-Revision: $source_sha" "$work/health.headers"
+    tr -d '\r' < "$work/health.headers" | grep -Fxqi "X-BapX-App-Revision: $source_sha"
 fi
 printf 'Build SHA %s\nImage ID %s\nRollback SHA %s\nRollback image %s\nIsolated HTTPS %s/\nApp data volume %s\nFixture volume %s\n' \
     "$source_sha" "$candidate_image" "$baseline_sha" "$baseline_image" "$origin" "$data" "$fixture" |

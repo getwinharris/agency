@@ -5,7 +5,6 @@ on:
     paths:
       - 'deploy/app-sample/**'
       - 'deploy/dynamic-pilot/**'
-      - '.github/workflows/app-sample-release.yml'
       - 'starters/app-admin/**'
       - '.github/workflows/dynamic-pilot.yml'
   workflow_dispatch:

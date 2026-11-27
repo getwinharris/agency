@@ -107,13 +107,11 @@ flowchart TD
     starter["Opt-in standalone app and site-local /admin · starters/app-admin/"]
     appData["Private per-project accounts, credentials and form records"]
     dynamicPilot["Disposable TLS and rollback checks · deploy/dynamic-pilot/"]
-    sampleBundle["Separate sample image and bundle · Public web sample job"]
-    sampleRelease["Completed Public web → Deploy app sample · deploy/app-sample/"]
-    sampleHost["Exact-host TLS and isolated storage · dynamic-check.app.bapx.in"]
+    sampleCI["Isolated customer sample fixture · deploy/app-sample/"]
     projects --> dist --> publish -->|"Write completed revisions"| siteData
     projects --> starter --> appData
     starter --> dynamicPilot
-    starter --> sampleBundle --> sampleRelease --> sampleHost
+    starter --> sampleCI
   end
 
   workspace --> webSource
@@ -124,7 +122,6 @@ flowchart TD
   image --> webChecks
   rollout -->|"Replace only agency-web, verify routes, restore healthy release on failure"| webRuntime
   readiness -->|"Host TLS smoke checks"| receipt
-  receipt -->|"Exact SHA, run and attempt"| sampleRelease
   rust --> coreApi
   rust --> sandboxRunner
   siteData -->|"Read-only mount"| staticPilot

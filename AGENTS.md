@@ -81,10 +81,6 @@ blocker and the safe fallback used.
   them independently. A supported deployment-only capability may publish
   those apps separately; that does not make Node.js part of the bapX runtime.
   Mark a deployment target unverified until its real publish path is tested.
-- Trigger the separate customer sample rollout from the successful Public web
-  main push run. Verify the same SHA, workflow attempt, serving revision, and
-  immutable sample artifact before replacing the sample. Keep the sample and
-  first-party rollout permissions and data separate.
 
 ## Public and private surfaces
 
