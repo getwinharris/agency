@@ -70,3 +70,62 @@ bridge. The script prints the fixture CA and a hostname to resolve to
 mode uses neither production DNS nor first-party proxy configuration. The
 default CI run stops its disposable containers and network at the end. The
 test volumes and private verification file remain available for inspection.
+
+## Publish the Node app sample
+
+The sample service consumes an `agency-app-sample-release` artifact from the
+same successful `Public web` run as the first-party platform. It also checks
+that the exact current `main` revision is already serving on bapx.in. The
+release workflow publishes the sample image by digest and uses
+`deploy/app-sample/bundle.sh` to package its manifest, proxy, and Compose files.
+Run `deploy/app-sample/test.sh IMAGE FULL_MAIN_SHA` against the built image
+before publishing it.
+
+The named route is [dynamic-check.app.bapx.in](https://dynamic-check.app.bapx.in/).
+This is a single operator-managed sample from the reviewed Agency source. It
+uses Traefik's existing HTTPS certificate resolver and an exact-host proxy.
+The Node process joins only the sample's internal network. The proxy forwards
+the sample's own session cookie, origin, and form content type. It limits
+writes, and the sample uses no mail delivery, Google sign-in, platform secrets,
+or shared Agency data. Its separate Docker volume keeps demo accounts and
+enquiries across a process replacement or image rollback. Keep the previous
+sample image locally.
+
+Once the approved release workflow publishes the sample artifact, the
+Hostinger release service invokes the sample service after the first-party
+rollout. For a first-time sample setup, create a new sample-only owner password
+file. Store the disposable owner
+credential separately from the bapX operator credential.
+
+```sh
+sudo bash -c 'set -euo pipefail
+  umask 077
+  set -o noclobber
+  openssl rand -hex 32 > /etc/bapx-agency/sample-owner-password
+  chown 1000:1000 /etc/bapx-agency/sample-owner-password
+  chmod 0400 /etc/bapx-agency/sample-owner-password'
+sudo install -o root -g root -m 0755 deploy/app-sample/deploy.sh /usr/local/libexec/bapx-agency-app-sample-deploy
+sudo install -o root -g root -m 0644 deploy/app-sample/bapx-agency-app-sample.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+The next web timer run invokes the sample service. It checks the sample's
+public TLS route, app revision header, and signed-out Admin response before
+recording success under `/var/lib/bapx-agency-app-sample`. On rollout failure
+it restores the previous sample bundle, or removes the sample containers on
+first placement. The data volume is kept. Check the service journal for the
+failed attempt and rerun CI after fixing the cause.
+
+For acceptance, read the serving SHA from `/healthz`, then exercise signup
+with a disposable `example.test` address and submit a synthetic enquiry.
+The sample owner can view it in the sample Admin and the regular account gets
+403. For repeatable checks, run the probe below as an operator. It uses the
+system trust store and saves its sample sessions in a private proof file.
+
+```sh
+proof_dir=$(mktemp -d)
+sudo env BAPX_SAMPLE_OWNER_FILE=/etc/bapx-agency/sample-owner-password \
+  node deploy/app-sample/probe.mjs seed "$proof_dir/proof.json" FULL_MAIN_SHA
+# After the approved sample restart or redeploy:
+sudo node deploy/app-sample/probe.mjs reopen "$proof_dir/proof.json" FULL_MAIN_SHA
+```

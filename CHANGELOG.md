@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Package a single public Node app-admin sample with an exact-main release, private storage, and verified rollback.
 - Verify isolated dynamic Node hosting over HTTPS and preserve app data through container replacement.
 - Let an app Admin starter listen on a private bridge behind its TLS proxy.
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.

@@ -21,6 +21,9 @@ flowchart TD
   deploy --> webMode
   deploy --> dynamicPilot["deploy/dynamic-pilot: isolated Node HTTPS and replacement check"]
   appStarter --> dynamicPilot
+  deploy --> publicSample["deploy/app-sample: exact-main HTTPS Node sample and rollback"]
+  dynamicPilot --> publicSample
+  publicSample --> dynamicHost["dynamic-check.app.bapx.in: isolated Node sample"]
 
   webMode --> landing["bapx.in: product and privacy"]
   webMode --> docs["docs.bapx.in: documentation"]
