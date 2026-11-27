@@ -34,7 +34,8 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir "$work/source" "$work/tls"
-git -C "$repo" archive "$source_sha" starters/app-admin | tar -xf - -C "$work/source"
+git -C "$repo" archive "$source_sha" starters/app-admin |
+    tar --same-permissions --no-same-owner -xf - -C "$work/source"
 docker build --file "$here/Dockerfile" --build-arg "SOURCE_SHA=$source_sha" --tag "$image" "$work/source"
 image_id=$(docker image inspect --format '{{.Id}}' "$image")
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image_id")" = "$source_sha"
