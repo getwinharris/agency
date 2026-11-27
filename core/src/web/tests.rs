@@ -31,6 +31,20 @@ impl Drop for Fixture {
     }
 }
 
+#[test]
+fn first_party_brand_assets() {
+    let font = "/brand/great-vibes/GreatVibes-Regular.ttf";
+    for host in ["bapx.in", "docs.bapx.in", MEDIAHUB, admin::HOST] {
+        assert_eq!(static_path(host, font), Some(font[1..].into()));
+        assert_eq!(
+            static_path(host, "/brand/lockup.css"),
+            Some("brand/lockup.css".into())
+        );
+    }
+    assert_eq!(asset_type(Path::new(font)), Some("font/ttf"));
+    assert_eq!(static_path("unknown.bapx.in", font), None);
+}
+
 #[tokio::test]
 async fn public_routes_and_private_intake() {
     let fixture = Fixture(env::temp_dir().join(format!(

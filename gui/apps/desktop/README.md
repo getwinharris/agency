@@ -258,6 +258,67 @@ installer-only notarization path, set `CLOUDROOM_NOTARIZE_LATER=1` and run
 Developer ID identity. Local builds with neither sign via keychain
 auto-discovery and skip notarization.
 
+### Build an Apple Silicon release candidate
+
+Use an approved signing Mac or private release runner and a clean checkout of
+the approved version and full Git SHA. Configure the Developer ID Application
+identity and notarization inputs above outside Git. From `gui/`, with
+dependencies installed from the lockfile, pass the approved package version and
+SHA to the candidate command.
+
+```bash
+pnpm --dir apps/desktop run dist:mac:release "$approved_version" "$approved_sha"
+```
+
+The command requires signing and notarization inputs before it builds. It uses
+a new directory under `release.noindex/` and verifies the version, Apple
+Silicon architecture, signed source commit, Developer ID signature, notarization
+ticket, and Gatekeeper assessment of the DMG and packaged apps. It writes
+`SHA256SUMS.txt` and `macos-release.json` after those checks pass. Keep the
+candidate in approved private storage while install testing is pending.
+
+On an isolated Mac, exercise public signup and sign-in with a designated test
+account, then download the same candidate through the intended delivery route.
+Preserve the download's quarantine metadata and use normal Gatekeeper and
+installation. Verify first launch and complete a harmless real task with each
+supported local coding integration using authorized accounts or models. Match
+the tested roster to the release commit and record any providers blocked by a
+missing CLI, account, model, or backend. If updates are enabled, verify the ZIP
+update path on the isolated installation. Record the release tag, version,
+source SHA, checksums, and observed install and task evidence in release notes
+before publishing the installer or adding a public download link. See
+[Mac release acceptance](https://github.com/getwinharris/agency/issues/60).
+
+#### Local coding integration coverage
+
+Use the desktop's [built-in providers](../../apps/server/src/services/plugins/builtin-registry.ts)
+and [ACP agent definitions](../../plugins/provider-acp/src/known-agents.ts) at the
+candidate SHA for the test roster. Each local session runs the integration's
+native CLI and uses the provider's own authentication and model access.
+
+- Codex, Claude Code, and Pi have dedicated provider plugins.
+- Antigravity and Cursor appear in the picker and require their native CLI to
+  start a session.
+- OpenCode, oh-my-pi, Grok Build, fx, Hermes Agent, OpenClaw, Devin, Droid, Kilo
+  Code, Cline, Kimi Code, and Agent Zero appear when their CLI is discovered on
+  the execution host.
+- OpenClaw relies on its configured Gateway. Agent Zero uses its CLI bridge
+  with an authorized server. Cloudroom Agent uses a hosted service and Cloud
+  Credits. Custom ACP agents and private Core sessions have their own setup
+  and acceptance checks.
+
+Record discovery, provider sign-in, and a completed task in a disposable
+workspace separately for each integration. A package smoke test and a CLI
+version check are evidence for packaging and discovery. Real beta availability
+requires the signed installer and observed task results.
+
+Record the execution environment for each task. Test Local on the isolated
+Mac. When an approved cloud VM is in scope, test its sign-in, workspace and
+storage access, task output, and reconnect independently. Confirm the task ran
+on the approved VM and used its storage. A [private Core](../../../core/docs/setup.md)
+has its own pairing and authorization. Record private Core evidence separately
+from hosted signup and enterprise storage provisioning.
+
 ## Auto-update
 
 Desktop packages have automatic updates disabled by default. Set

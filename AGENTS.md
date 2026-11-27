@@ -40,7 +40,7 @@ the first-party bapX sites.
   and `cargo test --locked --all-targets` for relevant Core changes.
 - `gui/apps/www/` owns the landing page, docs, MediaHub and Admin assets.
   Build with `pnpm build:web` from `gui/` using Node.js 24. The Rust
-  `cloudroom serve-web` process serves the output and API.
+  `bapx-core serve-web` process in the public image serves the output and API.
 - `gui/apps/www/src/docs/` owns the Docs navigation, Markdown renderer, and
   list of published Markdown sources. Edit guides at their source, preserve
   public slugs and heading anchors, and ensure the web image and workflow
@@ -48,6 +48,10 @@ the first-party bapX sites.
 - `gui/apps/desktop/` owns the macOS, Windows, and Linux packages. Follow the desktop
   packaging docs for versions, signing, validated downloads, and updates.
   Keep upstream license notices and compatible native protocols.
+- Build signed Apple Silicon release candidates with `dist:mac:release` at the
+  approved version and full source SHA. Keep candidate artifacts private until
+  ordinary Gatekeeper, isolated install, and the release workflow checks in the
+  [desktop packaging guide](gui/apps/desktop/README.md#build-an-apple-silicon-release-candidate) pass.
 - For App CI, use the Node version in `gui/.nvmrc`, the pnpm version in
   `gui/package.json`, and the Bun version in the App workflow.
 - Ship portable agent workflows as Agent Skills and callable tool interfaces
@@ -90,7 +94,11 @@ continuous run, without waiting for another prompt between implementation,
 testing, review, merge, and automatic deployment. Do not bypass approvals or
 required checks. For a web change, confirm the served SHA and exercise the
 changed behavior in a real browser before calling it shipped. An open PR,
-green CI, or a completed agent turn is not completion. If a gate cannot be
+green CI, a diagnostics report, an isolated smoke test, or a completed agent
+turn is not completion. Meet all agreed acceptance criteria for the in-scope
+user journey in production. Small increments are fine; a minimal demo is
+not the final deliverable. Fix recoverable blockers and keep independent
+work moving when an external dependency requires owner action. If a gate cannot be
 cleared, leave a concise handoff with the exact blocker, evidence, and next
 safe action; report non-deploying changes according to their actual scope.
 
@@ -158,7 +166,8 @@ stop condition set for the run.
    on the VPS first, from the actual download, and verify install and launch.
    Linux success does not verify another platform. Before announcing any
    platform, verify its public download, checksum, applicable signing and
-   update checks, and install and launch on that platform. Mark missing or
+   update checks, install and launch, and the agreed end-to-end workflow on
+   that platform (including signup and real agent tasks when in scope). Mark missing or
    unverified packages explicitly. A successful build is not a public release.
 
 ## Web release verification
@@ -187,4 +196,4 @@ stop condition set for the run.
   public changes and their evidence. Use the desktop package version for the
   product and the full `main` SHA for web deployments. Keep pending work and
   availability gaps marked in the notes.
-- If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete when the live revision and smoke checks pass.
+- If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete only when the live revision, smoke checks, and every in-scope user-facing acceptance check pass.

@@ -1,4 +1,4 @@
-import { faviconLinks, wordmark } from "../brand.ts";
+import { brandLockup, brandStylesheet, faviconLinks, wordmark } from "../brand.ts";
 
 export function adminPages(): Record<string, string> {
   return {
@@ -9,6 +9,7 @@ export function adminPages(): Record<string, string> {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>bapX Admin</title>
+  ${brandStylesheet}
   ${faviconLinks}
   <link rel="stylesheet" href="/admin/index.css">
   <script src="/admin/index.js" defer></script>
@@ -16,10 +17,7 @@ export function adminPages(): Record<string, string> {
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="bapX Admin home">
-      <img src="${wordmark}" alt="" width="90" height="30">
-      <span class="brand-divider" aria-hidden="true"></span><span class="domain-word">Admin</span>
-    </a>
+    ${brandLockup("brand", 90, "Admin")}
     <div id="operator-bar" class="operator" hidden>
       <span class="operator-name" id="operator-name"></span>
       <button type="button" class="control" id="sign-out">Sign out</button>

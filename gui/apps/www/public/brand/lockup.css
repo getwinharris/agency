@@ -1,0 +1,18 @@
+@font-face {
+  font-family: "Great Vibes";
+  src: url("/brand/great-vibes/GreatVibes-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+.bapx-brand-lockup { min-block-size: 2.75rem; }
+
+.bapx-brand-suffix {
+  display: inline-block;
+  color: #a155e1;
+  font: normal 400 1.65rem / 1.15 "Great Vibes", "Segoe Script", "Brush Script MT", cursive;
+  letter-spacing: 0;
+  transform: translateY(.06em);
+  white-space: nowrap;
+}

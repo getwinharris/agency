@@ -103,7 +103,7 @@ import {
   formatWorkspaceCheckoutDisplay,
   type WorkspaceCheckoutDisplay,
 } from "@/lib/workspace-checkout-display";
-import { CLOUDROOM_CLOUD_PRIMARY } from "@/lib/cloudroom-environment-label";
+import { CLOUD_PRIMARY_LABEL } from "@/lib/bapx/environment-label";
 import { useComposerTextEffects } from "@/lib/composer-text-effects";
 import { useCloudThreadWake } from "@/hooks/useCloudThreadWake";
 import { useLatestRef } from "@/hooks/useLatestRef";
@@ -455,7 +455,7 @@ export function ThreadDetailPromptArea({
   const macLostAt = useSyncExternalStore(onMacConnectionChange, otherMacLostAt, () => null);
   const cloudState = useCloudroomThread(thread.id, isCloud);
   const onVps = isCloud && cloudState.data?.vps === true;
-  const cloudPlace = onVps ? "VPS" : CLOUDROOM_CLOUD_PRIMARY;
+  const cloudPlace = onVps ? "VPS" : CLOUD_PRIMARY_LABEL;
   const teleport = useTeleportThread(thread.id);
   const canTeleport = canTeleportThread(thread);
   const cloudLocked = useCloudLocked();

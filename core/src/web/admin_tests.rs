@@ -27,6 +27,7 @@ async fn admin_auth_inquiries_and_live_copy() {
         ),
         ("docs/index.html", "Docs"),
         ("admin/index.html", "Admin"),
+        ("brand/great-vibes/GreatVibes-Regular.ttf", "Font fixture"),
     ] {
         let path = root.join(page);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -75,6 +76,19 @@ async fn admin_auth_inquiries_and_live_copy() {
         shell.headers()[header::CONTENT_SECURITY_POLICY],
         CONTENT_SECURITY_POLICY
     );
+    assert!(
+        shell.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .any(|directive| directive.trim() == "font-src 'self'")
+    );
+    let font = get(HOST, "/brand/great-vibes/GreatVibes-Regular.ttf")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(font.status(), StatusCode::OK);
+    assert_eq!(font.headers()[header::CONTENT_TYPE], "font/ttf");
     assert_eq!(
         get("bapx.in", "/admin/").send().await.unwrap().status(),
         StatusCode::NOT_FOUND
