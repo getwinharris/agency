@@ -172,7 +172,7 @@ export function unsentDeletes(db: DbQueryConnection, threadId: string): Set<stri
 /** The branch a new cloud thread starts from, saved on its first prompt. Validated by the create request schema. */
 export function baseBranch(input: string | undefined): string | undefined {
   const branch: unknown = input ? JSON.parse(input).base_branch : undefined;
-  return typeof branch === "string" && /^(?!-)[\w./-]{1,255}$/.test(branch) ? branch : undefined;
+  return typeof branch === "string" && branch !== "HEAD" && /^(?!-)[\w./-]{1,255}$/.test(branch) ? branch : undefined;
 }
 
 export function command(db: DbQueryConnection, id: string): Command | null {

@@ -12,8 +12,14 @@ the first-party bapX sites.
   child instructions, and tests in the same reviewed PR. Reconcile conflicting
   guidance and verify the resulting behavior. Propose lessons from completed
   work as reviewable edits; do not silently rewrite agent instructions.
-- Keep Agency at the workspace root. Use `map.mmd` to trace ownership, route,
-  deployment, and data boundaries.
+- Keep Agency at the workspace root. Use the generated `map.mmd` to find the
+  owning source for a route, deployment, or data boundary. Search the relevant
+  node or source path with `rg -n` and verify the behavior in the source and
+  the running system. The diagram is a source inventory. Live status requires
+  independent verification.
+- Run `bash scripts/generate-map.sh` after changing mapped inputs and commit the
+  result with the change. Run `bash scripts/generate-map.sh --check` before
+  review. Keep source pointers, route and release checks current with the code.
 - Keep customer projects under `users/<username>/<business-slug>/projects/<project-slug>/`.
   On a host with customer workspaces, read its local `OKF.md` for the workspace
   contract. Preserve customer workspaces and operational data through source or
@@ -165,9 +171,8 @@ stop condition set for the run.
 - GitHub Actions starts the Hostinger deployment for a push to `main` after
   required checks complete and the exact revision's verified image and release
   manifest are published. Include changes to shared code, build inputs, and
-  deployment configuration. Retire the VPS polling timer only after a live
-  Actions-triggered deployment verifies all first-party hosts and the rollback
-  path is ready.
+  deployment configuration. Keep production deployment event-driven and verify
+  the exact served revision and rollback image on each release.
 - Ship the first-party web hosts together as one Rust Core release. The landing,
   Docs, MediaHub, and Admin assets are part of the exact `main` image, not
   independently deployed sites or SPAs. Identify the image by its immutable
