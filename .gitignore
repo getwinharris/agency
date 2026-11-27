@@ -1,10 +1,10 @@
 # Local agent files and private VPS details
-/.agents/
+.agents/
 /.claude/skills
-/AGENTS.local.md
-/AGENTS.override.md
+AGENTS.local.md
+AGENTS.override.md
 /.vps/
-/.Agents.md
+.Agents.md
 
 # Private workspace data
 /users/
