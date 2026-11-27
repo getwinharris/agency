@@ -5,6 +5,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 ## Unreleased
 
 - Explain the private Core setup on the homepage and show parallel worktrees and reconnecting in a sample walkthrough.
+- Document how to verify the running private Core build after a restart.
 - Add a responsive homepage menu with verified destinations and remove its GitHub link.
 - Keep app Admin enquiries and account controls readable on narrow screens.
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
