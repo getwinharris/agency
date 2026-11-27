@@ -1,4 +1,5 @@
 import { faviconLinks, wordmark } from "./brand.ts";
+import { sessionWalkthrough } from "./walkthrough.ts";
 
 const website = "https://bapx.in";
 const docs = "https://docs.bapx.in";
@@ -96,7 +97,7 @@ export function page({
   <script src="/brand/landing-nav.js" defer></script>` : ""}
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
-  <link rel="stylesheet" href="/site.css?v=violet-accent">
+  <link rel="stylesheet" href="/site.css?v=${landing ? "private-core-walkthrough" : "violet-accent"}">
 ${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -136,38 +137,30 @@ export function publicPages() {
       <img src="/brand/agency-signal.webp" alt="" width="1404" height="936" fetchpriority="high">
     </div>
     <div class="hero-content">
-      <h1 id="headline">Start on your Mac.<br> Keep going <em>remotely.</em></h1>
-      <p>Run Codex and other native coding agents locally or on your private Linux Core. Keep your project in your existing Git workflow.</p>
+      <h1 id="headline">Run your coding agents on <em>bapX.</em></h1>
+      <p>Connect a Git project to your own Linux Core, run a supported coding agent, and reopen the same thread from the desktop app.</p>
       <div class="actions">
-        <a class="button button-primary" href="${docs}/#mac">Build the Mac app <span class="arrow" aria-hidden="true"></span></a>
-        <a class="button button-secondary" href="#how-it-works">See how it works <span class="arrow arrow-down" aria-hidden="true"></span></a>
+        <a class="button button-primary" href="${docs}/private-core/">Set up a private Core <span class="arrow" aria-hidden="true"></span></a>
       </div>
+      <nav class="hero-resources" aria-label="Product resources">
+        <a href="#how-it-works">See the walkthrough</a>
+        <a href="${docs}/desktop-packaging/">Desktop packages</a>
+        <a href="${docs}/">Read Docs</a>
+      </nav>
     </div>
   </section>
-  <section id="how-it-works" class="workflow" aria-labelledby="workflow-heading">
-    <h2 id="workflow-heading">One project. Two environments.</h2>
-    <div class="session-demo" data-session-demo data-active-mode="local">
-      <div class="mode-controls" role="group" aria-label="Choose where the agent runs" hidden>
-        <button type="button" data-mode="local" aria-pressed="true">On your Mac</button>
-        <button type="button" data-mode="remote" aria-pressed="false">Private Core</button>
-      </div>
-      <div class="session-diagram">
-        <div class="session-node session-local">
-          <div class="node-icon laptop-icon" aria-hidden="true"></div>
-          <div><h3>macOS</h3><p>Your development workspace</p></div>
-        </div>
-        <div class="session-path" aria-hidden="true"><span></span></div>
-        <div class="session-node session-remote">
-          <div class="node-icon server-icon" aria-hidden="true"></div>
-          <div><h3>Linux Core</h3><p>Private remote execution</p></div>
-        </div>
-      </div>
-      <p class="mode-caption" aria-live="polite">Keep the coding agent, files, and worktree on your Mac for a local session.</p>
-    </div>
+  ${sessionWalkthrough()}
+  <section class="home-capabilities" aria-labelledby="capability-heading">
+    <h2 id="capability-heading">What bapX supports</h2>
+    <dl>
+      <div><dt>Built in</dt><dd>Git worktrees for separate edits, desktop threads, and reconnecting to a private Core.</dd></div>
+      <div><dt>Supported agents</dt><dd>Use Codex, OpenCode, or another supported CLI with your own account or keys.</dd></div>
+      <div><dt>Planned</dt><dd>Hosted beta sign-up and public installers. Use the Docs to set up a private Core or build the desktop app today.</dd></div>
+    </dl>
   </section>
   ${projectGuide()}
 </main>
-<script src="/brand/session-demo.js?v=agency" defer></script>
+<script src="/brand/session-demo.js?v=private-core-walkthrough" defer></script>
 <script src="/brand/project-paths.js" defer></script>`,
     }),
     "privacy/index.html": page({
