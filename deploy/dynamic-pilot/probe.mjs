@@ -55,7 +55,12 @@ async function ready() {
   for (let attempt = 0; attempt < 45; attempt++) {
     try {
       const health = await send("/healthz");
-      if (health.code === 204 && health.headers["x-bapx-fixture-revision"] === expected) return;
+      if (health.code === 204 && health.headers["x-bapx-fixture-revision"] === expected) {
+        if (phase === "upgrade" || phase === "restart") {
+          assert.equal(health.headers["x-bapx-app-revision"], expected, "Unexpected application revision");
+        }
+        return;
+      }
     } catch (error) {
       if (error.code !== "ECONNREFUSED" && error.code !== "ECONNRESET") throw error;
     }
