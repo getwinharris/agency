@@ -1,8 +1,7 @@
-# bapX VPS Workspace
+# bapX Agency Workspace
 
-`/root/bapx.in` is the Agency Git checkout and the VPS workspace. Agency is
-`getwinharris/agency`, the Cloudroom-derived source for bapX Agents and the
-first-party bapX sites.
+Agency is `getwinharris/agency`, the Cloudroom-derived source for bapX Agents and
+the first-party bapX sites.
 
 ## Workspace contracts
 
@@ -16,12 +15,17 @@ first-party bapX sites.
 - Keep Agency at the workspace root. Use `map.mmd` to trace ownership, route,
   deployment, and data boundaries.
 - Keep customer projects under `users/<username>/<business-slug>/projects/<project-slug>/`.
-  Read `OKF.md` for the user and project workspace contract. Preserve customer
-  workspaces and operational data through source or deployment cleanup.
-- Keep credentials, runtime data, VPS configuration, and locally installed
-  skills outside commits. `.agents/skills/<name>/SKILL.md` is the native Codex
-  project path, and `.claude/skills` links to it for Claude compatibility.
-  Agency's bundled skills live in `skills/`.
+  On a host with customer workspaces, read its local `OKF.md` for the workspace
+  contract. Preserve customer workspaces and operational data through source or
+  deployment cleanup.
+- Keep credentials, runtime data, and VPS-specific configuration outside the
+  source checkout. Keep private agent notes in ignored `AGENTS.local.md` and
+  consult them when working on the host. Keep this tracked `AGENTS.md` portable
+  and free of machine-specific details. Git continues to track edits to this
+  file even when local agent files are ignored.
+- `.agents/skills/<name>/SKILL.md` is the native Codex path for locally installed
+  skills. `.claude/skills` links to it for Claude compatibility. Track portable
+  Agency skills in `skills/`.
 
 ## Agency source and development
 
@@ -97,6 +101,19 @@ waiting for a new prompt. Do not duplicate active work or bypass release gates.
 Ask only when an unresolved decision, permission, or real blocker prevents safe
 progress; record the blocker and continue another ready issue when appropriate.
 
+Before implementation, record a verifiable goal on the issue or PR. Include the
+outcome, scope, validation commands, and stop condition. When asked to set an
+active goal, use the client goal feature if it is available. Keep the issue or
+PR checkpoint current with the current branch and SHA, the last verified
+result, and the next action and owner.
+
+Treat CI, review, and deployment waits as part of the same issue cycle. Follow
+each pending check through its result, address actionable failures, and repeat
+verification on the updated revision. When a cycle spans agent turns, resume
+the same issue and PR from the recorded checkpoint. After verification, refresh
+the queue and continue with the next ready issue. Honor a request to pause or a
+stop condition set for the run.
+
 1. **Recover context.** Read the relevant instructions, issue or existing PR,
    and latest main and PR revisions. Trace the owning source, route, build
    output, and runtime in the map. Search with `rg` before adding a new owner.
@@ -145,12 +162,17 @@ progress; record the blocker and continue another ready issue when appropriate.
 ## Web release verification
 
 - Before merging a web release, verify that required CI passed and independent QA signed off on the exact PR head. Confirm the PR is eligible to merge and all blocking review findings are resolved. Recheck after any new push.
-- Use the existing CI/CD workflow so every push to `main` that affects the live web release automatically builds and deploys to Hostinger after required checks pass. Include changes to shared code, build inputs, and deployment configuration that affect the web release.
+- GitHub Actions starts the Hostinger deployment for a push to `main` after
+  required checks complete and the exact revision's verified image and release
+  manifest are published. Include changes to shared code, build inputs, and
+  deployment configuration. Retire the VPS polling timer only after a live
+  Actions-triggered deployment verifies all first-party hosts and the rollback
+  path is ready.
 - Ship the first-party web hosts together as one Rust Core release. The landing,
   Docs, MediaHub, and Admin assets are part of the exact `main` image, not
   independently deployed sites or SPAs. Identify the image by its immutable
   digest, record its Git SHA, and keep the previous healthy image for rollback.
-- Verify the same exact `main` SHA on `bapx.in`, `docs.bapx.in`,
+- Verify the same exact `main` SHA on `bapx.in`, `www.bapx.in`, `docs.bapx.in`,
   `mediahub.bapx.in`, `admin.bapx.in`, and any additional first-party hosts
   explicitly configured for that release. Run HTTPS smoke checks on each host
   and exercise the affected browser flows. Check Admin sign-in and require

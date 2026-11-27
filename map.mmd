@@ -1,5 +1,5 @@
 flowchart TD
-  root["/root/bapx.in: getwinharris/agency"]
+  root["Agency workspace: getwinharris/agency"]
   contracts["AGENTS.md, OKF.md, DESIGN.md"]
   codex[".agents/skills: native Codex project skills"]
   web["gui/apps/www: TypeScript templates and assets"]
@@ -7,7 +7,9 @@ flowchart TD
   sharedSkills["skills/: portable Agent Skills with native discovery checks"]
   core["core: private native agent service"]
   webMode["cloudroom serve-web: Rust first-party web server"]
-  deploy["deploy: verified main image and Traefik routes"]
+  workflow["Public web Actions: main push, App and Core gates, web image and release artifact"]
+  deploy["deploy: pinned SSH, Hostinger rollout and verified rollback"]
+  vpsConfig["Hostinger: private checkout and Compose project configuration"]
 
   root --> contracts
   root --> codex
@@ -18,9 +20,12 @@ flowchart TD
   root --> sharedSkills
   root --> core
   web --> webMode
-  deploy --> webMode
+  root --> workflow
+  workflow --> deploy
+  vpsConfig --> deploy
+  deploy -->|"Verified image and Traefik routes"| webMode
 
-  webMode --> landing["bapx.in: product and privacy"]
+  webMode --> landing["bapx.in and www.bapx.in: product and privacy"]
   webMode --> docs["docs.bapx.in: documentation"]
   webMode --> mediahub["mediahub.bapx.in: portfolio and project briefs"]
   webMode --> admin["admin.bapx.in: authenticated operator workflow"]
