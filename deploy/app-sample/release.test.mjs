@@ -25,7 +25,9 @@ const completedRun = {
   conclusion: "success",
 };
 const health = { ready: true, service: "bapx-web", revision: sha };
-const defaults = { receipt, run: completedRun, main: sha, health, artifacts: 1 };
+const deployment = { name: "deploy", id: 10, head_sha: sha, run_attempt: 2, status: "completed", conclusion: "success" };
+const sample = { ...deployment, name: "sample", id: 11 };
+const defaults = { receipt, run: completedRun, main: sha, health, jobs: [deployment, sample], artifacts: 1 };
 
 function shellQuote(value) {
   return "'" + value.replaceAll("'", "'\\''") + "'";
@@ -64,6 +66,7 @@ async function runFixture(t, overrides) {
     "main.txt": fixture.main,
     "health.json": JSON.stringify(fixture.health),
     "run.json": JSON.stringify(fixture.run),
+    "jobs.json": JSON.stringify({ jobs: fixture.jobs }),
     "artifacts.txt": String(fixture.artifacts),
     "trace.log": "",
     "worker.sh": fixtureSource(directory),
@@ -109,12 +112,16 @@ async function runFixture(t, overrides) {
           printf '%s\\n' run >> "$FIXTURE/trace.log"
           cat "$FIXTURE/run.json"
           ;;
-        'api repos/getwinharris/agency/actions/runs/${runId}/artifacts?name=agency-app-sample-release --jq .total_count')
-          printf '%s\\n' artifacts >> "$FIXTURE/trace.log"
+        'api --paginate repos/getwinharris/agency/actions/runs/${runId}/jobs?filter=all&per_page=100')
+          printf '%s\\n' jobs >> "$FIXTURE/trace.log"
+          cat "$FIXTURE/jobs.json"
+          ;;
+        'api repos/getwinharris/agency/actions/runs/${runId}/artifacts?name=agency-app-sample-release-'[12]' --jq .total_count')
+          printf 'artifacts-%s\\n' "\${2##*-}" >> "$FIXTURE/trace.log"
           cat "$FIXTURE/artifacts.txt"
           ;;
-        'run download ${runId} --repo getwinharris/agency --name agency-app-sample-release --dir '*)
-          printf '%s\\n' download >> "$FIXTURE/trace.log"
+        'run download ${runId} --repo getwinharris/agency --name agency-app-sample-release-'[12]' --dir '*)
+          printf 'download-%s\\n' "\${7##*-}" >> "$FIXTURE/trace.log"
           exit ${downloadStop}
           ;;
         *) printf '%s\\n' unexpected-gh >> "$FIXTURE/trace.log"; exit 96 ;;
@@ -151,12 +158,24 @@ async function runFixture(t, overrides) {
 }
 
 const runGate = ["main", "curl", "run"];
-const artifactGate = [...runGate, "artifacts"];
+const jobGate = [...runGate, "jobs"];
+const artifactGate = [...jobGate, "artifacts-2"];
 const cases = [
-  ["downloads only the exact successful, completed main release", {}, [...artifactGate, "download"], downloadStop],
+  ["downloads only the exact successful, completed main release", {}, [...artifactGate, "download-2"], downloadStop],
+  ["sample-only rerun accepts the earlier same-SHA deploy receipt", {
+    receipt: { ...receipt, attempt: 1 },
+    jobs: [{ ...deployment, run_attempt: 1 }, sample],
+  }, [...artifactGate, "download-2"], downloadStop],
+  ["deploy-only rerun reuses the earlier verified sample artifact", {
+    jobs: [deployment, { ...sample, run_attempt: 1 }],
+  }, [...jobGate, "artifacts-1", "download-1"], downloadStop],
+  ["rejects jobs from another SHA", { jobs: [{ ...deployment, head_sha: otherSha }, sample] }, jobGate],
+  ["rejects a newer failed sample even with an earlier success", {
+    jobs: [deployment, { ...sample, id: 9, run_attempt: 1 }, { ...sample, conclusion: "failure" }],
+  }, jobGate],
   ["rejects a stale receipt SHA", { receipt: { ...receipt, sha: otherSha } }, []],
   ["rejects a stale receipt run", { receipt: { ...receipt, run: 12345678 } }, []],
-  ["rejects a stale receipt attempt", { receipt: { ...receipt, attempt: 1 } }, []],
+  ["rejects a stale receipt attempt", { receipt: { ...receipt, attempt: 1 } }, jobGate],
   ["rejects a superseded main SHA", { main: otherSha }, ["main"]],
   ["rejects a different live first-party revision", { health: { ...health, revision: otherSha } }, ["main", "curl"]],
   ["rejects an incomplete workflow", { run: { ...completedRun, status: "in_progress", conclusion: null } }, runGate],

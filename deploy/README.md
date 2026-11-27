@@ -160,17 +160,20 @@ Set `BAPX_PILOT_KEEP=1` to retain the staging proxy at VPS loopback port
 ## Release the customer app sample
 
 The **Public web** workflow builds and tests the sample separately. On a
-successful `main` build it uploads `agency-app-sample-release`, containing
-the sample image digest, exact SHA and checksummed proxy and Compose files.
+successful `main` build it uploads `agency-app-sample-release-ATTEMPT`,
+containing the sample image digest, exact SHA and checksummed proxy and Compose
+files. The artifact name identifies the sample job's build attempt.
 Its result does not block the first-party deployment job. The sample job
 runs the exact-release gate fixture with
 `node --test deploy/app-sample/release.test.mjs` before building.
 
 After an exact `main` Public web push run completes successfully, **Deploy app
 sample** requests the sample rollout with that run's SHA, ID and attempt. The
-Hostinger worker requires the matching verified web receipt, the current
-`main` SHA on bapx.in, and one sample artifact from the completed run. A
-superseded SHA fails this gate. The worker checks the candidate image label,
+Hostinger worker requires the latest successful deploy and sample jobs for the
+same SHA, the deploy attempt's verified receipt, the current `main` SHA on
+bapx.in, and one artifact from the successful sample attempt. A jobs-only rerun
+can reuse an earlier successful sibling on the same SHA. A superseded SHA
+fails this gate. The worker checks the candidate image label,
 sample HTTPS revision and signed-out Admin status before promoting the bundle.
 On failure it restores the previous verified sample, or removes sample
 containers on first placement. It preserves the sample data volume.

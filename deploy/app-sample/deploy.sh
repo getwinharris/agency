@@ -142,8 +142,8 @@ trap 'exit 130' INT
 if [[ -f $state/pending ]]; then restore_pending; fi
 
 if ! receipt=$(cat -- "$platform") ||
-    ! jq -e --arg sha "$revision" --arg run "$run" --arg attempt "$attempt" '
-        .sha == $sha and (.run | tostring) == $run and (.attempt | tostring) == $attempt
+    ! jq -e --arg sha "$revision" --arg run "$run" '
+        .sha == $sha and (.run | tostring) == $run
     ' <<< "$receipt" >/dev/null; then
     echo 'The requested Public web release does not match the verified Hostinger receipt.' >&2
     exit 1
@@ -178,6 +178,26 @@ run_matches || {
     echo 'The exact Public web run attempt must have completed successfully.' >&2
     exit 1
 }
+# A jobs-only rerun can leave a successful sibling on an earlier attempt.
+jobs=$(gh api --paginate "repos/$repo/actions/runs/$run/jobs?filter=all&per_page=100")
+if ! required=$(jq -es --arg sha "$revision" --arg attempt "$attempt" '
+    [.[].jobs[] | select(.head_sha == $sha and .run_attempt <= ($attempt | tonumber))] |
+    group_by(.name) | map(max_by([.run_attempt, .id])) |
+    map(select(.status == "completed" and .conclusion == "success")) |
+    map({key: .name, value: .run_attempt}) | from_entries |
+    select(.deploy and .sample)
+' <<< "$jobs"); then
+    echo 'The exact release requires successful first-party deploy and sample jobs.' >&2
+    exit 1
+fi
+platform_attempt=$(jq -er '.deploy | tostring' <<< "$required")
+sample_attempt=$(jq -er '.sample | tostring' <<< "$required")
+if [[ ! $platform_attempt =~ $number_pattern || ! $sample_attempt =~ $number_pattern ||
+      $(jq -er '.attempt | tostring' <<< "$receipt") != "$platform_attempt" ]]; then
+    echo 'The verified Hostinger receipt does not match the successful deploy attempt.' >&2
+    exit 1
+fi
+
 bundle="$state/releases/$key"
 if [[ $(<"$state/current") == "$key" ]]; then
     validate_bundle "$bundle" "$revision"
@@ -188,13 +208,14 @@ if [[ $(<"$state/current") == "$key" ]]; then
     exit 0
 fi
 
-artifact_count=$(gh api "repos/$repo/actions/runs/$run/artifacts?name=agency-app-sample-release" --jq .total_count)
+artifact="agency-app-sample-release-$sample_attempt"
+artifact_count=$(gh api "repos/$repo/actions/runs/$run/artifacts?name=$artifact" --jq .total_count)
 [[ $artifact_count == 1 ]] || {
     echo 'Expected one app sample artifact from the exact Public web run.' >&2
     exit 1
 }
 if [[ ! -d $bundle ]]; then
-    gh run download "$run" --repo "$repo" --name agency-app-sample-release --dir "$stage/download"
+    gh run download "$run" --repo "$repo" --name "$artifact" --dir "$stage/download"
     validate_bundle "$stage/download" "$revision"
     chmod 0444 -- "$stage/download/nginx.conf"
     mv -T -- "$stage/download" "$bundle"
