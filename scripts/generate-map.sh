@@ -148,7 +148,17 @@ doc_rows=$(sed -nE 's/^[[:space:]]*\{ slug: "([a-z0-9-]+)", label: "[^"]+", sour
 doc_slugs=$(cut -f1 <<< "$doc_rows")
 [[ $(wc -l <<< "$doc_slugs") == "$(sort -u <<< "$doc_slugs" | wc -l)" ]] ||
     fail "Duplicate guide slugs in $docs_registry."
-ci_doc_slugs=$(sed -nE 's/^[[:space:]]*for slug in (.*); do$/\1/p' "$workflow" | host_set)
+ci_doc_slugs=$(awk '
+    /^[[:space:]]*for slug in .*; do$/ {
+        slugs = $0
+        sub(/^[[:space:]]*for slug in /, "", slugs)
+        sub(/; do$/, "", slugs)
+    }
+    /^[[:space:]]*done$/ { slugs = "" }
+    /^[[:space:]]*curl --fail / && slugs != "" &&
+        index($0, "-H \047Host: docs.bapx.in\047") &&
+        index($0, "\"http://127.0.0.1:8080/$slug/\"") { print slugs }
+' "$workflow" | host_set)
 require_match "Published Docs slugs and Public web CI smoke checks" \
     "$(host_set <<< "$doc_slugs")" "$ci_doc_slugs"
 
