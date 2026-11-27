@@ -6,6 +6,12 @@ const mediaHub = "https://mediahub.bapx.in/";
 const source = "https://github.com/getwinharris/agency";
 const contact = "bapxmediahub@gmail.com";
 
+const landingLinks = [
+  ["Product", "#how-it-works"],
+  ["Docs", `${docs}/`],
+  ["Media Hub", mediaHub],
+];
+
 const projectPaths = [
   {
     id: "coding",
@@ -59,6 +65,15 @@ function brand(surface: "Agents" | "Docs") {
   return `<a class="brand" href="${href}/" aria-label="bapX ${surface} home"><img src="${wordmark}" alt="" width="120" height="40"><span class="brand-divider" aria-hidden="true">/</span><span class="brand-surface">${surface}</span></a>`;
 }
 
+function landingMenu() {
+  const links = landingLinks.map(([label, href]) => `<a href="${href}">${label}</a>`).join("");
+  return `<nav class="landing-desktop-nav" aria-label="Main">${links}</nav>
+  <details class="landing-mobile-menu" data-landing-menu>
+    <summary>Menu</summary>
+    <nav aria-label="Main">${links}</nav>
+  </details>`;
+}
+
 export function page({
   title, description, canonical, body, surface = "Agents", landing = false,
 }: {
@@ -69,7 +84,6 @@ export function page({
   surface?: "Agents" | "Docs";
   landing?: boolean;
 }) {
-  const howItWorks = landing ? "#how-it-works" : `${website}/#how-it-works`;
   return `<!doctype html>
 <html lang="en-IN">
 <head>
@@ -77,21 +91,23 @@ export function page({
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <meta name="description" content="${description}">
-  <meta name="theme-color" content="#0a090e">
+  <meta name="theme-color" content="#0a090e">${landing ? `
+  <link rel="stylesheet" href="/brand/landing-nav.css">
+  <script src="/brand/landing-nav.js" defer></script>` : ""}
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
   <link rel="stylesheet" href="/site.css?v=violet-accent">
 ${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header class="shell site-header">
+<header class="shell site-header${landing ? " landing-header" : ""}">
   ${brand(surface)}
-  <nav aria-label="Main">
-    <a href="${howItWorks}">How it works</a>
+  ${landing ? landingMenu() : `<nav aria-label="Main">
+    <a href="${website}/#how-it-works">How it works</a>
     <a href="${docs}/"${surface === "Docs" ? ' aria-current="page"' : ""}>Docs</a>
     <a href="${mediaHub}">MediaHub</a>
     <a href="${source}">GitHub <span class="arrow" aria-hidden="true"></span></a>
-  </nav>
+  </nav>`}
 </header>
 ${body}
 <footer class="shell site-footer">

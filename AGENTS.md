@@ -70,7 +70,7 @@ first-party bapX sites.
 
 ## Web release verification
 
-- Before merging a web release, verify that required CI checks passed on the exact PR head and address unresolved release-blocking review findings. Recheck after any new push.
+- Before merging a web release, verify that required CI passed and independent QA signed off on the exact PR head. Confirm the PR is eligible to merge and all blocking review findings are resolved. Recheck after any new push.
 - Use the existing CI/CD workflow so every push to `main` that affects the live web release automatically builds and deploys to Hostinger after required checks pass. Include changes to shared code, build inputs, and deployment configuration that affect the web release.
 - Deploy the image built from the exact `main` commit, identified by its immutable digest. Record the deployed Git SHA and keep the previous healthy image available for rollback.
 - After deployment, verify the live revision matches the `main` commit and run HTTPS smoke checks for bapx.in, docs.bapx.in, mediahub.bapx.in, and admin.bapx.in. Check that Admin serves sign-in and requires authentication without changing production data.
