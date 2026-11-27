@@ -1,4 +1,5 @@
 import { brandLockup, brandStylesheet, faviconLinks } from "./brand.ts";
+import { landingFaq, landingHero, runModes } from "./landing.ts";
 import { sessionWalkthrough } from "./walkthrough.ts";
 import { signInUrl } from "./auth/pages.ts";
 
@@ -103,7 +104,10 @@ export function page({
   <script src="/brand/landing-nav.js" defer></script>` : ""}
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
-  <link rel="stylesheet" href="/site.css?v=${landing ? "private-core-walkthrough" : "violet-accent"}">
+  <link rel="stylesheet" href="/site.css?v=${landing ? "agent-worktree-demo" : "violet-accent"}">${landing ? `
+  <link rel="stylesheet" href="/brand/hero-worktrees.css?v=agent-worktrees">
+  <link rel="stylesheet" href="/brand/agent-swap-motion.css?v=agent-worktrees">
+  <link rel="stylesheet" href="/brand/disclosures-motion.css?v=agent-worktrees">` : ""}
 ${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -138,36 +142,14 @@ export function publicPages() {
       description: "Run Codex and other native coding agents locally or on your private Linux Core with bapX.",
       canonical: `${website}/`,
       landing: true,
-      body: `<main id="main" class="shell">
-  <section class="hero" aria-labelledby="headline">
-    <div class="hero-art" aria-hidden="true">
-      <img src="/brand/agency-signal.webp" alt="" width="1404" height="936" fetchpriority="high">
-    </div>
-    <div class="hero-content">
-      <h1 id="headline">Run your coding agents on <em>bapX.</em></h1>
-      <p>Connect a Git project to your own Linux Core, run a supported coding agent, and reopen the same thread from the desktop app.</p>
-      <div class="actions">
-        <a class="button button-primary" href="${docs}/private-core/">Set up a private Core <span class="arrow" aria-hidden="true"></span></a>
-      </div>
-      <nav class="hero-resources" aria-label="Product resources">
-        <a href="#how-it-works">See the walkthrough</a>
-        <a href="${docs}/desktop-packaging/">Desktop packages</a>
-        <a href="${docs}/">Read Docs</a>
-      </nav>
-    </div>
-  </section>
+      body: `<main id="main" class="shell landing-main">
+  ${landingHero(docs)}
   ${sessionWalkthrough()}
-  <section class="home-capabilities" aria-labelledby="capability-heading">
-    <h2 id="capability-heading">What bapX supports</h2>
-    <dl>
-      <div><dt>Built in</dt><dd>Git worktrees for separate edits, desktop threads, and reconnecting to a private Core.</dd></div>
-      <div><dt>Supported agents</dt><dd>Use Codex, OpenCode, or another supported CLI with your own account or keys.</dd></div>
-      <div><dt>Planned</dt><dd>Hosted workspaces and public installers. Use the Docs to set up a private Core or build the desktop app today.</dd></div>
-    </dl>
-  </section>
+  ${runModes(docs)}
   ${projectGuide()}
+  ${landingFaq(docs)}
 </main>
-<script src="/brand/session-demo.js?v=private-core-walkthrough" defer></script>
+<script src="/brand/session-demo.js?v=agent-worktree-demo" defer></script>
 <script src="/brand/project-paths.js" defer></script>`,
     }),
     "privacy/index.html": page({

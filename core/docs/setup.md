@@ -183,7 +183,7 @@ In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Setti
 
 **Self-hosted capabilities described by Core:**
 
-- Codex and Pi, set up in `core.env`. Claude Code, Cursor, OpenCode, Hermes, Devin, Droid, Kimi Code, fx, OpenClaw, and Agent Zero's `a0` bridge turn on once they are installed and signed in under the agent account.
+- Codex and Pi, set up in `core.env`. Claude Code, Cursor, OpenCode, Hermes Agent, Devin, Droid, Kimi Code, fx, Antigravity, OpenClaw, and Agent Zero’s `a0` bridge are discovered from installed CLIs and profile directories under the Core agent account. Sign in or configure the provider’s credentials where required.
 - Cloud threads from the desktop app, with Mac access, web previews, secret requests, and synced skills and logins.
 - Saved history, kept on this machine.
 
