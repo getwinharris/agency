@@ -201,6 +201,7 @@ fn asset_type(path: &Path) -> Option<&'static str> {
         "pdf" => Some("application/pdf"),
         "png" => Some("image/png"),
         "svg" => Some("image/svg+xml"),
+        "ttf" => Some("font/ttf"),
         "wasm" => Some("application/wasm"),
         "webm" => Some("video/webm"),
         "webmanifest" => Some("application/manifest+json"),
@@ -239,6 +240,9 @@ fn static_path(name: &str, path: &str) -> Option<PathBuf> {
             | "admin/index.js"
             | "brand/favicon.svg"
             | "brand/mark.svg"
+            | "brand/lockup.css"
+            | "brand/great-vibes/GreatVibes-Regular.ttf"
+            | "brand/great-vibes/OFL.txt"
             | "brand/bapx-logo-main.svg" => Some(relative.into()),
             _ => None,
         };

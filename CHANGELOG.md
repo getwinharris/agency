@@ -16,6 +16,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Give the app admin starter a provider-free email and password flow with salted password hashes, app-local owner provisioning, and optional verified email and Google sign-in.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
+- Use bapX in the homepage title and social metadata, link the wordmarks to bapX home, and restore the cursive Docs, MediaHub, and Admin suffixes.
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
 - Compare draft and published MediaHub copy before publishing in Admin.
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.

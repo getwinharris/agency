@@ -59,8 +59,6 @@ img { display: block; max-width: 100%; height: auto; }
   letter-spacing: -.04em;
 }
 .brand img { width: clamp(5.5rem, 9vw, 7.5rem); margin-right: .12rem; }
-.brand-divider { font-weight: 500; color: #9c90ab; }
-.brand-surface { color: #e6ddf0; font-weight: 600; }
 
 .site-header nav, .site-footer nav, .document-links {
   display: flex;
