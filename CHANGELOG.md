@@ -26,6 +26,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Compare draft and published MediaHub copy before publishing in Admin.
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.
 - Add an opt-in business sandbox pilot with account and project grants, read-only Linux images, and project-scoped writable volumes.
+- Gate managed device session access to a dedicated private Core and close event streams after expiry or revocation.
 - Stop active pilot sandbox jobs after access is revoked while retaining project files.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.
 - Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.

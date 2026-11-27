@@ -196,6 +196,33 @@ In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Setti
 
 **History:** to back it up, run `sudo systemctl stop cloudroom`, copy `CLOUDROOM_STATE_DIR` (default `/var/lib/cloudroom/history`), then start it again. Moving history from Cloudroom Cloud to your server isn't supported yet.
 
+## Managed workspace device access
+
+A bapX-managed device can use a time-limited credential on a dedicated Linux
+Core once the workspace issuer and its server-side grants are configured.
+Keep the private Core on loopback behind its approved HTTPS ingress, with
+protected storage, local history, a dedicated workspace volume, and an
+isolated runtime identity. Keep its operator token in the private service
+configuration. The public web Core does not run the native API.
+
+A managed Core opts in with `BAPX_CORE_DEVICE_ACCESS_FILE`, the canonical path
+to a trusted, private registry. The registry is version 1 and binds one Core
+ID, workspace ID and bapX member UUID in the `binding.core_id`,
+`binding.workspace_id` and `binding.account_id` fields. Its `grants` map uses
+lowercase SHA-256 digests of the complete `bapx-device-v1.` credential as keys.
+Each grant has `issued_at` and `expires_at` in Unix seconds. Replace the registry atomically and keep the
+readable file out of the source checkout. Its parent must be writable only by
+its owner. The Core holds the binding from startup, so changing the binding in
+the registry invalidates the current grants until the approved Core is started
+with the new configuration.
+
+Device credentials cover session start, prompts, requests and event history
+on that dedicated Core. They have no operator, provider-credential, sync,
+terminal or preview access. Expiry and grant removal also end open device
+event streams. This Core change provides the private credential check. The
+hosted device issuer and production workspace acceptance are tracked under
+[#85](https://github.com/getwinharris/agency/issues/85).
+
 ## Upgrade
 
 A verified in-place upgrade procedure for Agency is pending. The [source

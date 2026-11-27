@@ -121,6 +121,10 @@
       "core/src/web.rs",
       "core/src/workspace/mod.rs"
     ],
+    "device_access": [
+      "core/src/api/device_access.rs",
+      "core/src/api/device_access_tests.rs"
+    ],
     "web_sources": [
       "gui/apps/www/src/admin/pages.ts",
       "gui/apps/www/src/brand.ts",

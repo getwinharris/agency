@@ -24,7 +24,23 @@ use std::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 
+mod device_access;
+pub(crate) use device_access::DeviceAccess;
+
+struct ApiAuthorization {
+    token: String,
+    devices: Option<Arc<DeviceAccess>>,
+}
+
 pub fn router(manager: Arc<Manager>, token: String) -> Router {
+    router_with_devices(manager, token, None)
+}
+
+pub(crate) fn router_with_devices(
+    manager: Arc<Manager>,
+    token: String,
+    devices: Option<Arc<DeviceAccess>>,
+) -> Router {
     Router::new()
         .merge(crate::preview::routes())
         .merge(crate::runtime::terminal::routes())
@@ -109,7 +125,7 @@ pub fn router(manager: Arc<Manager>, token: String) -> Router {
         // Text arrives twice (`text` and `content`), so a full message needs room (ADR 0269).
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(middleware::from_fn_with_state(
-            Arc::new(token),
+            Arc::new(ApiAuthorization { token, devices }),
             authenticate,
         ))
         .layer(middleware::from_fn_with_state(
@@ -501,7 +517,11 @@ async fn observe(
     response
 }
 
-async fn authenticate(State(token): State<Arc<String>>, request: Request, next: Next) -> Response {
+async fn authenticate(
+    State(auth): State<Arc<ApiAuthorization>>,
+    request: Request,
+    next: Next,
+) -> Response {
     // Some sandbox proxies replace Authorization with their own login, so the token may also arrive in X-Cloudroom-Token.
     let headers = request.headers();
     let bearer = headers
@@ -511,12 +531,45 @@ async fn authenticate(State(token): State<Arc<String>>, request: Request, next: 
     let custom = headers
         .get("x-cloudroom-token")
         .and_then(|h| h.to_str().ok());
-    let authorized = [bearer, custom]
+    let operator = [bearer, custom]
         .into_iter()
         .flatten()
-        .any(|supplied| same_token(supplied, token.as_str()));
-    let mut response = if authorized {
+        .any(|supplied| same_token(supplied, &auth.token));
+    let device = if !operator
+        && headers.get_all(header::AUTHORIZATION).iter().count() == 1
+        && let (Some(access), Some(token)) = (&auth.devices, bearer)
+    {
+        access.authenticate(token).await
+    } else {
+        None
+    };
+    let mut response = if operator {
         next.run(request).await
+    } else if let Some(device) = device {
+        let allowed = !request.headers().contains_key(header::UPGRADE)
+            && request
+                .extensions()
+                .get::<MatchedPath>()
+                .is_some_and(|route| device_access::allows(request.method(), route.as_str()));
+        if allowed {
+            let response = next.run(request).await;
+            if response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .is_some_and(|value| value.as_bytes().starts_with(b"text/event-stream"))
+            {
+                let (parts, body) = response.into_parts();
+                Response::from_parts(parts, device.guard_events(body))
+            } else {
+                response
+            }
+        } else {
+            (
+                StatusCode::FORBIDDEN,
+                Json(json!({"error":"device access is not allowed for this operation"})),
+            )
+                .into_response()
+        }
     } else {
         (
             StatusCode::UNAUTHORIZED,

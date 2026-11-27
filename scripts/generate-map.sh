@@ -324,11 +324,13 @@ MAP
     package["macOS, Windows and Linux builds · gui/apps/desktop/"]
     desktop["Electron and bb-app local UI, server and host daemon"]
     coreApi["Private Core API · core/src/lib.rs and core/docs/setup.md"]
+    deviceAccess["Scoped managed device access · core/src/api/device_access.rs"]
     harnesses["Native agent harnesses · core/src/runtime/"]
     journal["Private sessions, history and agent account credentials"]
     skills["Agent Skills · skills/ and local .agents/skills/"]
     desktopCI --> package --> desktop
     desktop -->|"Private bearer-authenticated HTTP/SSE"| coreApi
+    deviceAccess -->|"Limit device operations and revoke event streams"| coreApi
     coreApi --> harnesses
     coreApi --> journal
     skills -->|"Native discovery"| harnesses
@@ -386,7 +388,7 @@ render_index() {
             fail "Unsupported workspace package filter in $workspace_config: $pattern."
         fi
     done <<< "$workspace_patterns"
-    git ls-files -z -- .github/workflows gui/apps/www/src \
+    git ls-files -z -- .github/workflows gui/apps/www/src ':(glob)core/src/api/device_access*.rs' \
         ':(glob)core/src/*.rs' ':(glob)core/src/*/mod.rs' \
         ':(glob)skills/**/SKILL.md' "${package_paths[@]}" |
     jq -Rs --argjson routes "$routers" \
@@ -415,6 +417,7 @@ render_index() {
             sources: {
                 workflows: [$tracked[] | select(test("^\\.github/workflows/[^/]+\\.ya?ml$"))],
                 rust_entry_points: [$tracked[] | select(test("^core/src/([^/]+\\.rs|[^/]+/mod\\.rs)$"))],
+                device_access: [$tracked[] | select(startswith("core/src/api/device_access"))],
                 web_sources: [$tracked[] | select(startswith("gui/apps/www/src/"))],
                 workspace_packages: [$tracked[] | select(startswith("gui/") and endswith("/package.json"))],
                 bundled_skills: [$tracked[] | select(endswith("/SKILL.md") and startswith("skills/"))]
