@@ -186,9 +186,9 @@ provisioned by app plugins. Manage your private Core's agent environment on
 the Core host.
 
 Put one literal `NAME=value` entry per line in
-`$CLOUDROOM_STATE_DIR/environment`. The default path is
-`/var/lib/cloudroom/history/environment`. Keep the file owned by the Core
-service account with permissions `0600`. For example, use
+`$CLOUDROOM_STATE_DIR/environment`. With this guide's service configuration,
+the full path is `/var/lib/cloudroom/history/environment`. Keep the file owned
+by the Core service account with permissions `0600`. For example, use
 `BAPX_ENV_TEST=hello` to check that a newly launched agent sees the setting.
 The file is read as data, without shell expansion.
 
