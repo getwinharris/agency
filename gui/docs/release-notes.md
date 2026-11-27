@@ -1,10 +1,37 @@
 # Release notes
 
-See the [bapX Agents desktop package source](../apps/desktop/package.json) for the current product version. Public websites ship independently and identify each deployment by its full Git SHA. The [Docs health endpoint](https://docs.bapx.in/healthz) reports the revision currently serving requests.
+See the [bapX Agents desktop package source](../apps/desktop/package.json) for the current product version. The first-party landing page, Docs, MediaHub, and Admin ship together in one Rust Core image identified by its full Git SHA. The [Docs health endpoint](https://docs.bapx.in/healthz) reports the revision currently serving requests.
 
 ## Verified web deployments
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
+
+### 27 November 2026, 15:24 IST
+
+Verified both [bapx.in](https://bapx.in/) and [www.bapx.in](https://www.bapx.in/) on the automatic first-party release. [PR #84](https://github.com/getwinharris/agency/pull/84)
+
+- Desktop source version `0.1.0`
+- Served SHA `f605185fef2e215e2b94ab36b86316cdf2700e5d`
+- Image `sha256:7b6b125db085c7132c12946683912fad9d273f730f5d7c82f94aef57c4a1c2cd`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45975419346), attempt 1
+
+### 27 November 2026, 14:21 IST
+
+Documented how to check the running build after restarting a [private bapX Core](https://docs.bapx.in/private-core/). [PR #82](https://github.com/getwinharris/agency/pull/82)
+
+- Desktop source version `0.1.0`
+- Served SHA `b7a3a3077ed9105ed570c827aa3df57bdbcc3f95`
+- Image `sha256:a3c7788274799b9d1a1191322b75b7f8e8750c1e8e8c2b69d47213ec6d1edf57`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45967212364), attempt 1
+
+### 27 November 2026, 07:52 IST
+
+Published the source-backed [developer guides](https://docs.bapx.in/) and verified release notes. [PR #77](https://github.com/getwinharris/agency/pull/77)
+
+- Desktop source version `0.1.0`
+- Served SHA `ad83c2b244d6b35915445f69c774d87be41bd610`
+- Image `sha256:36b8f2428d899a1fd415cf2df0ccb8c0a345a969282e358ed4878a7f959c5682`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45926582536), attempt 1
 
 ### 27 November 2026, 07:08 IST
 
