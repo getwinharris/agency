@@ -41,10 +41,12 @@ jobs:
           pnpm exec vitest run --maxWorkers=2
           apps/cli/src/__tests__/command-output
           apps/cli/src/__tests__/room-cli.e2e.test.ts
+          apps/cli/src/__tests__/startup-graph.test.ts
           apps/desktop/test/room-cli-shim.test.ts
           apps/host-daemon/test/room-cli-launchers.test.ts
           apps/server/test/app/host-artifact.test.ts
           apps/server/test/app/install-machine-script.test.ts
+          apps/server/test/services/plugins/plugin-cli.test.ts
           apps/app/src/components/tools/detail-page-recipes.test.tsx
           packages/plugin-sdk/src/internal/command-guard.test.ts
       - name: App starter tests

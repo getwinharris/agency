@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { Command, CommanderError } from "commander";
-import { BAPX_CLI_NAME, bapxCliUsage } from "@cloudroom/domain/plugin-cli";
 import { maybeReexecViaRoomCli } from "./room-cli-reexec.js";
 import {
   CORE_COMMAND_GROUPS,
@@ -30,7 +29,7 @@ process.argv = process.argv.map((arg) =>
 const program = new Command();
 
 program
-  .name(BAPX_CLI_NAME)
+  .name("bapx-cli")
   .description("bapX CLI - manage your local and cloud agents")
   .enablePositionalOptions()
   .version(formatCloudroomVersion(resolveRoomCliVersion()));
@@ -119,6 +118,7 @@ async function tryPluginCommandProxy(
     match.rendersHelp !== true &&
     (snippet?.help ?? argv.slice(1).some((arg) => arg === "--help" || arg === "-h"))
   ) {
+    const { bapxCliUsage } = await import("@cloudroom/domain/plugin-cli");
     console.log(bapxCliUsage(command.usage));
     return 0;
   }
