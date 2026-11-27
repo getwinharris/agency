@@ -19,4 +19,5 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - run: git fetch --no-tags --depth=1 origin b5b01577d2991698f0ddac5d750ff23698b33a1a
       - run: bash deploy/dynamic-pilot/verify.sh "$GITHUB_SHA"

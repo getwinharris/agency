@@ -51,18 +51,22 @@ Check the certificate, index, and representative asset at [sandbox-check.app.bap
 ## Verify an isolated dynamic app deployment
 
 Run `bash deploy/dynamic-pilot/verify.sh SOURCE_SHA` with Docker and OpenSSL.
-The source commit must include the app starter's opt-in bridge listener from
-[#72](https://github.com/getwinharris/agency/pull/72). The Docker build uses the
-existing `starters/app-admin` code at that exact commit.
+The source commit must include the app starter's bridge listener and password
+sign-in. The verifier builds the existing starter from that exact commit and
+from the pinned email-link baseline in [#72](https://github.com/getwinharris/agency/pull/72).
 
-The fixture puts the Node app and its TLS proxy on a disposable internal Docker
-bridge with unpublished ports. The test client trusts a fixture certificate for
-`https://dynamic-check.app.bapx.in:8443/` within that bridge. The production DNS
-and Hostinger proxy configuration stay untouched. The proxy passes the app's
-email challenge and session cookies and drops unrelated credentials. The sample
-uses local fixture mail and exercises email sign-in only.
+The fixture puts the app on a private internal Docker bridge with no published
+app ports. The TLS proxy forwards the app's email challenge and session cookies
+and strips unrelated credentials. The sample uses disposable fixture mail and
+an app-only password. The old image saves an enquiry. The new image reads it,
+saves another, and replaces its container. The old image then reads both
+enquiries and both sessions from the same private volume. Each health check
+verifies the serving Git revision.
 
-The test signs in, submits an enquiry, replaces the app process, and reopens the
-same enquiry with the same session and app data volume. It reports the build SHA,
-image ID, and enquiry ID. The disposable containers and network stop at the end.
-The test volumes and private verification file remain available for inspection.
+Set `BAPX_PILOT_KEEP=1` to leave the verified candidate available on the VPS
+loopback interface for staging. Only the proxy joins the separate ingress
+bridge. The script prints the fixture CA and a hostname to resolve to
+127.0.0.1 for HTTPS at `https://dynamic-check.app.bapx.in:8443/`. This staging
+mode uses neither production DNS nor first-party proxy configuration. The
+default CI run stops its disposable containers and network at the end. The
+test volumes and private verification file remain available for inspection.

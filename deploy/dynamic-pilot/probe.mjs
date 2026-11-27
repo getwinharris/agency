@@ -9,6 +9,8 @@ const client = new Map();
 const email = "owner@example.test";
 const enquiry = "Disposable HTTPS enquiry survives replacement.";
 const phase = process.argv[2];
+const expected = process.env.EXPECTED_REVISION;
+const proofPath = "/fixture-data/probe.json";
 
 function send(path, { body, host = origin.host, requestOrigin = origin.origin } = {}) {
   const form = body && new URLSearchParams(body).toString();
@@ -52,7 +54,8 @@ function send(path, { body, host = origin.host, requestOrigin = origin.origin } 
 async function ready() {
   for (let attempt = 0; attempt < 45; attempt++) {
     try {
-      if ((await send("/healthz")).code === 204) return;
+      const health = await send("/healthz");
+      if (health.code === 204 && health.headers["x-bapx-fixture-revision"] === expected) return;
     } catch (error) {
       if (error.code !== "ECONNREFUSED" && error.code !== "ECONNRESET") throw error;
     }
@@ -77,6 +80,31 @@ function secureCookie(response, kind) {
   assert.doesNotMatch(value, /; Domain=/i);
 }
 
+const upgradedEnquiry = "Candidate writes persist through rollback.";
+
+async function submit(message) {
+  const home = await send("/");
+  assert.equal(home.code, 200);
+  const created = await send("/forms/enquiry", { body: {
+    _csrf: hidden(home.html, "_csrf"), _revision: hidden(home.html, "_revision"),
+    name: "Disposable sample", email, message,
+  } });
+  assert.equal(created.code, 303);
+  const admin = await send("/admin");
+  assert.equal(admin.code, 200);
+  const paths = [...admin.html.matchAll(/href="(\/admin\?submission=[^"]+)#original-submission"/g)];
+  for (const [, path] of paths) {
+    if ((await send(path)).html.includes(message)) return path;
+  }
+  throw new Error("Missing stored enquiry link");
+}
+
+async function assertEnquiry(path, message) {
+  const response = await send(path);
+  assert.equal(response.code, 200);
+  assert.ok(response.html.includes(message), "Stored enquiry was not readable");
+}
+
 await ready();
 assert.equal((await send("/healthz", { host: "unrelated.example.test" })).code, 404);
 const signedOut = await send("/admin");
@@ -98,27 +126,27 @@ if (phase === "seed") {
   assert.equal(verified.code, 303);
   secureCookie(verified, "session");
 
-  const home = await send("/");
-  assert.equal(home.code, 200);
-  const created = await send("/forms/enquiry", { body: {
-    _csrf: hidden(home.html, "_csrf"), _revision: hidden(home.html, "_revision"),
-    name: "Disposable sample", email, message: enquiry,
-  } });
-  assert.equal(created.code, 303);
-  const admin = await send("/admin");
-  assert.equal(admin.code, 200);
-  const path = admin.html.match(/href="(\/admin\?submission=[^"]+)#original-submission"/)?.[1];
-  assert.ok(path, "Missing stored enquiry link");
-  await writeFile("/fixture-data/probe.json", JSON.stringify({
-    cookie: client.get("__Host-bapx-app-session"), path,
-  }), { mode: 0o600 });
-  console.log("Owner signed in behind verified TLS and saved an enquiry. Foreign credentials stayed at the proxy.");
+  const cookie = client.get("__Host-bapx-app-session");
+  const path = await submit(enquiry);
+  await writeFile(proofPath, JSON.stringify({ cookie, path }), { mode: 0o600 });
+  console.log("Baseline saved an enquiry behind verified TLS. Foreign credentials stayed at the proxy.");
 } else {
-  assert.equal(phase, "after-replacement");
-  const { cookie, path } = JSON.parse(await readFile("/fixture-data/probe.json", "utf8"));
-  client.set("__Host-bapx-app-session", cookie);
-  const original = await send(path);
-  assert.equal(original.code, 200);
-  assert.ok(original.html.includes(enquiry));
-  console.log(`Replaced app container retained owner session and original enquiry ${new URL(path, origin).searchParams.get("submission")}.`);
+  const proof = JSON.parse(await readFile(proofPath, "utf8"));
+  client.set("__Host-bapx-app-session", proof.cookie);
+  await assertEnquiry(proof.path, enquiry);
+  if (phase === "upgrade") {
+    const password = (await readFile("/owner-password", "utf8")).trim();
+    const signedIn = await send("/auth/password/signin", { body: { email, password } });
+    assert.equal(signedIn.code, 303);
+    secureCookie(signedIn, "session");
+    proof.newPath = await submit(upgradedEnquiry);
+    proof.newCookie = client.get("__Host-bapx-app-session");
+    await writeFile(proofPath, JSON.stringify(proof), { mode: 0o600 });
+    console.log("Candidate preserved the original enquiry and saved a second one after password sign-in.");
+  } else {
+    assert.ok(["restart", "rollback"].includes(phase));
+    client.set("__Host-bapx-app-session", proof.newCookie);
+    await assertEnquiry(proof.newPath, upgradedEnquiry);
+    console.log(`After ${phase}, both enquiries and their sessions were readable at revision ${expected}.`);
+  }
 }

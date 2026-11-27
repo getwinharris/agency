@@ -7,6 +7,7 @@ const emit = Server.prototype.emit;
 Server.prototype.emit = function (event, ...args) {
   if (event === "request") {
     const headers = args[0].headers;
+    args[1].setHeader("X-BapX-Fixture-Revision", process.env.BAPX_FIXTURE_REVISION);
     assert.equal(headers.authorization, undefined, "Proxy leaked Authorization");
     assert.equal(headers["proxy-authorization"], undefined, "Proxy leaked Proxy-Authorization");
     assert.equal(headers.forwarded, undefined, "Proxy leaked Forwarded");
