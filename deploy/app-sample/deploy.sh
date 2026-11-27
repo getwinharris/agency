@@ -164,6 +164,7 @@ artifact_count=$(gh api "repos/$repo/actions/runs/$run/artifacts?name=agency-app
 if [[ ! -d $bundle ]]; then
     gh run download "$run" --repo "$repo" --name agency-app-sample-release --dir "$stage/download"
     validate_bundle "$stage/download" "$revision"
+    chmod 0444 -- "$stage/download/nginx.conf"
     mv -T -- "$stage/download" "$bundle"
 fi
 validate_bundle "$bundle" "$revision"

@@ -9,7 +9,8 @@ output=${3:?Pass a new release directory}
 [[ $image =~ ^ghcr\.io/getwinharris/agency-app-sample@sha256:[a-f0-9]{64}$ ]]
 [[ $revision =~ ^[a-f0-9]{40}$ ]]
 mkdir -- "$output"
-cp -- "$here/compose.yml" "$here/nginx.conf" "$output/"
+cp -- "$here/compose.yml" "$output/"
+install -m 0444 -- "$here/nginx.conf" "$output/nginx.conf"
 compose_hash=$(sha256sum "$output/compose.yml" | cut -d' ' -f1)
 proxy_hash=$(sha256sum "$output/nginx.conf" | cut -d' ' -f1)
 jq -n --arg sha "$revision" --arg image "$image" \

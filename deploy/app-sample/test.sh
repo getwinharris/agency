@@ -13,7 +13,7 @@ export BAPX_SAMPLE_ROUTE_ENABLED=false
 export BAPX_SAMPLE_OWNER_FILE="$scratch/owner-password"
 
 compose() {
-    docker compose --project-name "$project" -f "$here/compose.yml" "$@"
+    docker compose --project-name "$project" -f "$scratch/bundle/compose.yml" "$@"
 }
 
 cleanup() {
@@ -22,6 +22,10 @@ cleanup() {
     compose down >/dev/null 2>&1 || true
     docker network rm "$BAPX_SAMPLE_INGRESS" >/dev/null 2>&1 || true
     rm -f -- "$scratch/owner-password" "$scratch/proof.json"
+    if [[ -d $scratch/bundle ]]; then
+        rm -f -- "$scratch/bundle/"{compose.yml,nginx.conf,release.json}
+        rmdir "$scratch/bundle"
+    fi
     rmdir "$scratch"
 }
 trap cleanup EXIT
@@ -30,6 +34,10 @@ docker network create "$BAPX_SAMPLE_INGRESS" >/dev/null
 openssl rand -hex 32 > "$BAPX_SAMPLE_OWNER_FILE"
 chmod 0444 "$BAPX_SAMPLE_OWNER_FILE"
 test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$BAPX_SAMPLE_IMAGE")" = "$revision"
+
+image_id=$(docker image inspect --format '{{.Id}}' "$BAPX_SAMPLE_IMAGE")
+bash "$here/bundle.sh" "ghcr.io/getwinharris/agency-app-sample@$image_id" "$revision" "$scratch/bundle"
+test "$(stat -c %a "$scratch/bundle/nginx.conf")" = 444
 
 compose pull edge
 compose up -d --pull never
