@@ -4,15 +4,16 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
-- Show how a Git project, separate worktrees, and a private Core fit together on the bapX homepage, with an interactive sample that swaps between coding agents, plus a source-backed roster and setup FAQ.
-- Keep keyboard focus visible when navigating the MediaHub project brief.
-- Improve app Settings helper text contrast and show when a paired private Core is connected or unavailable.
+- Revoke the previous hosted device credential when switching bapX Agents accounts.
 - Keep private Core status connected when an in-flight readiness check reloads the same saved connection.
 - Generate a searchable Agency source index, check Docs publication coverage in CI, and record independent browser verification after deployment.
 - Let bapX Agents connect to a ready private Core while its agent model catalog loads.
 - Generate the Agency architecture map from checked-in source and verify its routes and release coverage in CI.
 - Deploy verified `main` builds to Hostinger directly from the Public web workflow and preserve digest-based rollback.
 - Explain the private Core setup on the homepage and show parallel worktrees and reconnecting in a sample walkthrough.
+- Show how a Git project, separate worktrees, and a private Core fit together on the bapX homepage, with an interactive sample that swaps between coding agents, plus a source-backed roster and setup FAQ.
+- Keep keyboard focus visible when navigating the MediaHub project brief.
+- Improve app Settings helper text contrast and show when a paired private Core is connected or unavailable.
 - Document how to verify the running private Core build after a restart.
 - Present verified bapX web deployments as a chronological timeline in Docs.
 - Add a responsive homepage menu with verified destinations and remove its GitHub link.
