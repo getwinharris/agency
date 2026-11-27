@@ -1,6 +1,6 @@
 import { createServer, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -176,6 +176,75 @@ it("connects to a ready private Core while model discovery is pending and recove
     await harness.cleanup();
   }
 }, 10_000);
+
+it("accepts an unchanged private Core binding reloaded during readiness, but rejects a rotated token", async () => {
+  const harness = await createTestAppHarness();
+  const service = cloudroom(harness.deps);
+  const originalToken = "x".repeat(40);
+  const rotatedToken = "y".repeat(40);
+  const readyTokens: string[] = [];
+  let holdReady: { requested: (token: string) => void; release: () => void; wait: Promise<void> } | null = null;
+  const core = createServer(async (req, res) => {
+    const json = (body: unknown, status = 200) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    const token = req.headers.authorization?.slice("Bearer ".length);
+    if (token !== originalToken && token !== rotatedToken) return json({ error: "unauthorized" }, 401);
+    if (req.url === "/v1/health") return json({});
+    if (req.url === "/v1/ready") {
+      readyTokens.push(token);
+      const hold = holdReady;
+      if (hold) {
+        hold.requested(token);
+        await hold.wait;
+      }
+      return json({ ready: true });
+    }
+    if (req.url === "/v1/capabilities") {
+      return json({ version: 1, repository: "/test", stop: true, resume: true, launch_settings: true, harnesses: [] });
+    }
+    return json({}, 404);
+  });
+  core.listen(0, "127.0.0.1");
+  await once(core, "listening");
+  const address = core.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not listen");
+  const url = `http://127.0.0.1:${address.port}`;
+  const bindingPath = join(harness.config.dataDir, "cloudroom.json");
+  const status = async () => (await harness.app.request("/api/v1/cloudroom")).json();
+  const replaceBindingDuringReadiness = async (token: string) => {
+    let requested!: (token: string) => void;
+    let release!: () => void;
+    const readiness = new Promise<string>((resolve) => { requested = resolve; });
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    holdReady = { requested, release, wait };
+    const pending = status();
+    expect(await readiness).toBe(originalToken);
+    const replacement = `${bindingPath}.test-replacement`;
+    await writeFile(replacement, JSON.stringify({ url, token }), { mode: 0o600, flag: "wx" });
+    await rename(replacement, bindingPath);
+    holdReady = null;
+    release();
+    return pending;
+  };
+  try {
+    await writeFile(bindingPath, JSON.stringify({ url, token: originalToken }), { mode: 0o600, flag: "wx" });
+    expect(await status()).toMatchObject({ ready: true, selfHosted: true, error: null });
+    expect(await replaceBindingDuringReadiness(originalToken)).toMatchObject({ ready: true, error: null });
+    expect(await replaceBindingDuringReadiness(rotatedToken)).toMatchObject({
+      ready: false, error: "The Core connection changed. Try again.",
+    });
+    expect(await status()).toMatchObject({ ready: true, error: null });
+    expect(readyTokens.at(-1)).toBe(rotatedToken);
+  } finally {
+    holdReady?.release();
+    service.stop();
+    core.closeAllConnections();
+    await new Promise<void>((resolve) => core.close(() => resolve()));
+    await harness.cleanup();
+  }
+});
 
 it("reports storage before models and preserves transiently blocked messages through recovery", async () => {
   const harness = await createTestAppHarness();
