@@ -12,14 +12,13 @@ the first-party bapX sites.
   child instructions, and tests in the same reviewed PR. Reconcile conflicting
   guidance and verify the resulting behavior. Propose lessons from completed
   work as reviewable edits; do not silently rewrite agent instructions.
-- Keep Agency at the workspace root. Use the generated `map.mmd` to find the
-  owning source for a route, deployment, or data boundary. Search the relevant
-  node or source path with `rg -n` and verify the behavior in the source and
-  the running system. The diagram is a source inventory. Live status requires
-  independent verification.
-- Run `bash scripts/generate-map.sh` after changing mapped inputs and commit the
-  result with the change. Run `bash scripts/generate-map.sh --check` before
-  review. Keep source pointers, route and release checks current with the code.
+- Keep Agency at the workspace root. Search `docs/project-index.json` for the
+  exact host, guide, or source path. Use `map.mmd` for wiring and follow the
+  pointer to the owning source. Verify live behavior separately.
+- Stage added or removed inventory inputs, run `bash scripts/generate-map.sh`,
+  and commit both generated files with the source changes. Run
+  `bash scripts/generate-map.sh --check` before review. Source inventory checks
+  every PR. Public web repeats the check on the release revision.
 - Keep customer projects under `users/<username>/<business-slug>/projects/<project-slug>/`.
   On a host with customer workspaces, read its local `OKF.md` for the workspace
   contract. Preserve customer workspaces and operational data through source or
@@ -124,6 +123,13 @@ the same issue and PR from the recorded checkpoint. After verification, refresh
 the queue and continue with the next ready issue. Honor a request to pause or a
 stop condition set for the run.
 
+Name the release owner and an independent browser verifier on the PR before a
+web merge. Once merged, record the merge SHA, Public web run and attempt, last
+observed live SHA, and next verification action. The release owner follows that
+run while it is queued or running. Record any handoff and who accepted it on
+the PR. Distinguish queued, deployed pending QA, verified, blocked, and
+superseded releases.
+
 1. **Recover context.** Read the relevant instructions, issue or existing PR,
    and latest main and PR revisions. Trace the owning source, route, build
    output, and runtime in the map. Search with `rg` before adding a new owner.
@@ -133,30 +139,39 @@ stop condition set for the run.
 2. **Implement a scoped change.** Reuse the owning component and existing
    deployment path. Define the user-visible acceptance criteria and record the
    checks needed for the affected behavior. In every cycle, review the affected
-   documentation, release timeline, and changelog; update them in the same PR.
+   documentation, release timeline, and changelog. Update affected guides,
+   the changelog, and any pending availability entries in the same PR. Add a
+   dated verified release entry after live acceptance.
    Follow the existing version policy and record the version or tag where it
    applies. Record why if no docs, changelog, or version update is warranted;
    do not invent a version bump or mark pending work as shipped.
 3. **Verify before merge.** Run builds and focused regression tests on the
    actual change. Every engineering loop must include actual browser
    verification. Use Ego on relevant viewports for affected UI flows; for
-   backend-only changes, run a relevant browser smoke test. Check timing,
-   permissions, and failure paths where applicable. Record the exact tested
+   backend-only changes, run a relevant browser smoke test. Use an authorized
+   browser environment. If the VPS cannot run it, serialize or retry within its
+   capacity, or use a separately approved runner. Access to another device
+   requires permission. Check timing, permissions, and failure paths where
+   applicable. Record the exact tested
    PR head, checks run, and anything skipped or blocked. Read all review
    summaries and inline comments; fix and retest valid findings. Explain
    inapplicable findings and get reviewer agreement or explicit maintainer
    approval before resolving them. Reply in each actionable review thread
    with the fix commit and specific retest evidence, or the agreed reason for
    not changing it. Recheck required CI and QA on the final head, carrying
-   forward unchanged evidence only where it still applies.
+   forward unchanged evidence only where it still applies. Verify Source
+   inventory and each workflow whose trigger covers the changed paths. Record
+   intentionally skipped jobs with the reason. A skipped applicable job
+   without a recorded justification leaves the gate open. Apply the policy
+   even when GitHub allows a merge without enforcing its gates.
 4. **Merge, deploy, and verify.** Merge only when required reviews, checks,
    and approvals pass. Follow the existing automatic main deployment for web
-   changes. Verify both the served revision and the changed behavior at the
-   real entry point in a browser; a passing CI job, merge, or staged result
-   is not proof of production. Record PR, exact head and merge SHA, workflow
-   run, live URL, served SHA, and concrete browser assertions. If browser
-   access is blocked, report that blocker and do not claim completion. Name the failing step and next action if
-   blocked. Follow the rollback procedure if live checks fail.
+   changes. After the exact merge SHA is live, a verifier separate from the
+   implementer must exercise the affected flow on the public URL in a browser.
+   Record the verifier, UTC timestamp or time zone, PR head, merge and served
+   SHA, workflow run and attempt, URL, viewport, and concrete results on the
+   PR. If browser access is blocked, record the blocker and leave acceptance
+   pending. Follow the rollback procedure for a confirmed production failure.
 5. **Leave a reproducible handoff.** Before pausing or stopping, record the
    exact tested commit, repeatable test steps, concrete browser results, and
    (if released) the served SHA and live links. Name the next action and who
@@ -172,7 +187,10 @@ stop condition set for the run.
 
 ## Web release verification
 
-- Before merging a web release, verify that required CI passed and independent QA signed off on the exact PR head. Confirm the PR is eligible to merge and all blocking review findings are resolved. Recheck after any new push.
+- Before merging a web release, verify that required CI passed and independent
+  QA signed off on the exact PR head. Confirm the PR is eligible and blocking
+  findings are resolved. Recheck after any push. After automatic deployment,
+  record separate independent browser acceptance on the exact served merge.
 - GitHub Actions starts the Hostinger deployment for a push to `main` after
   required checks complete and the exact revision's verified image and release
   manifest are published. Include changes to shared code, build inputs, and
@@ -196,4 +214,7 @@ stop condition set for the run.
   public changes and their evidence. Use the desktop package version for the
   product and the full `main` SHA for web deployments. Keep pending work and
   availability gaps marked in the notes.
-- If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete only when the live revision, smoke checks, and every in-scope user-facing acceptance check pass.
+- Restore the previous healthy release on a confirmed post-deploy failure and
+  report the blocker. Report the PR, deployed SHA, workflow run, and verified
+  live URLs. Completion requires the live revision, smoke checks, and independent
+  browser acceptance for the in-scope user journey.

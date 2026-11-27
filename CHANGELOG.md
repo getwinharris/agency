@@ -4,6 +4,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Generate a searchable Agency source index, check Docs publication coverage in CI, and record independent browser verification after deployment.
+
 - Let bapX Agents connect to a ready private Core while its agent model catalog loads.
 - Generate the Agency architecture map from checked-in source and verify its routes and release coverage in CI.
 - Deploy verified `main` builds to Hostinger directly from the Public web workflow and preserve digest-based rollback.

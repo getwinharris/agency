@@ -27,6 +27,10 @@ Dev mode uses its own ports and profile. Local agents need their own installed, 
 
 ## Checks
 
+Use the [Agency project index](../docs/project-index.json) to locate a guide,
+route, or workspace package. Follow its source pointer and use the
+[architecture map](../map.mmd) for build and deployment wiring.
+
 ```sh
 pnpm exec turbo run test --filter=@cloudroom/scripts --filter=@cloudroom/config --concurrency=2
 ```
