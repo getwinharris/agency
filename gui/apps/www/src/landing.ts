@@ -34,6 +34,26 @@ const modes = [
   { name: "Private Core", machine: "A Linux machine you control", checkout: "Your project on the Core machine", highlight: true },
 ];
 
+// Core kinds live in core/src/config.rs. Desktop registrations are covered by
+// gui/apps/server/test/services/plugins/first-party-provider-plugins.test.ts.
+const privateCoreAgents = [
+  "Claude Code", "Codex", "Antigravity", "Cursor", "Pi", "OpenCode", "fx",
+  "Hermes Agent", "OpenClaw", "Devin", "Droid", "Kimi Code", "Agent Zero",
+];
+const additionalDesktopAgents = ["omp (oh-my-pi)", "Grok Build", "Kilo Code", "Cline"];
+
+function agentRoster(docs: string) {
+  return `<details class="bapx-agent-roster">
+    <summary>See supported agents and setup requirements</summary>
+    <dl class="bapx-agent-roster-list">
+      <div><dt>Private Core integrations</dt><dd>${privateCoreAgents.join(", ")}. See the <a href="${docs}/private-core/#your-own-server-vs-cloudroom-cloud">private Core setup requirements</a>.</dd></div>
+      <div><dt>Additional desktop integrations</dt><dd>${additionalDesktopAgents.join(", ")}. Register a custom ACP agent on a compatible machine from Settings → Plugins → ACP providers.</dd></div>
+      <div><dt>Configured</dt><dd>Your selected machine has the agent installed and its required profile set up. Some agents also need a provider sign-in or API key.</dd></div>
+      <div><dt>Unavailable on this machine</dt><dd>An integration can be supported while its CLI, profile, or account is missing on the machine you selected.</dd></div>
+    </dl>
+  </details>`;
+}
+
 export function runModes(docs: string) {
   const cards = modes.map(({ name, machine, checkout, highlight }) => `
     <article class="bapx-mode${highlight ? " bapx-mode--core" : ""}">
@@ -47,6 +67,7 @@ export function runModes(docs: string) {
     <h2 id="bapx-run-modes-title">How agents run in bapX</h2>
     <div class="bapx-mode-grid">${cards}
     </div>
+    ${agentRoster(docs)}
     <div class="bapx-availability">
       <h3>Desktop availability</h3>
       <p>Build from source for Apple Silicon, Windows x64, or Linux x64. Public installers and bapX-hosted agents are pending.</p>
@@ -78,7 +99,7 @@ const questions = [
   },
   {
     question: "Which agents and accounts can I use?",
-    answer: "Use Codex or OpenCode in the desktop app with a supported account or API key. The private Core setup guide uses Codex and walks through signing in with your own account.",
+    answer: "The desktop app integrates with Codex, Claude Code, Cursor, Pi, OpenCode, and more. Which agents you can start depends on the machine you select and the accounts you set up. The private Core guide uses Codex for the initial setup.",
     link: ["/private-core/#1-install-tools-and-build", "Set up Codex on your Core"],
   },
   {

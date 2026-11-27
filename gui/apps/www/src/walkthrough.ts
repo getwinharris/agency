@@ -1,9 +1,55 @@
 import { wordmark } from "./brand.ts";
 
-export const sampleWorktrees = [
-  { agent: "Codex", branch: "work/notes-empty-state", task: "Update the empty-state UI." },
-  { agent: "OpenCode", branch: "work/notes-tests", task: "Add a regression test." },
-] as const;
+type SampleAgent = {
+  id: string;
+  agent: string;
+  branch: string;
+  task: string;
+  unavailable?: boolean;
+};
+
+const primaryAgent: SampleAgent = {
+  id: "codex",
+  agent: "Codex",
+  branch: "work/notes-empty-state",
+  task: "Update the layout shown when there are no notes.",
+};
+
+const agentChoices: SampleAgent[] = [
+  { id: "opencode", agent: "OpenCode", branch: "work/notes-tests", task: "Add a regression test for creating the first note." },
+  { id: "claude", agent: "Claude Code", branch: "work/notes-onboarding", task: "Clarify the first-run instructions and keyboard shortcuts." },
+  { id: "pi", agent: "Pi", branch: "work/notes-fixtures", task: "Prepare an empty notebook fixture for the test suite." },
+  { id: "cursor", agent: "Cursor", branch: "work/notes-focus", task: "Review keyboard focus when the first note is saved." },
+  { id: "hermes", agent: "Hermes Agent", branch: "work/notes-summary", task: "Summarize the changes for review once its CLI and account are configured.", unavailable: true },
+];
+
+export const sampleWorktrees = [primaryAgent, agentChoices[0]];
+
+function worktreeCard({ id, agent, branch, task, unavailable }: SampleAgent, selectable = false, visible = true) {
+  return `<li class="demo-branch demo-reveal${selectable ? " demo-agent-spotlight" : ""}"${selectable ? `
+    id="demo-agent-${id}" data-demo-agent-card${unavailable ? " data-demo-agent-unavailable" : ""}` : ""}${visible ? "" : " hidden"}>
+    <div class="demo-branch-heading">
+      <strong>${agent}</strong>
+      <span class="demo-agent-state">${unavailable ? "Unavailable" : "Configured"}</span>
+    </div>
+    <code>${branch}</code>
+    <p>${task}</p>
+  </li>`;
+}
+
+function runPreview() {
+  return `<div class="demo-agent-picker" data-demo-agent-picker hidden>
+    <p id="demo-agent-label">Choose an agent for the second worktree</p>
+    <div class="demo-agent-choices" role="group" aria-labelledby="demo-agent-label">
+      ${agentChoices.map(({ id, agent }, index) => `<button type="button" data-demo-agent
+        aria-pressed="${index === 0}" aria-controls="demo-agent-${id}">${agent}</button>`).join("")}
+    </div>
+  </div>
+  <ul class="demo-branches" aria-label="Sample worktrees" role="list">
+    ${worktreeCard(primaryAgent)}
+    ${agentChoices.map((agent, index) => worktreeCard(agent, true, index === 0)).join("")}
+  </ul>`;
+}
 
 const steps = [
   {
@@ -24,22 +70,16 @@ const steps = [
     label: "Run parallel agents",
     title: "Two worktrees. One repository.",
     context: "Field Notes",
-    description: "Create separate Git worktrees on your Core machine, then run one agent in each folder.",
-    duration: 4500,
-    screen: `<ul class="demo-branches" aria-label="Sample worktrees" role="list">
-      ${sampleWorktrees.map(({ agent, branch, task }) => `<li class="demo-branch demo-reveal">
-        <strong>${agent}</strong>
-        <code>${branch}</code>
-        <p>${task}</p>
-      </li>`).join("")}
-    </ul>`,
+    description: "On this sample Core, Codex handles the UI while a second worktree takes a separate task.",
+    duration: 3200,
+    screen: runPreview(),
   },
   {
     id: "reconnect",
     label: "Reconnect and review",
     title: "Reopen the thread",
     context: "Field Notes · Codex",
-    description: "Reopen the thread and review each branch before merging in Git.",
+    description: "Reopen the Codex thread, then review the worktrees with changes before merging in Git.",
     duration: 3300,
     screen: `<p class="demo-reconnected demo-reveal"><span class="demo-dot" aria-hidden="true"></span>Reconnected to your private Core</p>
     <div class="demo-summary demo-reveal"><strong>Git review</strong>
@@ -62,7 +102,7 @@ export function sessionWalkthrough() {
   return `<section class="workflow" id="how-it-works" aria-labelledby="workflow-heading" data-session-demo>
     <header class="demo-heading">
       <h2 id="workflow-heading">From a Git project to a reopened thread</h2>
-      <p class="demo-intro">A sample project with two coding agents and an example of reopening a thread on a private Core.</p>
+      <p class="demo-intro">Explore a sample project, then reopen a thread on a private Core. Agent setup and tasks shown here are illustrative.</p>
     </header>
     <div class="demo-window">
       <div class="demo-titlebar">

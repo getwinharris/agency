@@ -88,7 +88,7 @@ jobs:
           for host in bapx.in www.bapx.in; do
             curl --fail --silent --show-error -H "Host: $host" http://127.0.0.1:8080/ \
               --output "$RUNNER_TEMP/$host-home.html"
-            for marker in '<h1 id="headline">' 'id="how-it-works"' 'data-demo-step' 'id="faq"'; do
+            for marker in '<h1 id="headline">' 'id="how-it-works"' 'data-demo-step' 'data-demo-agent-picker' 'data-demo-agent-unavailable' 'bapx-agent-roster' 'id="faq"'; do
               grep -Fq "$marker" "$RUNNER_TEMP/$host-home.html" || {
                 printf 'Expected landing markup %s is missing for %s.\n' "$marker" "$host" >&2
                 exit 1

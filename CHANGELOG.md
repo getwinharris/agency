@@ -4,7 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
-- Show how a Git project, separate worktrees, and a private Core fit together on the bapX homepage, with a clearer sample walkthrough and setup FAQ.
+- Show how a Git project, separate worktrees, and a private Core fit together on the bapX homepage, with an interactive sample that swaps between coding agents, plus a source-backed roster and setup FAQ.
 - Keep keyboard focus visible when navigating the MediaHub project brief.
 - Improve app Settings helper text contrast and show when a paired private Core is connected or unavailable.
 - Generate a searchable Agency source index, check Docs publication coverage in CI, and record independent browser verification after deployment.

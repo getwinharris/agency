@@ -102,7 +102,7 @@ export function page({
   <script src="/brand/landing-nav.js" defer></script>` : ""}
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
-  <link rel="stylesheet" href="/site.css?v=${landing ? "worktree-workflow" : "violet-accent"}">
+  <link rel="stylesheet" href="/site.css?v=${landing ? "agent-worktree-demo" : "violet-accent"}">
 ${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -143,7 +143,7 @@ export function publicPages() {
   ${projectGuide()}
   ${landingFaq(docs)}
 </main>
-<script src="/brand/session-demo.js?v=private-core-walkthrough" defer></script>
+<script src="/brand/session-demo.js?v=agent-worktree-demo" defer></script>
 <script src="/brand/project-paths.js" defer></script>`,
     }),
     "privacy/index.html": page({
