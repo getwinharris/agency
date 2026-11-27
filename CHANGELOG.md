@@ -4,6 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Generate the Agency architecture map from checked-in source and verify its routes and release coverage in CI.
 - Deploy verified `main` builds to Hostinger directly from the Public web workflow and preserve digest-based rollback.
 - Explain the private Core setup on the homepage and show parallel worktrees and reconnecting in a sample walkthrough.
 - Document how to verify the running private Core build after a restart.
