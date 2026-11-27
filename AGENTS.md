@@ -43,7 +43,7 @@ first-party bapX sites.
 
 ## Public and private surfaces
 
-- `bapx.in` is the product landing and privacy policy.
+- `bapx.in` and its `www.bapx.in` alias serve the product landing and privacy policy.
 - `docs.bapx.in` explains the app and private Core setup.
 - `mediahub.bapx.in` is the agency's creative and technical services, portfolio,
   and project brief form. Scope every engagement individually in INR. Store

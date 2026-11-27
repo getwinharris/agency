@@ -16,6 +16,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.
 - Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.
+- Verify the landing heading landmark and exact release revision on both bapX landing hostnames.
 - Document recovery for missed Public web runs and require independent QA on the exact release PR head.
 - Add bapX Agents landing and documentation on the Cloudroom fork.
 - Add an interactive walkthrough of local and remote Core sessions.
