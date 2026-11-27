@@ -68,12 +68,18 @@ test("checkout CLI preserves generated outputs and rejects drift without writing
     assert.equal(read(mapPath), map);
     assert.equal(read(indexPath), index);
 
-    const workflow = inventory.release.workflow;
-    const ci = read(workflow);
-    write(workflow, ci.replace("for host in bapx.in www.bapx.in", "for host in bapx.in"));
+    const verifier = inventory.release.smoke_verifier;
+    const checks = read(verifier);
+    write(verifier, checks.replace(', "www.bapx.in",', ','));
     expectFailure("generate", /Public web CI health checks disagree/);
     assert.equal(read(mapPath), map);
     assert.equal(read(indexPath), index);
+    write(verifier, checks);
+
+    const workflow = inventory.release.workflow;
+    const ci = read(workflow);
+    write(workflow, ci.replace("repo verify web --revision", "repo verify web --wrong-option"));
+    expectFailure("check", /Update the architecture map for \.github\/workflows\/web\.yml/);
     write(workflow, ci);
 
     const ingress = read(compose);

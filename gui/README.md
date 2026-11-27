@@ -37,6 +37,19 @@ is `pnpm bapx-cli repo skills list`. Repository commands act on the tracked
 `skills/<name>/SKILL.md` files in the source checkout. To work with skills
 installed in bapX Agents, use `bapx-cli skill --help`.
 
+## Verify the public web build
+
+From the Agency checkout root, point `bapx-cli` at the running web image and
+pass the Git SHA used to build it. Public web CI uses the same check.
+
+```sh
+./gui/apps/cli/bin/bapx-cli repo verify web --revision "$WEB_SHA" --origin http://127.0.0.1:8080
+```
+
+To check the deployed HTTPS sites, use `--live` from the checkout for the
+deployed SHA. The command checks readiness, routes, branding assets, and
+signed-out responses. Verify the affected user flow separately in a browser.
+
 ## Run in dev mode
 
 Start the backend and browser UI, then Electron in a second terminal:

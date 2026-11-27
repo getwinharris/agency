@@ -116,6 +116,7 @@
   },
   "release": {
     "workflow": ".github/workflows/web.yml",
+    "smoke_verifier": "gui/apps/cli/scripts/repository-web-verification.mjs",
     "smoke_driver": "deploy/deploy-web.sh",
     "image": "deploy/web.Dockerfile"
   },

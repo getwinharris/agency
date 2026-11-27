@@ -22,6 +22,7 @@ on:
       - 'gui/apps/cli/bin/bapx-cli'
       - 'gui/apps/cli/scripts/repository-cli.mjs'
       - 'gui/apps/cli/scripts/repository-inventory.mjs'
+      - 'gui/apps/cli/scripts/repository-web-verification.mjs'
       - '.github/workflows/source-inventory.yml'
       - '.github/workflows/app.yml'
       - '.github/workflows/core.yml'
@@ -87,60 +88,7 @@ jobs:
             --env BAPX_ADMIN_PASSWORD_FILE=/run/secrets/bapx-admin-password \
             --mount "type=bind,src=$admin_password,dst=/run/secrets/bapx-admin-password,readonly" agency-web:check
           trap 'docker logs agency-web; docker stop agency-web' EXIT
-          for host in bapx.in www.bapx.in docs.bapx.in mediahub.bapx.in admin.bapx.in; do
-            curl --retry 10 --retry-connrefused --fail --silent --show-error \
-              -H "Host: $host" http://127.0.0.1:8080/healthz |
-              jq -e --arg sha "$GITHUB_SHA" '.ready == true and .service == "bapx-web" and .revision == $sha'
-          done
-          for host in bapx.in www.bapx.in; do
-            curl --fail --silent --show-error -H "Host: $host" http://127.0.0.1:8080/ \
-              --output "$RUNNER_TEMP/$host-home.html"
-            for marker in '<h1 id="headline">' 'id="how-it-works"' 'data-demo-step' 'data-demo-agent-picker' 'data-demo-agent-unavailable' 'bapx-agent-roster' 'id="faq"'; do
-              grep -Fq "$marker" "$RUNNER_TEMP/$host-home.html" || {
-                printf 'Expected landing markup %s is missing for %s.\n' "$marker" "$host" >&2
-                exit 1
-              }
-            done
-          done
-          for icon in codex claude-code cursor hermes opencode pi; do
-            curl --fail --silent --show-error -H 'Host: bapx.in' \
-              "http://127.0.0.1:8080/brand/agents/$icon.svg" --output "$RUNNER_TEMP/$icon.svg"
-            grep -Fq '<svg' "$RUNNER_TEMP/$icon.svg"
-          done
-          curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
-          grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"
-          grep -F '<a href="/release-notes/">release changelog</a>' "$RUNNER_TEMP/docs-home.html"
-          for slug in build-from-source desktop-packaging private-core project-skills release-notes; do
-            curl --fail --silent --show-error -H 'Host: docs.bapx.in' "http://127.0.0.1:8080/$slug/" --output "$RUNNER_TEMP/docs-$slug.html"
-          done
-          grep -F 'id="1-install-tools-and-build"' "$RUNNER_TEMP/docs-private-core.html"
-          grep -F '<pre tabindex="0"><code' "$RUNNER_TEMP/docs-private-core.html"
-          grep -F '<table>' "$RUNNER_TEMP/docs-desktop-packaging.html"
-          grep -F 'id="install-an-agency-skill-in-native-agents"' "$RUNNER_TEMP/docs-project-skills.html"
-          grep -F '>Verified web deployments</h2>' "$RUNNER_TEMP/docs-release-notes.html"
-          grep -F '>Pending</h2>' "$RUNNER_TEMP/docs-release-notes.html"
-          grep -E '>Served SHA <code>[a-f0-9]{40}</code></li>' "$RUNNER_TEMP/docs-release-notes.html"
-          curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/docs.css --output "$RUNNER_TEMP/docs.css"
-          test -s "$RUNNER_TEMP/docs.css"
-          curl --fail --silent -H 'Host: mediahub.bapx.in' http://127.0.0.1:8080/clients/nebo-lifestyle-clinic/ | grep -iF 'Nebo Lifestyle Clinic'
-          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/ | grep -F '<h1 id="login-title">Sign in</h1>'
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: admin.bapx.in' http://127.0.0.1:8080/api/admin/session)" = 401
-          for path in sign-in signup account; do
-            curl --fail --silent --show-error -H 'Host: bapx.in' "http://127.0.0.1:8080/$path/" --output /dev/null
-          done
-          for endpoint in auth/session admin/session; do
-            test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: bapx.in' "http://127.0.0.1:8080/api/$endpoint")" = 401
-          done
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: docs.bapx.in' http://127.0.0.1:8080/api/auth/session)" = 404
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: bapx.in' http://127.0.0.1:8080/admin/)" = 404
-          curl --fail --silent --location -H 'Host: bapx.in' http://127.0.0.1:8080/favicon.svg --output "$RUNNER_TEMP/bapx-favicon.svg"
-          cmp gui/apps/www/public/brand/favicon.svg "$RUNNER_TEMP/bapx-favicon.svg"
-          for icon in favicon.ico favicon-96x96.png; do
-            curl --fail --silent -H 'Host: admin.bapx.in' "http://127.0.0.1:8080/$icon" --output "$RUNNER_TEMP/$icon"
-            cmp "gui/apps/www/public/brand/$icon" "$RUNNER_TEMP/$icon"
-          done
-          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/brand/bapx-logo-main.svg --output "$RUNNER_TEMP/bapx-logo-main.svg"
-          cmp gui/apps/www/public/brand/bapx-logo-main.svg "$RUNNER_TEMP/bapx-logo-main.svg"
+          ./gui/apps/cli/bin/bapx-cli repo verify web --revision "$GITHUB_SHA" --origin http://127.0.0.1:8080
           BAPX_WEB_IMAGE=agency-web:check docker compose -f deploy/compose.web.yml config --quiet
       - name: Publish main image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

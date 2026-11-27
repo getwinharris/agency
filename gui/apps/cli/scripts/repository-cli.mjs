@@ -3,6 +3,7 @@ const usage = `Usage: bapx-cli repo <command>
 Commands:
   inventory   Generate, print, or check the architecture map and source index.
   skills      List, read, or edit tracked Agency skills.
+  verify      Check an exact web release from a checkout.
 
 Run bapx-cli repo <command> --help for usage.
 `;
@@ -15,6 +16,9 @@ try {
   } else if (command === "skills") {
     const { runSkills } = await import("./repository-skills.mjs");
     runSkills(args);
+  } else if (command === "verify") {
+    const { runVerification } = await import("./repository-web-verification.mjs");
+    await runVerification(args);
   } else if (command === undefined || (command === "--help" && !args.length)) {
     process.stdout.write(usage);
   } else {

@@ -103,18 +103,12 @@ blocker and the safe fallback used.
 
 ## Agent change and delivery workflow
 
-Carry an ordinary first-party change through the applicable steps below in one
-continuous run, without waiting for another prompt between implementation,
-testing, review, merge, and automatic deployment. Do not bypass approvals or
-required checks. For a web change, confirm the served SHA and exercise the
-changed behavior in a real browser before calling it shipped. An open PR,
-green CI, a diagnostics report, an isolated smoke test, or a completed agent
-turn is not completion. Meet all agreed acceptance criteria for the in-scope
-user journey in production. Small increments are fine; a minimal demo is
-not the final deliverable. Fix recoverable blockers and keep independent
-work moving when an external dependency requires owner action. If a gate cannot be
-cleared, leave a concise handoff with the exact blocker, evidence, and next
-safe action; report non-deploying changes according to their actual scope.
+Own a change through testing, review, CI, merge, and applicable automatic
+deployment. Use the same checkout verification commands as CI. For a web
+release, exercise the affected flow yourself in a browser before merge and
+again on the exact live revision, then record independent QA as an additional
+check. Continue through recoverable failures and required approval gates.
+Record any external blocker, the evidence, and the next action and owner.
 
 **Use GitHub issues as the work queue.** At the start of an engineering run,
 review open issues and active PRs. Pick a ready issue, reuse any existing PR,
@@ -181,7 +175,9 @@ superseded releases.
    even when GitHub allows a merge without enforcing its gates.
 4. **Merge, deploy, and verify.** Merge only when required reviews, checks,
    and approvals pass. Follow the existing automatic main deployment for web
-   changes. After the exact merge SHA is live, a verifier separate from the
+   changes. Run `./gui/apps/cli/bin/bapx-cli repo verify web --revision SHA --live`
+   from the release checkout, and personally exercise the affected behavior.
+   After the exact merge SHA is live, a verifier separate from the
    implementer must exercise the affected flow on the public URL in a browser.
    Record the verifier, UTC timestamp or time zone, PR head, merge and served
    SHA, workflow run and attempt, URL, viewport, and concrete results on the
