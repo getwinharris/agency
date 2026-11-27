@@ -1,0 +1,84 @@
+.account-layout {
+  min-height: calc(100svh - 10rem);
+  display: grid;
+  align-items: center;
+  padding: clamp(1.5rem, 5vw, 3.5rem) 1rem;
+}
+
+.account-menu { gap: .45rem; }
+.account-menu button {
+  min-height: 2.75rem;
+  padding: .35rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+}
+.account-menu button[aria-pressed="true"] { color: var(--violet); border-color: var(--violet); }
+
+[data-account-admin] > .shell {
+  width: 100%;
+  margin: 0;
+}
+
+.account-card {
+  width: min(100%, 29rem);
+  margin-inline: auto;
+  padding: clamp(1.25rem, 5vw, 2.3rem);
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: var(--surface);
+}
+
+.account-card h1 {
+  margin: 0 0 1.25rem;
+  font-size: clamp(1.65rem, 5vw, 2.3rem);
+  line-height: 1.12;
+  letter-spacing: -.04em;
+}
+
+.account-form, .account-details {
+  display: grid;
+  gap: .65rem;
+}
+
+.account-form label {
+  font-size: .875rem;
+  font-weight: 600;
+}
+
+.account-form input {
+  width: 100%;
+  min-height: 2.75rem;
+  margin-bottom: .35rem;
+  padding: .6rem .75rem;
+  border: 1px solid #655477;
+  border-radius: .4rem;
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+}
+
+.account-card .button {
+  width: fit-content;
+  margin-top: .45rem;
+  cursor: pointer;
+}
+
+.account-card .button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.account-card a { color: var(--violet); }
+.account-help, .account-status { font-size: .9rem; line-height: 1.5; color: var(--muted); }
+.account-help { margin: 0 0 .45rem; }
+.account-form + .account-help { margin-top: 1rem; }
+.account-status { margin: 1rem 0 0; }
+.account-status:empty { margin: 0; }
+.account-error { color: #ffc0cd; }
+
+.account-details dl { margin: 0 0 .5rem; }
+.account-details dt { color: var(--muted); font-size: .875rem; }
+.account-details dd { margin: .3rem 0 0; overflow-wrap: anywhere; }

@@ -3,7 +3,7 @@ flowchart TD
   workspace["Agency workspace · AGENTS.md and docs/project-index.json"]
 
   subgraph build["Source and build"]
-    webSource["Landing, Docs, MediaHub and Admin · gui/apps/www/src/build.ts"]
+    webSource["Landing, Docs, MediaHub, accounts and Admin · gui/apps/www/src/build.ts"]
     docsSources["Published Markdown registry · gui/apps/www/src/docs/pages.ts"]
     assets["Static build · pnpm build:web → gui/apps/www/dist"]
     rust["Rust Core build · core/src/main.rs"]
@@ -35,6 +35,7 @@ flowchart TD
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
     webRouter["Traefik TLS · first-party public routes"]
+    accountRouter["Traefik TLS · apex account and operator API"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
     webRuntime["bapx-core serve-web · core/src/web.rs"]
@@ -42,20 +43,29 @@ flowchart TD
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
     adminApi["Admin sign-in and authenticated API · core/src/web/admin.rs"]
+    accountApi["Apex signup, role checks and sign-in · core/src/web/accounts.rs"]
     staticPilot["Published assets · core/src/web/published.rs"]
-    webData["Private writable volume · briefs, notes and published copy"]
+    webData["Private writable volume · accounts, briefs, notes and published copy"]
     adminSecret["Private read-only bind · Admin sign-in credential"]
     webRouter --> webRuntime
+    accountRouter -->|"Forward host-only session"| webRuntime
     adminRouter --> webRuntime
     pilotRouter -->|"Strip Cookie and Authorization"| webRuntime
     webRuntime --> routing
     webRuntime --> readiness
     webRuntime --> briefs
     webRuntime --> adminApi
+    webRuntime --> accountApi
     webRuntime --> staticPilot
     briefs -->|"Persist accepted briefs"| webData
     adminApi -->|"Read briefs and update operator data"| webData
+    accountApi -->|"Persist invitations and accounts"| webData
+    accountApi -->|"Verify operator role"| adminApi
     adminSecret --> adminApi
+    ingress_agency_account_bapx_dot_in["bapx.in /api/auth/ · agency-account"] --> accountRouter
+    ingress_agency_account_admin_bapx_dot_in["bapx.in /api/admin/ · agency-account-admin"] --> accountRouter
+    ingress_agency_account_login_bapx_dot_in["bapx.in POST /api/auth/sign-in · agency-account-login"] --> accountRouter
+    ingress_agency_account_signup_bapx_dot_in["bapx.in POST /api/auth/signup · agency-account-signup"] --> accountRouter
     ingress_agency_admin_admin_dot_bapx_dot_in["admin.bapx.in · agency-admin"] --> adminRouter
     ingress_agency_admin_login_admin_dot_bapx_dot_in["admin.bapx.in POST /api/admin/login · agency-admin-login"] --> adminRouter
     ingress_agency_mediahub_brief_mediahub_dot_bapx_dot_in["mediahub.bapx.in POST /api/mediahub/inquiries · agency-mediahub-brief"] --> webRouter

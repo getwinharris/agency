@@ -1,5 +1,6 @@
 import { mediahubClients, type MediaHubClient } from "./portfolio.ts";
 import { brandLockup, brandStylesheet, faviconLinks } from "../brand.ts";
+import { signInUrl } from "../auth/pages.ts";
 
 const mediaHubUrl = "https://mediahub.bapx.in";
 const businessEmail = "bapxmediahub@gmail.com";
@@ -23,7 +24,7 @@ function escapeHtml(value: string): string {
 
 function navigation(isHome: boolean): string {
   const home = isHome ? "" : "/";
-  const links = `<a href="${home}#work">Work</a><a href="${home}#services">Services</a><a href="${home}#approach">Approach</a>`;
+  const links = `<a href="${home}#work">Work</a><a href="${home}#services">Services</a><a href="${home}#approach">Approach</a><a href="${signInUrl}">Sign in</a>`;
   return `<header class="site-header">
     <nav class="container navigation" aria-label="Primary navigation">
       ${brandLockup("lockup", 114, "MediaHub")}
