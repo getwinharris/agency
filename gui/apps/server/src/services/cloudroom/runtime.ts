@@ -124,6 +124,19 @@ export interface RuntimeHooks {
 
 const emptyThreadState = (): ThreadState => ({ activeSends: 0, prepTries: 0, catchUpTries: 0, rewoken: 0, creditsTold: 0 });
 
+const PRIVATE_CATALOG_CONNECT_WAIT_MS = 1_000;
+// Core versions may enumerate multiple providers serially, each with its own timeout.
+const PRIVATE_CATALOG_TIMEOUT_MS = 120_000;
+const PRIVATE_CATALOG_REFRESH_MS = 10_000;
+
+export type PrivateCatalog = {
+  connection: Connection;
+  request: Promise<Capabilities | null>;
+  capabilities: Capabilities | null;
+  failure: { error: unknown } | null;
+  refreshAt: number;
+};
+
 export class CloudRuntime implements SyncHost {
   readonly threads = new Map<string, ThreadState>();
   // Renderers get a local acknowledgement first. A fast Undo must reach Cloud after its archive.
@@ -149,6 +162,7 @@ export class CloudRuntime implements SyncHost {
   /** What sandboxes run, kept apart from a VM's: an account with both starts new threads in sandboxes. */
   sandboxCapabilities: Capabilities | null = null;
   private nextCapabilitiesAsk = 0;
+  private privateCatalog: PrivateCatalog | null = null;
   private configurationWrite: Promise<void> = Promise.resolve();
   private readonly recordWrites = new Map<string, Promise<void>>();
   private savedCache: { key: string; value: z.infer<typeof savedConnectionSchema> } | null = null;
@@ -481,10 +495,87 @@ export class CloudRuntime implements SyncHost {
     return storage;
   }
 
-  async capabilities(client: CloudroomClient, storage?: Storage | null): Promise<Capabilities> {
-    const message = storageMessage(storage === undefined ? await this.storage(client) : storage);
+  private requireStorage(storage: Storage | null): void {
+    const message = storageMessage(storage);
     if (message) throw new ApiError(503, "storage_blocked", message, { retryable: true });
-    return capabilitiesSchema.parse(await client.capabilities());
+  }
+
+  async requirePrivateCoreReady(client: CloudroomClient, storage: Storage | null): Promise<void> {
+    this.requireStorage(storage);
+    if ((await client.ready()).ready !== true) {
+      throw new ApiError(503, "cloudroom_not_ready", "Your Core is not ready to run tasks. Check Core and try again.", { retryable: true });
+    }
+  }
+
+  async capabilities(client: CloudroomClient, storage?: Storage | null, signal?: AbortSignal): Promise<Capabilities> {
+    this.requireStorage(storage === undefined ? await this.storage(client) : storage);
+    return capabilitiesSchema.parse(await client.capabilities(signal));
+  }
+
+  probePrivateCatalog(connection: Connection, storage?: Storage | null, previous: Capabilities | null = null): PrivateCatalog {
+    // Resolve our deadline before aborting so both a stalled fetch and a stalled body count as a catalog timeout.
+    const controller = new AbortController();
+    const client = new CloudroomClient({ ...connection, timeoutMs: PRIVATE_CATALOG_TIMEOUT_MS + 5_000 });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => { resolve(null); controller.abort(); }, PRIVATE_CATALOG_TIMEOUT_MS);
+      timer.unref();
+    });
+    const catalog: PrivateCatalog = {
+      connection,
+      capabilities: previous,
+      failure: null,
+      refreshAt: Infinity,
+      request: Promise.race([this.capabilities(client, storage, controller.signal), timeout]).then(
+        (capabilities) => {
+          if (capabilities) {
+            catalog.capabilities = capabilities;
+            catalog.failure = null;
+            if (this.privateCatalog === catalog) this.lastCapabilities = capabilities;
+          }
+          return capabilities;
+        },
+        (error: unknown) => {
+          catalog.capabilities = null;
+          catalog.failure = { error };
+          if (this.privateCatalog === catalog) this.lastCapabilities = null;
+          throw error;
+        },
+      ).finally(() => {
+        clearTimeout(timer);
+        catalog.refreshAt = Date.now() + PRIVATE_CATALOG_REFRESH_MS;
+      }),
+    };
+    // Polling may stop before a background request completes.
+    void catalog.request.catch(() => {});
+    return catalog;
+  }
+
+  async waitForPrivateCatalog(catalog: PrivateCatalog): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const wait = new Promise<void>((resolve) => { timer = setTimeout(resolve, PRIVATE_CATALOG_CONNECT_WAIT_MS); });
+      await Promise.race([catalog.request, wait]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  usePrivateCatalog(catalog: PrivateCatalog | null): void {
+    if (this.privateCatalog || catalog) this.lastCapabilities = catalog?.capabilities ?? null;
+    this.privateCatalog = catalog;
+  }
+
+  currentPrivateCatalog(connection: Connection, storage?: Storage | null): PrivateCatalog {
+    const existing = this.privateCatalog;
+    const same = existing?.connection.url === connection.url && existing.connection.token === connection.token
+      && existing.connection.gateToken === connection.gateToken;
+    if (same && existing.refreshAt > Date.now()) return existing;
+    const next = this.probePrivateCatalog(connection, storage, same ? existing.capabilities : null);
+    // Keep a completed error visible until a new probe has actually succeeded.
+    if (same) next.failure = existing.failure;
+    this.usePrivateCatalog(next);
+    return next;
   }
 
   async liveCapabilities(saved: Binding): Promise<Capabilities> {

@@ -48,7 +48,7 @@ import { CLOUD_REGION, SANDBOX_PREFIX, SandboxAsleep, sandboxThread, startRefuse
 import type { CloudStatusPreviews } from "./status-previews.js";
 import { baseBranch, binding, bindings, command, commands, openBinding, openBindings, projectCopyProgress, saveBinding, saveCommandState, TIMED_OUT, unsentDeletes, type Binding, type Command, type OpenBinding } from "./store.js";
 import type { CloudStream } from "./stream.js";
-import { importCodexLogin, setupSync } from "./sync.js";
+import { importCodexLogin } from "./sync.js";
 import type { CloudTransfers } from "./transfers.js";
 
 /**
@@ -109,14 +109,18 @@ export class CloudDelivery {
     const epoch = this.rt.epoch;
     void this.rt.dropRetiredVm().then(async (saved) => {
       if (!saved?.token || this.rt.stopped || epoch !== this.rt.epoch) return;
-      const capabilities = capabilitiesSchema.parse(await (await this.rt.client()).capabilities());
-      if (this.rt.stopped || epoch !== this.rt.epoch) return;
+      let capabilities: Capabilities | null;
+      if (saved.account) {
+        capabilities = capabilitiesSchema.parse(await (await this.rt.client()).capabilities());
+      } else {
+        const connection = await this.rt.connection(saved);
+        if (this.rt.stopped || epoch !== this.rt.epoch) return;
+        capabilities = await this.rt.currentPrivateCatalog(connection).request;
+      }
+      if (!capabilities || this.rt.stopped || epoch !== this.rt.epoch) return;
       this.rt.lastCapabilities = capabilities;
       await Promise.all([
-        capabilities.sync
-          ? setupSync(this.rt.host.deps).then(() => { if (epoch === this.rt.epoch) this.statusPreviews.syncIssue = null; })
-              .catch((error) => { if (epoch === this.rt.epoch) this.statusPreviews.syncIssue = publicError(error); })
-          : Promise.resolve(),
+        this.statusPreviews.ensureSync(capabilities),
         this.statusPreviews.ensurePreviews(capabilities),
       ]);
     }).catch((error) => {
@@ -126,6 +130,7 @@ export class CloudDelivery {
 
   stop(): void {
     this.rt.epoch++;
+    this.rt.usePrivateCatalog(null);
     this.auth.resetOnStop();
     this.statusPreviews.resetOnStop();
     this.rt.stopped = true;
