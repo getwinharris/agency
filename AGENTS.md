@@ -87,6 +87,8 @@ blocker and the safe fallback used.
 ## Public and private surfaces
 
 - `bapx.in` and its `www.bapx.in` alias serve the product landing and privacy policy.
+- `app.bapx.in` opens the shared bapX account window on the apex. Treat only
+  this exact hostname as first-party and keep customer subdomains separate.
 - `docs.bapx.in` explains the app and private Core setup.
 - `mediahub.bapx.in` is the agency's creative and technical services, portfolio,
   and project brief form. Scope every engagement individually in INR. Store
@@ -212,12 +214,12 @@ superseded releases.
   deployment configuration. Keep production deployment event-driven and verify
   the exact served revision and rollback image on each release.
 - Ship the first-party web hosts together as one Rust Core release. The landing,
-  Docs, MediaHub, and Admin assets are part of the exact `main` image, not
+  App entry, Docs, MediaHub, and Admin assets are part of the exact `main` image, not
   independently deployed sites or SPAs. Identify the image by its immutable
   digest, record its Git SHA, and keep the previous healthy image for rollback.
 - Verify the same exact `main` SHA on `bapx.in`, `www.bapx.in`, `docs.bapx.in`,
-  `mediahub.bapx.in`, `admin.bapx.in`, and any additional first-party hosts
-  explicitly configured for that release. Run HTTPS smoke checks on each host
+  `mediahub.bapx.in`, `admin.bapx.in`, `app.bapx.in`, and any additional
+  first-party hosts explicitly configured for that release. Run HTTPS smoke checks on each host
   and exercise the affected browser flows. Check Admin sign-in and require
   authentication without changing production data. Treat a host revision
   mismatch as a failed verification; record the expected and observed SHAs.
