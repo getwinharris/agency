@@ -6,6 +6,7 @@ const statuses = {
 
 const signupMethods = { email: "Email", google: "Google" };
 const roles = { owner: "Owner", staff: "Staff", customer: "Customer" };
+const previewSegments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const dateFormat = new Intl.DateTimeFormat("en", {
   dateStyle: "medium",
   timeStyle: "short",
@@ -175,16 +176,39 @@ function renderForms(forms, filters) {
   </section>`;
 }
 
+function recordCell(label, content, rowHeader = false) {
+  const tag = rowHeader ? "th" : "td";
+  const attributes = rowHeader ? 'scope="row" role="rowheader"' : 'role="cell"';
+  return `<${tag} ${attributes}><span class="record-label" aria-hidden="true">${escapeHtml(label)}</span>
+    <div class="record-value">${content}</div></${tag}>`;
+}
+
+function submissionPreview(fields) {
+  const contact = fields.find((field) => field.type === "email" && field.value);
+  const brief = fields.find((field) => field.type === "textarea" && field.value);
+  if (!contact && !brief) return "";
+  let summary = brief?.value;
+  if (summary?.length > 160) {
+    const end = previewSegments.segment(summary).containing(157).index;
+    summary = `${summary.slice(0, end)}…`;
+  }
+  return `<dl class="record-preview">
+    ${contact ? `<dt>${escapeHtml(contact.label)}</dt><dd>${escapeHtml(contact.value)}</dd>` : ""}
+    ${brief ? `<dt>${escapeHtml(brief.label)}</dt><dd>${escapeHtml(summary)}</dd>` : ""}
+  </dl>`;
+}
+
 function renderInbox(forms, submissions, assignees, filters, selected) {
   const rows = submissions.map((submission) => {
     const leadHref = adminHref(filters, { submission: submission.id });
     const assignee = assignees.find((user) => user.id === submission.lead.assigneeId);
-    return `<tr${selected?.id === submission.id ? ' class="selected"' : ""}>
-      <td><a href="${escapeHtml(leadHref)}#lead"${selected?.id === submission.id ? ' aria-current="true"' : ""}>${escapeHtml(submission.formTitle)}</a></td>
-      <td>${dateTime(submission.createdAt)}</td>
-      <td><span class="status">${escapeHtml(statuses[submission.lead.status])}</span></td>
-      <td>${escapeHtml(assignee?.email ?? "Unassigned")}</td>
-      <td><a href="${escapeHtml(leadHref)}#original-submission">Original submission</a></td>
+    const title = `<a href="${escapeHtml(leadHref)}#lead"${selected?.id === submission.id ? ' aria-current="true"' : ""}>${escapeHtml(submission.formTitle)}</a>`;
+    return `<tr role="row"${selected?.id === submission.id ? ' class="selected"' : ""}>
+      ${recordCell("Form", title + submissionPreview(submission.fields))}
+      ${recordCell("Received (UTC)", dateTime(submission.createdAt))}
+      ${recordCell("Status", `<span class="status">${escapeHtml(statuses[submission.lead.status])}</span>`)}
+      ${recordCell("Assignee", escapeHtml(assignee?.email ?? "Unassigned"))}
+      ${recordCell("Source", `<a href="${escapeHtml(leadHref)}#original-submission">Original submission</a>`)}
     </tr>`;
   }).join("\n");
   return `<section class="panel" aria-labelledby="inbox-title" id="submissions">
@@ -201,9 +225,9 @@ function renderInbox(forms, submissions, assignees, filters, selected) {
       <a href="/admin#submissions">Clear</a>
     </form>
     ${rows ? `<div class="table-wrap" tabindex="0" role="region" aria-label="Form submissions">
-      <table>
-        <thead><tr><th scope="col">Form</th><th scope="col">Received (UTC)</th><th scope="col">Status</th><th scope="col">Assignee</th><th scope="col">Source</th></tr></thead>
-        <tbody>${rows}</tbody>
+      <table class="record-table" role="table">
+        <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Form</th><th scope="col" role="columnheader">Received (UTC)</th><th scope="col" role="columnheader">Status</th><th scope="col" role="columnheader">Assignee</th><th scope="col" role="columnheader">Source</th></tr></thead>
+        <tbody role="rowgroup">${rows}</tbody>
       </table>
     </div>` : '<p class="muted padded">No submissions match these filters.</p>'}
   </section>`;
@@ -219,7 +243,7 @@ function renderSubmission(submission, session, assignees) {
     <p class="muted">${escapeHtml(note.author)} · ${dateTime(note.createdAt)} UTC</p>
   </li>`).join("\n");
 
-  return `<section class="panel padded" id="lead" aria-labelledby="lead-title">
+  return `<section class="panel padded" id="lead" tabindex="-1" aria-labelledby="lead-title">
     <h2 id="lead-title">${escapeHtml(submission.formTitle)}</h2>
     <p><a href="#original-submission">View original submission</a></p>
     <form class="stack" method="post" action="/admin/submissions/${encodeURIComponent(submission.id)}">
@@ -260,17 +284,17 @@ function renderUsers(users, session) {
   return `<section class="panel" aria-labelledby="accounts-title" id="accounts">
     <div class="panel-header"><h2 id="accounts-title">App accounts</h2></div>
     ${users.length ? `<div class="table-wrap" tabindex="0" role="region" aria-label="App accounts">
-      <table>
-        <thead><tr><th scope="col">Email</th><th scope="col">Original signup method</th><th scope="col">Verified (UTC)</th><th scope="col">Role</th></tr></thead>
-        <tbody>${users.map((user) => `<tr>
-          <th scope="row">${escapeHtml(user.email)}</th>
-          <td>${escapeHtml(signupMethods[user.signupMethod] ?? "—")}</td>
-          <td>${user.verifiedAt ? dateTime(user.verifiedAt) : "Unverified"}</td>
-          <td>${user.role === "owner" || !user.verifiedAt ? roles[user.role] : `<form class="role-form" method="post" action="/admin/roles/${encodeURIComponent(user.id)}">
+      <table class="record-table" role="table">
+        <thead role="rowgroup"><tr role="row"><th scope="col" role="columnheader">Email</th><th scope="col" role="columnheader">Original signup method</th><th scope="col" role="columnheader">Verified (UTC)</th><th scope="col" role="columnheader">Role</th></tr></thead>
+        <tbody role="rowgroup">${users.map((user) => `<tr role="row">
+          ${recordCell("Email", escapeHtml(user.email), true)}
+          ${recordCell("Signup method", escapeHtml(signupMethods[user.signupMethod] ?? "—"))}
+          ${recordCell("Verified (UTC)", user.verifiedAt ? dateTime(user.verifiedAt) : "Unverified")}
+          ${recordCell("Role", user.role === "owner" || !user.verifiedAt ? roles[user.role] : `<form class="role-form" method="post" action="/admin/roles/${encodeURIComponent(user.id)}">
             ${csrfField(session)}
             <select name="role" aria-label="Role for ${escapeHtml(user.email)}">${option("customer", roles.customer, user.role)}${option("staff", roles.staff, user.role)}</select>
             <button type="submit">Save role</button>
-          </form>`}</td>
+          </form>`)}
         </tr>`).join("\n")}</tbody>
       </table>
     </div>` : '<p class="muted padded">No accounts yet.</p>'}
@@ -375,6 +399,29 @@ const styles = `
   .details { margin: 0; }
   .details dt { font-size: .85rem; color: var(--muted); }
   .details dd { margin: .2rem 0 .7rem; }
+  .record-label, .record-preview { display: none; }
   @media (max-width: 65rem) { .inbox-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 37rem) {
+    .record-table, .record-table tbody, .record-table tr { display: block; }
+    .record-table thead { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+    .record-table tbody tr { padding: .7rem var(--spacing); border-block-end: .063rem solid var(--border); }
+    .record-table tbody tr:last-child { border-block-end: 0; }
+    .record-table tbody :is(td, th) {
+      display: grid;
+      grid-template-columns: 6rem minmax(0, 1fr);
+      gap: .5rem;
+      padding: .35rem 0;
+      border: 0;
+    }
+    .record-table tbody tr > :first-child { display: block; font-weight: 650; }
+    .record-table tbody tr > :first-child .record-label { display: none; }
+    .record-table .record-label { display: block; color: var(--muted); }
+    .record-table time { white-space: normal; }
+    .record-preview { display: block; margin: .6rem 0 0; font-weight: 400; }
+    .record-preview dt { font-size: .82rem; color: var(--muted); }
+    .record-preview dd { margin: .15rem 0 .45rem; }
+    .record-table .role-form { display: flex; flex-wrap: wrap; gap: .35rem; min-width: 0; }
+    .record-table .role-form select { max-width: 100%; }
+  }
   @media (max-width: 25rem) { .filters { grid-template-columns: minmax(0, 1fr); } }
 `;
