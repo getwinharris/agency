@@ -1216,6 +1216,7 @@ printf '%s\n' "$*" >>"${join(fixture.dataDir, "launchctl.log")}"
 
   it("restarts an active Linux systemd user unit after replacing it", () => {
     const fixture = createFixture();
+    writeExecutable(join(fixture.binDir, "id"), "#!/bin/sh\necho 1000\n");
     writeJoinedState(fixture);
     writeServerInstallTools(fixture, 200);
     writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Linux\n");
@@ -1352,6 +1353,7 @@ fi
 
   it("replaces a matching legacy systemd unit with exactly one host service", () => {
     const fixture = createFixture();
+    writeExecutable(join(fixture.binDir, "id"), "#!/bin/sh\necho 1000\n");
     writeJoinedState(fixture);
     writeServerInstallTools(fixture, 200);
     writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Linux\n");

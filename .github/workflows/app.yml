@@ -36,6 +36,17 @@ jobs:
         run: pnpm exec turbo run build typecheck --filter=@cloudroom/app --filter=@cloudroom/server --filter=@cloudroom/desktop --concurrency=2
       - name: Tests
         run: pnpm exec turbo run test --filter=@cloudroom/config --concurrency=2
+      - name: CLI, Tools, and installer regression checks
+        run: >-
+          pnpm exec vitest run --maxWorkers=2
+          apps/cli/src/__tests__/command-output
+          apps/cli/src/__tests__/room-cli.e2e.test.ts
+          apps/desktop/test/room-cli-shim.test.ts
+          apps/host-daemon/test/room-cli-launchers.test.ts
+          apps/server/test/app/host-artifact.test.ts
+          apps/server/test/app/install-machine-script.test.ts
+          apps/app/src/components/tools/detail-page-recipes.test.tsx
+          packages/plugin-sdk/src/internal/command-guard.test.ts
       - name: App starter tests
         working-directory: starters/app-admin
         run: |

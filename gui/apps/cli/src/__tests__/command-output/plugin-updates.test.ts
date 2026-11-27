@@ -214,10 +214,10 @@ describe("room-cli plugin update commands", () => {
 
     const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
     expect(output).toContain(
-      'command: room-cli plugin run shadower — Shadow threads (core command "room-cli thread" takes precedence)',
+      'command: bapx-cli plugin run shadower — Shadow threads (core command "bapx-cli thread" takes precedence)',
     );
     expect(output).toContain("command: bapx-cli notes — Take notes");
-    expect(output).not.toContain('core command "room-cli notes"');
+    expect(output).not.toContain('core command "bapx-cli notes"');
   });
 
   it("skips pinned plugins with manual reinstall guidance", async () => {
