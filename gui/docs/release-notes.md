@@ -6,6 +6,15 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 17:56 IST
+
+The public Rust image now starts with `bapx-core serve-web`. Existing publishing tools can still use the `cloudroom` executable. The [private Core guide](https://docs.bapx.in/private-core/) explains both paths. All five public hostnames served this revision after the GitHub Actions rollout, and Admin required sign-in. [PR #94](https://github.com/getwinharris/agency/pull/94)
+
+- Desktop source version `0.1.0`
+- Served SHA `380228e390e15c9cc5f519a96842afc9988ebebf`
+- Image `sha256:62216cec099c6c070c3ffa552e4b15b1ff3d60f87e592fc6c988f994c56404a9`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45995156522), attempt 1
+
 ### 27 November 2026, 17:10 IST
 
 Moved first-party web deployment to GitHub Actions. The [Public web workflow](https://github.com/getwinharris/agency/actions/workflows/web.yml) verifies the source revision and deploys the shared Rust image to Hostinger. Retired VPS polling after checking all five hostnames and the browser acceptance flows. [PR #92](https://github.com/getwinharris/agency/pull/92)
