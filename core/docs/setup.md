@@ -192,9 +192,9 @@ In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Setti
 
 ## Upgrade
 
-For an Agency installation, build from a reviewed Agency revision using the
-[source instructions above](#1-install-tools-and-build). The following
-published archive procedure is for upstream Cloudroom installations.
+A verified in-place upgrade procedure for Agency is pending. The [source
+instructions above](#1-install-tools-and-build) are for new installations.
+The archive procedure below applies to upstream Cloudroom installations.
 
 Pick a `core-v` version from the [upstream releases](https://github.com/davidondrej/cloudroom/releases), then:
 

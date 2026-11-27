@@ -49,7 +49,7 @@ markdown.renderer.rules.docs_table_close = () => "</table></div>\n";
 export function repositoryLink(href: string, from: string, routes: ReadonlyMap<string, string>, repository: string) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(href)) return href;
 
-  const [, path, suffix] = /^([^?#]+)(.*)$/.exec(href) ?? [];
+  const [, path, suffix] = href.match(/^([^?#]+)(.*)$/) ?? [];
   if (!path) return href;
 
   const target = posix.join(posix.dirname(from), path);
