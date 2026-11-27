@@ -127,7 +127,8 @@ check_public() {
             return 1
         fi
     done <<'ROUTES'
-bapx.in / Start on your Mac.
+bapx.in / <h1 id="headline">
+www.bapx.in / <h1 id="headline">
 docs.bapx.in / bapX Agents documentation
 mediahub.bapx.in /clients/nebo-lifestyle-clinic/ Nebo Lifestyle Clinic
 admin.bapx.in / <h1 id="login-title">Sign in</h1>
