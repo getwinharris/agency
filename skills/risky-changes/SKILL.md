@@ -23,6 +23,12 @@ If unsure whether a change qualifies, apply this process.
 
 List the assumptions the change depends on. Mark which have evidence and which are still unverified.
 
+Before adding a sample to a release workflow, establish who owns its runtime,
+whether it has a public route, and which product policy applies. For a CI
+fixture, use disposable storage and credentials and an isolated network.
+Exercise cleanup after success, failure, and partial setup. Use these
+fixture tests for an isolated sample with no public release.
+
 ## 2. Research before implementing
 
 Use available research tools and reliable sources. Investigate each distinct question separately, covering at least:

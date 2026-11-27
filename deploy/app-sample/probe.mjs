@@ -4,9 +4,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { request as http } from "node:http";
 import { request as https } from "node:https";
 
-const origin = "https://dynamic-check.app.bapx.in";
+const origin = "https://dynamic-check.example.test";
 const hostname = new URL(origin).hostname;
-const address = new URL(process.env.BAPX_SAMPLE_PROBE_ADDRESS ?? origin);
+assert.ok(process.env.BAPX_SAMPLE_PROBE_ADDRESS, "Set the isolated fixture address");
+const address = new URL(process.env.BAPX_SAMPLE_PROBE_ADDRESS);
 const phase = process.argv[2];
 const proofFile = process.argv[3];
 const revision = process.argv[4];

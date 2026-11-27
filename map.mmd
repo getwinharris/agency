@@ -106,8 +106,12 @@ flowchart TD
     siteData["Separate named volume · immutable site revisions"]
     starter["Opt-in standalone app and site-local /admin · starters/app-admin/"]
     appData["Private per-project accounts, credentials and form records"]
+    dynamicPilot["Disposable TLS and rollback checks · deploy/dynamic-pilot/"]
+    sampleCI["Isolated customer sample fixture · deploy/app-sample/"]
     projects --> dist --> publish -->|"Write completed revisions"| siteData
     projects --> starter --> appData
+    starter --> dynamicPilot
+    starter --> sampleCI
   end
 
   workspace --> webSource

@@ -4,6 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Verify HTTPS and data persistence through container replacement and rollback for the customer app starter in isolated CI. Remove disposable test data and credentials when the run ends.
 - Add one bapX sign-in and invitation signup on the main site, with an in-window Admin menu for operators.
 - Revoke the previous hosted device credential when switching bapX Agents accounts.
 - Keep private Core status connected when an in-flight readiness check reloads the same saved connection.

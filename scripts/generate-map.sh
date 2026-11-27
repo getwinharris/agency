@@ -243,6 +243,7 @@ jq -e '
 
 require_source "$workflow" 'branches: [main]' 'needs: [app, core]' 'needs: web' \
     'name: agency-web-release' 'docker push' 'StrictHostKeyChecking=yes'
+require_source "$workflow" 'deploy/app-sample/test.sh'
 require_source "$dockerfile" 'RUN corepack pnpm build:web' \
     '/build/gui/apps/www/dist /srv/bapx-web' 'ENTRYPOINT ["/usr/local/bin/bapx-core", "serve-web"]'
 require_source core/src/main.rs 'return cloudroom::web::serve().await;' \
@@ -376,8 +377,12 @@ MAP
     siteData["Separate named volume · immutable site revisions"]
     starter["Opt-in standalone app and site-local /admin · starters/app-admin/"]
     appData["Private per-project accounts, credentials and form records"]
+    dynamicPilot["Disposable TLS and rollback checks · deploy/dynamic-pilot/"]
+    sampleCI["Isolated customer sample fixture · deploy/app-sample/"]
     projects --> dist --> publish -->|"Write completed revisions"| siteData
     projects --> starter --> appData
+    starter --> dynamicPilot
+    starter --> sampleCI
   end
 
   workspace --> webSource

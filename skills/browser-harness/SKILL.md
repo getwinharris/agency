@@ -30,6 +30,15 @@ Before your first browser task, read the full guide: `browser-harness skill`. It
   - With their OK, pipe the same script to `room-cli mac run --write --stdin 'browser-harness'`. Their browser may ask them to click Allow once; tell them.
   - When you're done, close the tabs you opened with `close_tab()`. An open page keeps drawing on the CPU and uses the user's plan hours.
 
+## Release evidence
+
+Verify the served revision before exercising a release flow. Use the trusted
+test CA and exact revision header for a local TLS fixture. Use ordinary public
+HTTPS for live acceptance. Record the PR head, CI checkout SHA if different,
+served SHA, URL, viewport, user actions, and observed results in the PR.
+Record the independent verifier's acceptance and label candidate and live
+results separately. Follow the release gates in [AGENTS.md](../../AGENTS.md).
+
 ## Rules
 
 - Ask before sending, buying, posting, deleting, or changing account settings.

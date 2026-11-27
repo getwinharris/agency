@@ -144,3 +144,39 @@ sudo bash deploy/publish-site.sh ACCOUNT BUSINESS PROJECT
 The helper uses the verified web image from the deployment record. The native `cloudroom publish-site stage` command copies the approved build into an operator-private directory. Then `cloudroom publish-site release` runs once in the same image with a read-only snapshot and the writable `agency-web-sites` volume of the proxy's Compose project. The web service reads this separate volume at `/var/lib/bapx-sites`. The first release binds the label to the approved project. Run the same command for its next build.
 
 Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts, `/healthz`, and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the five first-party hosts for release revision checks. Preserve the site release volume on deployment and keep its backups private.
+
+## Verify isolated dynamic hosting
+
+Run `bash deploy/dynamic-pilot/verify.sh SOURCE_SHA` on a disposable Linux
+Docker host with OpenSSL. The verifier builds the exact candidate and the
+pinned email-link baseline from [#72](https://github.com/getwinharris/agency/pull/72).
+It verifies TLS, revision, sign-in, enquiry and role boundaries, persistence
+after replacement, and rollback with the same private data volume.
+
+Set `BAPX_PILOT_KEEP=1` to retain the staging proxy at VPS loopback port
+8443. The script prints the temporary CA and the hostname to resolve to
+127.0.0.1. This uses neither production DNS nor first-party proxy configuration.
+Default runs and failed staging runs remove their disposable volumes, owner
+password, and TLS private key. A successful loopback staging run retains those
+resources for browser QA. Use the names printed by the verifier to remove its
+containers, networks, volumes, and temporary directory when QA is complete.
+
+## Test the isolated customer app sample
+
+Public web runs the sample fixture after its PR web job passes. The fixture
+builds the exact job SHA and checks the app revision, signup and enquiry
+persistence across replacement, and separate member and Admin access. It
+runs with private test data and removes the Compose volumes on exit.
+
+On a disposable Linux Docker host, build the fixture from the checked-out
+revision and run the same test.
+
+```sh
+sha=$(git rev-parse HEAD)
+docker build -f deploy/dynamic-pilot/Dockerfile --build-arg "SOURCE_SHA=$sha" -t agency-app-sample:check .
+bash deploy/app-sample/test.sh agency-app-sample:check "$sha"
+```
+
+This is a local and PR CI fixture. The first-party Rust image and its release
+workflow remain independent of the sample. A public sample requires a
+separately reviewed deployment that meets the repository runtime policy.

@@ -12,7 +12,7 @@ git -C "$repo" grep -q APP_BIND_ADDRESS "$source_sha" -- starters/app-admin/conf
 
 node_image=node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd
 edge_image=nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
-host=dynamic-check.app.bapx.in
+host=dynamic-check.example.test
 origin="https://$host:8443"
 work=$(mktemp -d "${TMPDIR:-/tmp}/bapx-dynamic-hosting.XXXXXXXX")
 suffix=${work##*.}
@@ -23,9 +23,10 @@ data="$project-data"
 fixture="$project-fixture"
 edge="$project-proxy"
 app=
+volumes=()
 
 cleanup() {
-    local status=$?
+    local status=$? cleanup_failed=0 volume
     if (( status == 0 && keep == 1 )); then return; fi
     if (( status )); then
         if [[ -n "$app" ]]; then docker logs "$app" >&2 || true; fi
@@ -35,6 +36,16 @@ cleanup() {
     docker rm -f "$edge" >/dev/null 2>&1 || true
     docker network rm "$network" >/dev/null 2>&1 || true
     if (( keep == 1 )); then docker network rm "$ingress" >/dev/null 2>&1 || true; fi
+    for volume in ${volumes[@]+"${volumes[@]}"}; do
+        docker volume rm "$volume" >/dev/null || cleanup_failed=1
+    done
+    rm -f -- "$work/owner-password" "$work/tls/key.pem" || cleanup_failed=1
+    if (( cleanup_failed )); then
+        echo 'Could not remove all isolated fixture volumes or credentials.' >&2
+        exit 1
+    fi
+    echo 'Removed isolated fixture volumes and credentials.'
+    return "$status"
 }
 trap cleanup EXIT
 
@@ -62,7 +73,9 @@ chmod 0755 "$work/tls"
 chmod 0444 "$work/tls/"{cert,key}.pem
 docker network create --internal "$network" >/dev/null
 docker volume create "$data" >/dev/null
+volumes+=("$data")
 docker volume create "$fixture" >/dev/null
+volumes+=("$fixture")
 docker run --rm --network none --mount "type=volume,source=$fixture,target=/fixture-data" \
     "$node_image" sh -ec 'chown 1000:1000 /fixture-data && chmod 0700 /fixture-data'
 
@@ -134,7 +147,7 @@ if (( keep == 1 )); then
     curl --noproxy '*' --fail --silent --show-error --max-time 10 \
         --cacert "$work/tls/cert.pem" --resolve "$host:8443:127.0.0.1" \
         --dump-header "$work/health.headers" --output /dev/null "$origin/healthz"
-    grep -Fqi "X-BapX-Fixture-Revision: $source_sha" "$work/health.headers"
+    tr -d '\r' < "$work/health.headers" | grep -Fxqi "X-BapX-App-Revision: $source_sha"
 fi
 printf 'Build SHA %s\nImage ID %s\nRollback SHA %s\nRollback image %s\nIsolated HTTPS %s/\nApp data volume %s\nFixture volume %s\n' \
     "$source_sha" "$candidate_image" "$baseline_sha" "$baseline_image" "$origin" "$data" "$fixture" |
