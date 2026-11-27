@@ -140,6 +140,9 @@ export class CloudAccountAuth {
         if (existing?.token || existing?.sandboxToken) this.hooks.start();
         signal.throwIfAborted();
       }
+      // A cancelled handoff can restore the old connection, so revoke only after the switch commits.
+      const displacedDevice = previousAccount && sandboxAccountOf(existing);
+      if (displacedDevice) revokeDesktopToken(displacedDevice);
       this.rt.usePrivateCatalog(privateCatalog);
       this.hooks.start();
     });
