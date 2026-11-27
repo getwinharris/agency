@@ -32,6 +32,15 @@ the first-party bapX sites.
   skills. `.claude/skills` links to it for Claude compatibility. Track portable
   Agency skills in `skills/`.
 
+**Always use relevant repository skills.** Before starting each task, check the
+tracked `skills/` catalog and identify any skills whose scope matches the work.
+Read each matching `SKILL.md` and apply its relevant steps during implementation,
+review, and verification. Do not substitute a generic workflow for an applicable
+repository skill. In the issue or PR checkpoint, or the task handoff when there
+is no GitHub record, name the skills applied and briefly say what they informed.
+If none match, say so. If a matching skill cannot be applied, record the actual
+blocker and the safe fallback used.
+
 ## Agency source and development
 
 - `core/` owns the Rust Core, public web mode, and persistent first-party APIs.
