@@ -387,7 +387,7 @@ async function clone(client: CloudroomClient, target: string, repository: string
       "export GIT_TERMINAL_PROMPT=0",
       `rm -rf -- ${temporary}`,
       `git clone --quiet --filter=blob:none -c gc.auto=0 -- ${quote(repository)} ${temporary} || { rm -rf -- ${temporary}; printf '\\035'; ${gitlab ? ':' : 'timeout 10 gh api user --jq .login 2>/dev/null'}; exit 1; }`,
-      branch && branch !== "HEAD" ? (gitlab && requireBranch
+      branch && branch !== "HEAD" ? (requireBranch
         ? `git -C ${temporary} checkout --quiet -B ${quote(branch)} ${quote("refs/remotes/origin/" + branch)} -- || { rm -rf -- ${temporary}; exit 1; }`
         : `git -C ${temporary} checkout --quiet ${quote(branch)} 2>/dev/null || true`) : "",
       // Merged, never skipping a folder or replacing a file: Teleport may have put a file the chat mentioned (`src/new.ts`) in
@@ -418,7 +418,7 @@ async function clone(client: CloudroomClient, target: string, repository: string
   if (result.code === 0) return null;
   // Redacted before the cut, since the message reaches the failure note, the copy status, and `room-cli files wait` (#1847).
   const error = redactSecrets(Buffer.from(result.stderr, "hex").toString(), []).trim().slice(-300) || `git clone exited with code ${result.code}`;
-  if (gitlab && !Buffer.from(result.stdout, "hex").includes(0x1d)) return `Git said: ${error}`;
+  if (!Buffer.from(result.stdout, "hex").includes(0x1d)) return `Git said: ${error}`;
   if (gitlab) return `Check access to this project in Settings → Cloud environment → GitLab. Git said: ${error}`;
   const stdout = Buffer.from(result.stdout, "hex");
   const mark = stdout.indexOf(0x1d);

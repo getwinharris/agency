@@ -6,6 +6,7 @@ on:
       - 'core/**'
       - 'gui/README.md'
       - 'gui/apps/desktop/README.md'
+      - 'gui/apps/desktop/package.json'
       - 'gui/apps/www/**'
       - 'gui/docs/configuration.md'
       - 'gui/docs/release-notes.md'
@@ -15,8 +16,12 @@ on:
       - 'gui/pnpm-workspace.yaml'
       - 'gui/.nvmrc'
       - 'deploy/**'
+      - 'starters/app-admin/**'
+      - 'map.mmd'
+      - 'scripts/generate-map.sh'
       - '.github/workflows/app.yml'
       - '.github/workflows/core.yml'
+      - '.github/workflows/desktop-packages.yml'
       - '.github/workflows/web.yml'
   push:
     branches: [main]
@@ -50,6 +55,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check the source map
+        run: bash scripts/generate-map.sh --check
       - name: Check deployment scripts
         run: |
           bash -n deploy/deploy-web.sh
