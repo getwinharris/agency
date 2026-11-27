@@ -7,6 +7,7 @@
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
+- Show a playable Codex walkthrough on the homepage and state hosted Free Beta availability.
 - Compare draft and published MediaHub copy before publishing in Admin.
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.

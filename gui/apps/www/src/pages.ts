@@ -1,4 +1,5 @@
 import { faviconLinks, wordmark } from "./brand.ts";
+import { sessionWalkthrough } from "./walkthrough.ts";
 
 const website = "https://bapx.in";
 const docs = "https://docs.bapx.in";
@@ -80,7 +81,7 @@ function page({
   <meta name="theme-color" content="#0a090e">
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
-  <link rel="stylesheet" href="/site.css?v=violet-accent">
+  <link rel="stylesheet" href="/site.css?v=${landing ? "session-walkthrough" : "violet-accent"}">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -124,34 +125,15 @@ export function publicPages() {
       <p>Run Codex and other native coding agents locally or on your private Linux Core. Keep your project in your existing Git workflow.</p>
       <div class="actions">
         <a class="button button-primary" href="${docs}/#mac">Build the Mac app <span class="arrow" aria-hidden="true"></span></a>
-        <a class="button button-secondary" href="#how-it-works">See how it works <span class="arrow arrow-down" aria-hidden="true"></span></a>
+        <a class="button button-secondary" href="#how-it-works">Explore the demo <span class="arrow arrow-down" aria-hidden="true"></span></a>
       </div>
+      <p class="beta-availability"><strong>Hosted Free Beta</strong> <span>Sign-ups aren’t open yet.</span></p>
     </div>
   </section>
-  <section id="how-it-works" class="workflow" aria-labelledby="workflow-heading">
-    <h2 id="workflow-heading">One project. Two environments.</h2>
-    <div class="session-demo" data-session-demo data-active-mode="local">
-      <div class="mode-controls" role="group" aria-label="Choose where the agent runs" hidden>
-        <button type="button" data-mode="local" aria-pressed="true">On your Mac</button>
-        <button type="button" data-mode="remote" aria-pressed="false">Private Core</button>
-      </div>
-      <div class="session-diagram">
-        <div class="session-node session-local">
-          <div class="node-icon laptop-icon" aria-hidden="true"></div>
-          <div><h3>macOS</h3><p>Your development workspace</p></div>
-        </div>
-        <div class="session-path" aria-hidden="true"><span></span></div>
-        <div class="session-node session-remote">
-          <div class="node-icon server-icon" aria-hidden="true"></div>
-          <div><h3>Linux Core</h3><p>Private remote execution</p></div>
-        </div>
-      </div>
-      <p class="mode-caption" aria-live="polite">Keep the coding agent, files, and worktree on your Mac for a local session.</p>
-    </div>
-  </section>
+  ${sessionWalkthrough()}
   ${projectGuide()}
 </main>
-<script src="/brand/session-demo.js?v=agency" defer></script>
+<script src="/brand/session-demo.js?v=walkthrough" defer></script>
 <script src="/brand/project-paths.js" defer></script>`,
     }),
     "docs/index.html": page({
