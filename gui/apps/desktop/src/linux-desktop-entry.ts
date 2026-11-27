@@ -1,5 +1,10 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import { BAPX_DESKTOP_SCHEME } from "../scripts/desktop-release-channel.mjs";
+
+const run = promisify(execFile);
 
 export type LinuxDesktopEntryResult =
   | { kind: "created" | "updated" | "unchanged"; entryPath: string }
@@ -11,6 +16,7 @@ interface EnsureLinuxDesktopEntryArgs {
   dataHome: string;
   desktopName: string;
   iconPath: string;
+  registerShareLinks: boolean;
 }
 
 function quoteExecArgument(value: string): string {
@@ -49,8 +55,15 @@ export async function ensureLinuxDesktopEntry(
     "Terminal=false",
     "Categories=Development;",
     `StartupWMClass=${appId}`,
-    "MimeType=x-scheme-handler/cloudroom;",
+    ...(args.registerShareLinks ? [`MimeType=x-scheme-handler/${BAPX_DESKTOP_SCHEME};`] : []),
     "",
   ].join("\n");
-  return { kind: await writeIfChanged(entryPath, entry), entryPath };
+  const kind = await writeIfChanged(entryPath, entry);
+  if (kind !== "unchanged") {
+    // GIO reads mimeinfo.cache when choosing a handler. Minimal desktops can
+    // omit this utility, so the entry still works with XDG file lookup.
+    await run("update-desktop-database", [dirname(entryPath)], { timeout: 5_000 })
+      .catch(() => undefined);
+  }
+  return { kind, entryPath };
 }

@@ -1,5 +1,6 @@
-//! First-party static sites, MediaHub intake, and operator administration.
+//! First-party sites, bapX accounts, MediaHub intake, and operator administration.
 
+mod accounts;
 mod admin;
 mod admin_store;
 mod inquiry;
@@ -26,6 +27,8 @@ use std::{
 };
 
 const MEDIAHUB: &str = "mediahub.bapx.in";
+const APEX: &str = "bapx.in";
+const APEX_ORIGIN: &str = "https://bapx.in";
 const MEDIAHUB_ORIGIN: &str = "https://mediahub.bapx.in";
 const INQUIRY_PATH: &str = "/api/mediahub/inquiries";
 const MAX_INQUIRY_BYTES: usize = 16 * 1024;
@@ -39,6 +42,7 @@ struct Site {
     inquiries: PathBuf,
     mediahub_copy: PathBuf,
     admin: Option<admin::Admin>,
+    accounts: Option<accounts::Accounts>,
     #[cfg(target_os = "linux")]
     published: Option<Arc<published::PublishedSites>>,
 }
@@ -61,6 +65,10 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    if env::var("BAPX_ACCOUNTS_ENABLED").as_deref() == Ok("1") {
+        let data = site.inquiries.parent().expect("data contains inquiries");
+        site.accounts = Some(accounts::Accounts::open(data)?);
+    }
     let listener = tokio::net::TcpListener::bind(listen).await?;
     eprintln!("bapx-web listening on {}", listener.local_addr()?);
     axum::serve(listener, router(site)).await?;
@@ -121,6 +129,7 @@ impl Site {
             inquiries,
             mediahub_copy: data.join("mediahub-homepage.json"),
             admin: None,
+            accounts: None,
             #[cfg(target_os = "linux")]
             published: None,
         })
@@ -136,6 +145,7 @@ fn router(site: Site) -> Router {
             INQUIRY_PATH,
             post(inquiry::accept).layer(DefaultBodyLimit::max(MAX_INQUIRY_BYTES)),
         )
+        .nest("/api/auth", accounts::routes())
         .nest("/api/admin", admin::routes())
         .fallback(static_page)
         .with_state(Arc::clone(&state));
@@ -153,7 +163,7 @@ fn host(headers: &HeaderMap) -> Option<String> {
 }
 
 fn public_host(host: &str) -> bool {
-    matches!(host, "bapx.in" | "www.bapx.in" | MEDIAHUB | "docs.bapx.in")
+    matches!(host, APEX | "www.bapx.in" | MEDIAHUB | "docs.bapx.in")
 }
 
 async fn health(headers: HeaderMap) -> Response {
@@ -201,6 +211,7 @@ fn asset_type(path: &Path) -> Option<&'static str> {
         "pdf" => Some("application/pdf"),
         "png" => Some("image/png"),
         "svg" => Some("image/svg+xml"),
+        "ttf" => Some("font/ttf"),
         "wasm" => Some("application/wasm"),
         "webm" => Some("video/webm"),
         "webmanifest" => Some("application/manifest+json"),
@@ -239,6 +250,9 @@ fn static_path(name: &str, path: &str) -> Option<PathBuf> {
             | "admin/index.js"
             | "brand/favicon.svg"
             | "brand/mark.svg"
+            | "brand/lockup.css"
+            | "brand/great-vibes/GreatVibes-Regular.ttf"
+            | "brand/great-vibes/OFL.txt"
             | "brand/bapx-logo-main.svg" => Some(relative.into()),
             _ => None,
         };
@@ -247,6 +261,12 @@ fn static_path(name: &str, path: &str) -> Option<PathBuf> {
         return Some(relative.into());
     }
     match (name, relative) {
+        (APEX, "sign-in") => Some("sign-in/index.html".into()),
+        (APEX, "signup") => Some("signup/index.html".into()),
+        (APEX, "account") => Some("account/index.html".into()),
+        (APEX, "admin/index.js" | "auth/index.js" | "auth/index.css" | "auth/management.css") => {
+            Some(relative.into())
+        }
         ("bapx.in" | "www.bapx.in", "" | "index.html") => Some("index.html".into()),
         ("bapx.in" | "www.bapx.in", "privacy") => Some("privacy/index.html".into()),
         (MEDIAHUB, "") => Some("mediahub/index.html".into()),
@@ -281,6 +301,25 @@ async fn static_page(
     let name = host(&headers);
     let is_admin = name.as_deref() == Some(admin::HOST);
     if is_admin && site.admin.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let page = uri.path().trim_end_matches('/');
+    let account_page = matches!(page, "/sign-in" | "/signup" | "/account");
+    let apex = name.as_deref() == Some(APEX);
+    if account_page
+        && site.accounts.is_some()
+        && !apex
+        && name
+            .as_deref()
+            .is_some_and(|host| public_host(host) || host == admin::HOST)
+        && matches!(method, Method::GET | Method::HEAD)
+    {
+        return Redirect::temporary(&format!("{APEX_ORIGIN}{page}/")).into_response();
+    }
+    let apex_admin = apex && page == "/admin/index.js";
+    let protected_page =
+        is_admin || apex && (account_page || apex_admin || page.starts_with("/auth/"));
+    if apex && protected_page && (site.accounts.is_none() || apex_admin && site.admin.is_none()) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let Some(path) = name.and_then(|name| static_path(&name, uri.path())) else {
@@ -328,7 +367,7 @@ async fn static_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let cache = if is_admin {
+    let cache = if protected_page {
         "no-store"
     } else if content_type.starts_with("text/html") {
         "no-cache"
@@ -336,7 +375,7 @@ async fn static_page(
         "public, max-age=3600"
     };
     let mut response = static_response(Body::from(body), size, content_type, cache);
-    if is_admin {
+    if protected_page {
         let headers = response.headers_mut();
         headers.insert(
             header::CONTENT_SECURITY_POLICY,

@@ -43,9 +43,9 @@ import { useSystemMachineProviders } from "@/hooks/queries/machine-provider-quer
 import { useCreateThreadInEnvironment } from "@/hooks/useCreateThreadInEnvironment";
 import { copyToClipboardWithToast } from "@/lib/clipboard";
 import {
-  CLOUDROOM_CLOUD_PRIMARY,
-  cloudroomEnvironmentPresentation,
-} from "@/lib/cloudroom-environment-label";
+  CLOUD_PRIMARY_LABEL,
+  environmentPresentation,
+} from "@/lib/bapx/environment-label";
 import {
   findEnvironmentDisplayProvider,
   getEnvironmentWorkspaceInfoDisplay,
@@ -128,7 +128,7 @@ export function CloudWorkspaceRows({
         }
         valueClassName="min-w-0 truncate"
       >
-        {CLOUDROOM_CLOUD_PRIMARY}
+        {CLOUD_PRIMARY_LABEL}
       </DetailRow>
       {path ? <CopyDirectoryRow dir={path} /> : null}
     </>
@@ -193,7 +193,7 @@ export function EnvironmentRow({
   });
   const brandPres =
     provLookup.status === "loaded"
-      ? cloudroomEnvironmentPresentation(
+      ? environmentPresentation(
           provLookup.environmentProviderId,
           "local",
         )

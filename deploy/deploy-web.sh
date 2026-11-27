@@ -3,9 +3,6 @@ set -euo pipefail
 umask 077
 
 repo=getwinharris/agency
-project_dir=/docker/traefik-vmm1
-compose_file="$project_dir/docker-compose.yml"
-override_file="$project_dir/agency-web.compose.yml"
 state_dir=/var/lib/bapx-agency-web-deploy
 state_file="$state_dir/last-good.json"
 failed_file="$state_dir/failed-run"
@@ -16,13 +13,33 @@ image_id_pattern='^sha256:[a-f0-9]{64}$'
 sha_pattern='^[a-f0-9]{40}$'
 hash_pattern='^[a-f0-9]{64}$'
 
+if [[ $# -ne 3 || ! $1 =~ $sha_pattern || ! $2 =~ ^[1-9][0-9]*$ || ! $3 =~ ^[1-9][0-9]*$ ]]; then
+    echo 'Usage: deploy-web SHA RUN_ID ATTEMPT' >&2
+    exit 2
+fi
+sha=$1
+run_id=$2
+attempt=$3
+
+# The installation directory and configuration are owned by root.
+source /etc/bapx-agency/web-deploy.conf
+if [[ ! ${project_name:-} =~ ^[a-z0-9][a-z0-9_-]*$ || ${project_dir:-} != /* ]]; then
+    echo 'Set the existing Compose project name and absolute directory in web-deploy.conf.' >&2
+    exit 1
+fi
+compose_file="$project_dir/docker-compose.yml"
+override_file="$project_dir/agency-web.compose.yml"
+
 exec 9>/run/lock/bapx-www-deploy.lock
-flock -n 9 || exit 0
+if ! flock -w 120 9; then
+    echo 'Agency web deployment lock is busy. Rerun the deploy job.' >&2
+    exit 1
+fi
 
 compose_with() {
     local image=$1 config=$2
     shift 2
-    BAPX_WEB_IMAGE=$image docker compose --project-name traefik-vmm1 \
+    BAPX_WEB_IMAGE=$image docker compose --project-name "$project_name" \
         --project-directory "$project_dir" -f "$compose_file" -f "$config" "$@"
 }
 
@@ -37,6 +54,31 @@ main_sha() {
     head=$(gh api "repos/$repo/git/ref/heads/main" --jq .object.sha) || return 1
     [[ $head =~ $sha_pattern ]] || return 1
     printf '%s\n' "$head"
+}
+
+is_ancestor() {
+    [[ $1 == "$2" ]] && return 0
+    gh api "repos/$repo/compare/$1...$2" \
+        --jq '.merge_base_commit.sha' | grep -Fxq -- "$1"
+}
+
+verify_build() {
+    local run jobs
+    run=$(gh api "repos/$repo/actions/runs/$run_id") || return 1
+    jq -e --arg repo "$repo" --arg sha "$sha" --arg attempt "$attempt" '
+        .path == ".github/workflows/web.yml" and .name == "Public web" and
+        .event == "push" and .head_branch == "main" and .head_sha == $sha and
+        .head_repository.full_name == $repo and (.run_attempt | tostring) == $attempt and
+        (.status == "in_progress" or (.status == "completed" and .conclusion == "success"))
+    ' <<< "$run" >/dev/null || return 1
+    # Rerunning only deploy leaves the upstream jobs on their prior attempt.
+    jobs=$(gh api --paginate "repos/$repo/actions/runs/$run_id/jobs?filter=all&per_page=100") || return 1
+    jq -es --arg sha "$sha" --arg attempt "$attempt" '
+        [.[].jobs[] | select(.head_sha == $sha and .run_attempt <= ($attempt | tonumber))] |
+        group_by(.name) | map(max_by([.run_attempt, .id])) |
+        map(select(.status == "completed" and .conclusion == "success") | .name) as $passed |
+        (["app / app", "core / core", "web"] - $passed) == []
+    ' <<< "$jobs" >/dev/null
 }
 
 file_hash() {
@@ -94,7 +136,7 @@ check_container() {
     [[ -n $container ]] || return 1
     image_id=$(docker image inspect --format '{{.Id}}' "$image") || return 1
     [[ $(docker inspect --format '{{.Image}}' "$container") == "$image_id" ]] || return 1
-    ip=$(docker inspect --format '{{(index .NetworkSettings.Networks "traefik-vmm1_default").IPAddress}}' "$container") || return 1
+    ip=$(docker inspect --format '{{(index .NetworkSettings.Networks "'"$project_name"'_default").IPAddress}}' "$container") || return 1
     [[ -n $ip ]] || return 1
     curl --noproxy '*' --fail --silent --show-error --max-time 4 -H 'Host: localhost' "http://$ip:8080/healthz" |
         health_matches "$revision"
@@ -127,7 +169,8 @@ check_public() {
             return 1
         fi
     done <<'ROUTES'
-bapx.in / Start on your Mac.
+bapx.in / <h1 id="headline">
+www.bapx.in / <h1 id="headline">
 docs.bapx.in / bapX Agents documentation
 mediahub.bapx.in /clients/nebo-lifestyle-clinic/ Nebo Lifestyle Clinic
 admin.bapx.in / <h1 id="login-title">Sign in</h1>
@@ -243,7 +286,7 @@ finish() {
     if $changed; then
         printf 'Web deployment %s failed. Restoring the previous release.\n' "$sha" >&2
         if ! restore_pending; then
-            echo 'Agency web rollback is pending. The next scheduled run will retry it.' >&2
+            echo 'Agency web rollback is pending. Rerun the Actions deploy job to retry rollback.' >&2
             code=1
         fi
     fi
@@ -253,27 +296,25 @@ finish() {
 trap finish EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+trap 'exit 129' HUP
 
 if [[ -f $pending_file ]] && ! restore_pending; then
-    echo 'Agency web rollback is pending. The next scheduled run will retry it.' >&2
+    echo 'Agency web rollback is pending. Rerun the Actions deploy job to retry rollback.' >&2
     exit 1
 fi
 
-sha=$(main_sha)
-runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?branch=main&event=push&head_sha=$sha&per_page=1")
-run=$(jq -c --arg repo "$repo" --arg sha "$sha" '.workflow_runs[0] | select(.name == "Public web"
-    and .event == "push" and .head_branch == "main" and .head_repository.full_name == $repo
-    and .head_sha == $sha and .status == "completed" and .conclusion == "success")' <<< "$runs")
-if [[ -z $run ]]; then
-    printf 'Waiting for a successful Public web push at current main %s.\n' "$sha"
-    exit 0
+if ! verify_build; then
+    printf 'Public web run %s/%s has no verified build for %s.\n' "$run_id" "$attempt" "$sha" >&2
+    exit 1
 fi
-run_id=$(jq -er '.id' <<< "$run")
-attempt=$(jq -er '.run_attempt' <<< "$run")
-[[ $run_id =~ ^[0-9]+$ && $attempt =~ ^[0-9]+$ ]] || exit 1
+tip=$(main_sha)
+if ! is_ancestor "$sha" "$tip"; then
+    printf 'Release %s is outside current main history at %s.\n' "$sha" "$tip" >&2
+    exit 1
+fi
 if [[ -f $failed_file && $(<"$failed_file") == "$run_id/$attempt" ]]; then
-    echo 'The latest Public web run was rolled back and verified. Waiting for a new run attempt.'
-    exit 0
+    echo 'This Public web attempt was rolled back. Rerun after correcting the failure.' >&2
+    exit 1
 fi
 
 prior_image=
@@ -289,6 +330,10 @@ if [[ -f $state_file ]]; then
     prior_run=$(jq -er '.run // ""' "$state_file")
     prior_attempt=$(jq -er '.attempt // ""' "$state_file")
     [[ ( $prior_image =~ $image_pattern || $prior_image =~ $image_id_pattern ) && $prior_sha =~ $sha_pattern ]] || exit 1
+    if ! is_ancestor "$prior_sha" "$sha"; then
+        printf 'Release %s would replace newer or unrelated live SHA %s.\n' "$sha" "$prior_sha" >&2
+        exit 1
+    fi
     if [[ -n $prior_hash ]]; then
         [[ $prior_hash =~ $hash_pattern ]] || exit 1
         prior_revision=$(jq -er '.revision // .sha' "$state_file")
@@ -298,11 +343,6 @@ if [[ -f $state_file ]]; then
             healthy=false
             if wait_for 3 check_current_release "$prior_image" "$prior_revision" "$prior_hash"; then
                 healthy=true
-            fi
-            verified_sha=$(main_sha)
-            if [[ $verified_sha != "$sha" ]]; then
-                printf 'Main advanced while verifying Agency web %s.\n' "$sha"
-                exit 0
             fi
             if $healthy; then
                 printf 'Agency web %s is current and verified.\n' "$sha"
@@ -320,11 +360,6 @@ if [[ -f $state_file ]]; then
     else
         prior_revision=$(image_health_revision "$prior_image")
         [[ -z $prior_revision || $prior_revision == "$prior_sha" ]] || exit 1
-        if [[ -z $prior_revision && $prior_sha == "$sha" ]] &&
-            check_container "$prior_image" "" && check_public "" && [[ $(main_sha) == "$sha" ]]; then
-            printf 'Agency web %s is verified. Waiting for the first release manifest.\n' "$sha"
-            exit 0
-        fi
     fi
 fi
 
@@ -360,7 +395,8 @@ if [[ -n $prior_image ]]; then
     docker image inspect "$prior_image" >/dev/null
 fi
 
-if ! docker pull "$image"; then
+if ! docker pull "$image" > "$stage/public-pull.log" 2>&1; then
+    echo 'Anonymous pull unavailable. Fetching the image with server registry credentials.'
     registry_config="$stage/docker"
     install -d -m 0700 "$registry_config"
     login=$(gh api user --jq .login)
@@ -372,10 +408,23 @@ if [[ $revision != "$sha" ]]; then
     printf 'Image revision does not match successful Public web SHA %s.\n' "$sha" >&2
     exit 1
 fi
-confirmed_run=$(gh api "repos/$repo/actions/runs/$run_id")
-jq -e --arg sha "$sha" --arg attempt "$attempt" \
-    '.head_sha == $sha and (.run_attempt | tostring) == $attempt and .status == "completed" and .conclusion == "success"' \
-    <<< "$confirmed_run" >/dev/null
+if ! verify_build; then
+    printf 'Public web run %s/%s changed while preparing %s.\n' "$run_id" "$attempt" "$sha" >&2
+    exit 1
+fi
+tip=$(main_sha)
+if ! is_ancestor "$sha" "$tip"; then
+    printf 'Release %s left main history while preparing the deployment.\n' "$sha" >&2
+    exit 1
+fi
+if [[ $sha == "$prior_sha" && $image == "$prior_image" && $compose_hash == "$prior_hash" ]] &&
+    wait_for 3 check_current_release "$image" "$sha" "$compose_hash"; then
+    jq --arg run "$run_id" --arg attempt "$attempt" '.run = $run | .attempt = $attempt' \
+        "$state_file" > "$stage/last-good.json"
+    mv -f -- "$stage/last-good.json" "$state_file"
+    printf 'Agency web %s is already live and verified.\n' "$sha"
+    exit 0
+fi
 
 jq -n --arg sha "$sha" --arg image "$image" --arg composeHash "$compose_hash" \
     --arg run "$run_id" --arg attempt "$attempt" --arg priorImage "$prior_image" \
@@ -384,23 +433,12 @@ jq -n --arg sha "$sha" --arg image "$image" --arg composeHash "$compose_hash" \
     '{sha: $sha, image: $image, composeSha256: $composeHash, run: $run, attempt: $attempt,
       prior: {sha: $priorSha, image: $priorImage, composeSha256: $priorHash, revision: $priorRevision,
               run: $priorRun, attempt: $priorAttempt}}' > "$stage/pending.json"
-prepared_sha=$(main_sha)
-if [[ $prepared_sha != "$sha" ]]; then
-    printf 'Main advanced while preparing Agency web %s. Waiting for the next verified image.\n' "$sha"
-    exit 0
-fi
-
 mv -f -- "$stage/pending.json" "$pending_file"
 changed=true
 install_override "$new_config"
 compose "$image" up -d --no-deps --pull never "$service"
 wait_for 20 check_container "$image" "$sha"
 wait_for 8 check_public "$sha"
-verified_sha=$(main_sha)
-if [[ $verified_sha != "$sha" ]]; then
-    printf 'Main advanced while verifying Agency web %s.\n' "$sha" >&2
-    exit 1
-fi
 jq '{sha, image, composeSha256, run, attempt,
      previousImage: .prior.image, previousComposeSha256: .prior.composeSha256,
      previousRelease: (.prior | {sha, revision, run, attempt})}' \

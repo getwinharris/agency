@@ -1,5 +1,8 @@
 # Build bapX Agents from source
 
+These instructions build a development copy. See the [release notes](docs/release-notes.md)
+for public package availability and the verified web deployment history.
+
 You need macOS on Apple Silicon, Git, Node.js 22.19+, pnpm 10.34.9, Bun 1.4.5, Python 3.11+, and Xcode Command Line Tools.
 
 Run these from this folder:
@@ -20,9 +23,13 @@ pnpm dev
 pnpm exec turbo run dev --filter=@cloudroom/desktop
 ```
 
-Dev mode uses its own ports and profile. Local agents need their own installed, signed-in CLIs. To use your own core for Cloud threads, see [connect the desktop app](../core/docs/setup.md#connect-the-desktop-app).
+Dev mode uses its own ports and profile. Local agents need their own installed, signed-in CLIs. For remote sessions on your own machine, see [connect the desktop app](../core/docs/setup.md#connect-the-desktop-app).
 
 ## Checks
+
+Use the [Agency project index](../docs/project-index.json) to locate a guide,
+route, or workspace package. Follow its source pointer and use the
+[architecture map](../map.mmd) for build and deployment wiring.
 
 ```sh
 pnpm exec turbo run test --filter=@cloudroom/scripts --filter=@cloudroom/config --concurrency=2

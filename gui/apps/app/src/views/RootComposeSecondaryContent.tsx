@@ -4,7 +4,7 @@ import { Skeleton } from "@cloudroom/shared-ui/skeleton";
 import { COARSE_POINTER_HEADER_ICON_BUTTON_CLASS } from "@cloudroom/shared-ui/coarse-pointer-sizing";
 import { cn } from "@cloudroom/shared-ui/lib/utils";
 import { TopRowBrandMark } from "@/components/layout/BrandMark";
-import { CompactHeaderVersionMark } from "@/components/layout/CloudroomVersionMark";
+import { CompactHeaderVersionMark } from "@/components/layout/BapxVersionMark";
 import { PluginHomepageSections } from "@/components/plugin/PluginHomepageSections";
 import { usePluginComposerHost } from "@/components/plugin/plugin-composer-host";
 import { SecondaryPanelLayout } from "@/components/right-panel/shell/responsive-panel-host";

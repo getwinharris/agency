@@ -139,7 +139,11 @@ const workspacePackageJsonSchema = z
 const signingEnvironmentKeys = [
   "APPLE_APP_SPECIFIC_PASSWORD",
   "APPLE_ID",
+  "APPLE_KEYCHAIN_PROFILE",
   "APPLE_TEAM_ID",
+  "BAPX_MAC_RELEASE_OUTPUT",
+  "BB_DESKTOP_COMMIT",
+  "CLOUDROOM_NOTARIZE_LATER",
   "CSC_IDENTITY_AUTO_DISCOVERY",
   "CSC_KEY_PASSWORD",
   "CSC_LINK",
@@ -831,5 +835,40 @@ describe("electron-builder signing config", () => {
     expect(completeAppleCredentials.config.mac.notarize).toBe(false);
     expect(completeAppleCredentials.config.afterSign).toBe("scripts/notarize.cjs");
     expect(completeAppleCredentials.config.dmg.sign).toBe(true);
+  });
+
+  it("requires full notarization and stamps the signed release candidate with its source SHA", async () => {
+    const args = ["--stamp", "--mac", "--arm64", "--publish", "never", "--mac-release"];
+    const sourceSha = "0123456789abcdef0123456789abcdef01234567";
+    const output = resolve(desktopPackageRoot, "release.noindex", "release-fixture");
+    const inputs = { BB_DESKTOP_COMMIT: sourceSha, BAPX_MAC_RELEASE_OUTPUT: output };
+    const profile = { ...inputs, APPLE_KEYCHAIN_PROFILE: "fixture" };
+
+    for (const [environment, extraArgs] of [
+      [inputs, []],
+      [profile, ["--ad-hoc"]],
+      [{ ...profile, CLOUDROOM_NOTARIZE_LATER: "1" }, []],
+    ] as const) {
+      const result = await runConfigScript(environment, [...args, ...extraArgs]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("full signing and notarization inputs");
+    }
+
+    const candidate = await runConfigScript(profile, args);
+    expect(candidate.exitCode).toBe(0);
+    expect(JSON.parse(candidate.stdout)).toMatchObject({
+      afterSign: "scripts/notarize.cjs",
+      directories: { output },
+      dmg: { sign: true, writeUpdateInfo: false },
+      forceCodeSigning: true,
+      mac: { extendInfo: { BapXSourceCommit: sourceSha }, hardenedRuntime: true },
+      publish: null,
+    });
+    const updates = await runConfigScript({ ...profile, BAPX_DESKTOP_UPDATES: "1" }, args);
+    expect(updates.exitCode).toBe(0);
+    expect(JSON.parse(updates.stdout)).toMatchObject({
+      dmg: { writeUpdateInfo: false },
+      publish: { channel: "latest" },
+    });
   });
 });

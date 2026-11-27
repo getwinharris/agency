@@ -26,7 +26,7 @@ export class AppErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("[Cloudroom] the app crashed", error, info.componentStack);
+    console.error("[bapX Agents] the app crashed", error, info.componentStack);
   }
 
   override render(): ReactNode {
@@ -42,7 +42,7 @@ export class AppErrorBoundary extends Component<
               This screen needs your {COMPUTER}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Your phone hasn&apos;t saved this screen yet. Open Cloudroom on
+              Your phone hasn&apos;t saved this screen yet. Open bapX Agents on
               your {COMPUTER}, open the app here once, and it will work with the{" "}
               {COMPUTER}
               off too. Your Cloud threads still work.
@@ -70,7 +70,7 @@ export class AppErrorBoundary extends Component<
       <div className="flex h-dvh w-full items-center justify-center bg-background p-6 text-foreground">
         <div className="w-full max-w-md rounded-lg border border-border bg-card p-6">
           <h1 className="text-base font-medium">
-            Cloudroom hit an error and stopped
+            bapX Agents hit an error and stopped
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Reloading is safe. Your threads and drafts are kept.
@@ -88,7 +88,7 @@ export class AppErrorBoundary extends Component<
             className="mt-4 w-full cursor-pointer rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
             onClick={() => window.location.reload()}
           >
-            Reload Cloudroom
+            Reload bapX Agents
           </button>
           <div className="mt-3 flex justify-center">
             <FixPrompt prompt={prompt} />

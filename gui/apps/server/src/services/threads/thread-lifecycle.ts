@@ -36,6 +36,7 @@ import {
 } from "@cloudroom/db";
 import { assertNever } from "@cloudroom/core-ui";
 import {
+  isStandaloneBuiltinCompactCommand,
   type ProvisioningTranscriptEntry,
   type SystemThreadInterruptedEventData,
   type SystemThreadInterruptedReason,
@@ -122,12 +123,14 @@ import {
   clearThreadProvisionSchedule,
   getThreadProvisionContext,
 } from "./thread-startup-store.js";
+import { MISSING_SESSION_ERROR } from "./thread-transcript.js";
 import { cancelAbandonedProviderCreations } from "./thread-environment-providers.js";
 import {
   emitPluginMessageQueued,
   emitPluginThreadDeleted,
 } from "../plugins/plugin-thread-events.js";
 import { requeueRefusedTurnRequest } from "./queue-waits.js";
+import { failRefusedCompactFollowUp } from "./compact-follow-up.js";
 import { scheduleThreadProvisioningAdvance } from "./thread-provisioning.js";
 import { pendingImportFork } from "./thread-fork-history.js";
 import { isPreStartThreadStatus } from "./thread-status.js";
@@ -895,6 +898,13 @@ function settleThreadCommandFailure(
         message: errorMessage,
       },
     });
+    if (isStandaloneBuiltinCompactCommand(args.command.input)) {
+      const threadId = thread.id;
+      postCommitActions.push({
+        run: (deps) =>
+          failRefusedCompactFollowUp(deps, { threadId, error: errorMessage }),
+      });
+    }
   }
   if (hasExpectedTurnCompletedEvent(args.deps, args.command)) {
     return emptyCommandResultSideEffects();
@@ -908,6 +918,10 @@ function settleThreadCommandFailure(
     detail: errorMessage,
     scope: getThreadFailureCommandErrorScope(args.command),
   });
+  // Stop ended the send: the notice says the message was not sent, and the Stop settles the thread, not a failure.
+  if (args.report.errorCode === "stopped_before_send") {
+    return { postCommitActions };
+  }
   const outcome = applyLoggedThreadLifecycleEventInTransaction(args.deps, {
     event: { type: "run.failed" },
     threadId: thread.id,
@@ -1059,11 +1073,30 @@ export function settleTurnSubmitCommandResult(
   args: SettleTurnSubmitCommandResultArgs,
 ): CommandResultSideEffectsResult {
   if (!args.report.ok) {
-    return settleThreadCommandFailure({
+    const result = settleThreadCommandFailure({
       command: args.command,
       deps: args.deps,
       report: args.report,
     });
+    // Codex can't resume a session it never saved (#335). When the thread can't continue by itself, the error stays,
+    // with its "Start fresh with the history" action.
+    if (MISSING_SESSION_ERROR.test(args.report.errorMessage)) {
+      const { requestId, resumeContext, threadId } = args.command;
+      result.postCommitActions.push({
+        run: async (deps) => {
+          const { continueInFreshSession } =
+            await import("./thread-harness-switch.js");
+          await continueInFreshSession(
+            deps,
+            threadId,
+            resumeContext.providerThreadId,
+            { turnRequestId: requestId, sendAt: null, reason: "New session" },
+            true,
+          ).catch(() => {});
+        },
+      });
+    }
+    return result;
   }
   return emptyCommandResultSideEffects();
 }

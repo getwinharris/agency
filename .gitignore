@@ -1,0 +1,13 @@
+# Local agent files and private VPS details
+.agents/
+/.claude/skills
+AGENTS.local.md
+AGENTS.override.md
+/.vps/
+.Agents.md
+
+# Private workspace data
+/users/
+/data/
+/releases/
+/OKF.md

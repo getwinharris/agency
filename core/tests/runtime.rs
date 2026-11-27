@@ -335,14 +335,8 @@ async fn a_cloud_app_key_never_replaces_the_saved_claude_login() {
     // source CLAUDE_ENV_FILE, and it starts MCP servers (Python here) without a shell. With Core's agent helpers, CPU
     // quota or not, Claude bills the plan, its commands and MCP servers keep the app key, and a server's own key stays
     // (#1340). Without them (no /run/cloudroom/agent), nothing changes.
-    let claude = dir.0.join("claude");
-    let script = r#"tool=$(CLAUDECODE=1 bash -c '. "${CLAUDE_ENV_FILE:-/dev/null}"; printf %s "$ANTHROPIC_API_KEY"')
-key='import os; print(os.environ.get("ANTHROPIC_API_KEY", ""))'
-mcp=$(CLAUDECODE=1 python3 -c "$key") own=$(CLAUDECODE=1 ANTHROPIC_API_KEY=mine python3 -c "$key")
-case "${CLAUDE_ENV_FILE:+hook}|$ANTHROPIC_AUTH_TOKEN|$ANTHROPIC_API_KEY|$CLAUDE_CODE_OAUTH_TOKEN|$tool|$mcp|$own" in
-"hook|||plan|app|app|mine"|"|app|app|plan|app|app|mine") echo '{"is_error":false}' ;; *) echo '{"is_error":true}' ;; esac"#;
-    fs::write(&claude, format!("#!/bin/sh\n{script}\n")).unwrap();
-    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    // Launch a tracked fixture so a parallel child cannot inherit an open writer to its executable.
+    let claude = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/claude_login_fixture.sh");
     config.harnesses.insert(
         runtime::Kind::Claude,
         cloudroom::config::HarnessConfig {

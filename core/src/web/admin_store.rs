@@ -67,7 +67,7 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> io::Result<T> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
+pub(super) fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
     let directory = path
         .parent()
         .ok_or_else(|| io::Error::other("Admin data directory is missing"))?;

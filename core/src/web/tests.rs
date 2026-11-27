@@ -31,6 +31,207 @@ impl Drop for Fixture {
     }
 }
 
+#[test]
+fn first_party_brand_assets() {
+    let font = "/brand/great-vibes/GreatVibes-Regular.ttf";
+    for host in ["bapx.in", "docs.bapx.in", MEDIAHUB, admin::HOST] {
+        assert_eq!(static_path(host, font), Some(font[1..].into()));
+        assert_eq!(
+            static_path(host, "/brand/lockup.css"),
+            Some("brand/lockup.css".into())
+        );
+    }
+    assert_eq!(asset_type(Path::new(font)), Some("font/ttf"));
+    assert_eq!(static_path("unknown.bapx.in", font), None);
+}
+
+#[tokio::test]
+async fn account_pages_and_apis_use_only_the_canonical_origin() {
+    let operator_password = "disposable-operator-password-long-enough";
+    let member_password = "disposable member password";
+    let fixture = Fixture(env::temp_dir().join(format!(
+        "bapx-account-route-test-{}-{}",
+        std::process::id(),
+        crate::observability::now_ms()
+    )));
+    let mut site = fixture.open();
+    let sign_in = site.root.join("sign-in/index.html");
+    fs::create_dir_all(sign_in.parent().unwrap()).unwrap();
+    fs::write(sign_in, "Sign in").unwrap();
+    site.accounts = Some(accounts::Accounts::open(&fixture.0.join("data")).unwrap());
+    site.admin = Some(admin::Admin::new("test-operator".into(), operator_password).unwrap());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, router(site)).await.unwrap() });
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+    let get = |host: &str, path: &str| {
+        client
+            .get(format!("http://{addr}{path}"))
+            .header(header::HOST, host)
+    };
+    let post = |origin: &str, action: &str, body: Value| {
+        client
+            .post(format!("http://{addr}/api/auth/{action}"))
+            .header(header::HOST, APEX)
+            .header(header::ORIGIN, origin)
+            .json(&body)
+    };
+
+    let page = get(APEX, "/sign-in/").send().await.unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(page.headers()[header::REFERRER_POLICY], "no-referrer");
+    assert_eq!(
+        get(APEX, "/admin/").send().await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    for host in ["www.bapx.in", "docs.bapx.in", MEDIAHUB] {
+        let redirect = get(host, "/sign-in/?continue=https://untrusted.example/")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(redirect.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            redirect.headers()[header::LOCATION],
+            "https://bapx.in/sign-in/"
+        );
+        assert_eq!(
+            get(host, "/api/auth/session")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        get(APEX, "/api/auth/session")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        get("unknown.bapx.in", "/signup/")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let origin = "https://bapx.in";
+    let credentials = json!({"identifier": "test-operator", "password": operator_password});
+    let cross_origin = post(MEDIAHUB_ORIGIN, "sign-in", credentials.clone())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cross_origin.status(), StatusCode::FORBIDDEN);
+    assert!(!cross_origin.headers().contains_key(header::SET_COOKIE));
+    let operator = post(origin, "sign-in", credentials).send().await.unwrap();
+    assert_eq!(operator.status(), StatusCode::OK);
+    let operator_cookie = cookie_pair(&operator);
+    assert_eq!(operator.json::<Value>().await.unwrap()["role"], "operator");
+    assert_eq!(
+        get(APEX, "/api/admin/session")
+            .header(header::COOKIE, &operator_cookie)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    let invite = post(
+        origin,
+        "invitations",
+        json!({"email": "Member@Example.test"}),
+    )
+    .header(header::COOKIE, &operator_cookie)
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(invite.status(), StatusCode::OK);
+    let invite = invite.json::<Value>().await.unwrap()["invite"].clone();
+    let signup = json!({"invite": invite, "password": member_password});
+    let member = post(origin, "signup", signup.clone()).send().await.unwrap();
+    assert_eq!(member.status(), StatusCode::OK);
+    let member_cookie = cookie_pair(&member);
+    let identity = member.json::<Value>().await.unwrap();
+    assert_eq!(identity["role"], "member");
+    assert_eq!(identity["identifier"], "member@example.test");
+    assert_ne!(
+        post(origin, "signup", signup)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        get(APEX, "/api/admin/session")
+            .header(header::COOKIE, &member_cookie)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(
+            origin,
+            "invitations",
+            json!({"email": "other@example.test"})
+        )
+        .header(header::COOKIE, &member_cookie)
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(origin, "sign-out", json!({}))
+            .header(header::COOKIE, &member_cookie)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        get(APEX, "/api/auth/session")
+            .header(header::COOKIE, &member_cookie)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let member_again = post(
+        origin,
+        "sign-in",
+        json!({"identifier": "member@example.test", "password": member_password}),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(member_again.json::<Value>().await.unwrap(), identity);
+    server.abort();
+}
+
+fn cookie_pair(response: &reqwest::Response) -> String {
+    response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
 #[tokio::test]
 async fn public_routes_and_private_intake() {
     let fixture = Fixture(env::temp_dir().join(format!(

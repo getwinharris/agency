@@ -332,7 +332,8 @@ fn files_and_patches_cover_renames_untracked_and_binary_files() {
     repo.commit("one");
     fs::create_dir(repo.0.join("dir")).unwrap();
     repo.git(&["mv", "moved.txt", "dir/moved.txt"]);
-    repo.write("image.png", [0u8, 9, 9, 3]);
+    // Change the size so Git can detect the edit even when file timestamps match.
+    repo.write("image.png", [0u8, 9, 9, 3, 4]);
     repo.write("new.txt", "fresh\n");
     repo.write("huge.log", vec![b'x'; 1024 * 1024 + 1]);
     let files = repo.json(&["files", "uncommitted"]);

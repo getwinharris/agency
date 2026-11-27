@@ -27,9 +27,9 @@ import {
 import { LIST_HOVER_TRANSITION } from "@cloudroom/shared-ui/motion";
 import { MachineStatusDot } from "@/components/machines/MachineStatusDot";
 import {
-  CLOUDROOM_CLOUD_PRIMARY,
-  cloudroomEnvironmentPresentation,
-} from "@/lib/cloudroom-environment-label";
+  CLOUD_PRIMARY_LABEL,
+  environmentPresentation,
+} from "@/lib/bapx/environment-label";
 import { REUSE_ENVIRONMENT_ICON_NAME } from "@/lib/environment-workspace-display";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { formatHostUpdateStatus } from "@/lib/host-update-status";
@@ -128,7 +128,7 @@ function machineOptionLabel(
 
 function localPresentation(providerId: string, projectless: boolean) {
   return (
-    cloudroomEnvironmentPresentation(providerId, "local") ??
+    environmentPresentation(providerId, "local") ??
     (projectless ? { label: "Local", icon: "Laptop" as const } : null)
   );
 }
@@ -295,7 +295,7 @@ export function EnvironmentPickerUI({
       provider.machineProviderId &&
       provider.requires.projectless === projectless,
   );
-  const cloudLabel = CLOUDROOM_CLOUD_PRIMARY;
+  const cloudLabel = CLOUD_PRIMARY_LABEL;
   const selected = useMemo((): SelectedEnvironment => {
     if (cloud?.selected) {
       return {

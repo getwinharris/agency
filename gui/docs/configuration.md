@@ -605,6 +605,9 @@ compatibility roots follow the related config and environment switches.
 
 ### Install an Agency skill in native agents
 
+The [release notes](release-notes.md) track public availability. Discovery of a
+project skill depends on the locally installed agent and its configuration.
+
 From the target Git checkout, install the bundled `file-tree` skill from
 Agency’s GitHub repository. Keep any existing project copy. Use Node.js and
 Git for the installer and the bundled tree command. Set `agency_revision` to
@@ -729,6 +732,7 @@ client wrote first, so a stale window cannot silently clobber a newer value.
 | `sidebar.navigationProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `sidebar.threadListProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `appearance.theme`                | `light`, `dark`, or `system` (default)              |
+| `appearance.showSubagentBar`     | `false` hides the subagent bar under thread titles  |
 | `defaults.startingMachine`        | `last` (default: Cloud, except a project where Local was picked in the last 24 hours) or `cloud` |
 | `defaults.showUltraEfforts`       | `true` adds Claude Ultracode and Codex Ultra to the effort menu (default `false`) |
 

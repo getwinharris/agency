@@ -4,7 +4,7 @@ import { useSystemVersion } from "@/hooks/queries/system-queries";
 import { useDesktopUpdate, useInstallDesktopUpdate } from "@/hooks/queries/cloudroom-queries";
 import { CHROME_ROW_CLASS, getRoomDesktopInfo } from "@/lib/room-desktop";
 
-export function CloudroomVersionMark() {
+export function BapxVersionMark() {
   const app = getRoomDesktopInfo()?.version;
   const live = useSystemVersion().data?.desktopVersion;
   const [server, setServer] = useState<string>();
