@@ -51,10 +51,12 @@ function requireSource(path, markers) {
 function parseRouters(labels) {
   const host = "Host\\(`([a-z0-9.-]+)`\\)";
   const path = "Path\\(`(/[a-zA-Z0-9/_-]+)`\\)";
+  const accountHost = "Host\\(`bapx\\.in`\\)";
+  const prefixPattern = "PathPrefix\\(`(/api/(?:auth|admin)/)`\\)";
   const method = "Method\\(`([A-Z]+)`\\)";
   const extract = (rule, term) => [...rule.matchAll(new RegExp(term, "g"))].map((match) => match[1]);
   const exact = (rule, term) => new RegExp(`^${term}$`).test(rule);
-  const invalid = `The agency-web routers in ${compose} must use exact HTTPS Host rules or Host with exact Path and Method.`;
+  const invalid = `The agency-web routers in ${compose} must declare HTTPS hosts and scoped endpoint rules.`;
   const routers = [];
   for (const key of Object.keys(labels)) {
     const name = /^traefik\.http\.routers\.(.*)\.rule$/.exec(key)?.[1];
@@ -63,21 +65,46 @@ function parseRouters(labels) {
     const rule = labels[key];
     const terms = rule.split("&&").map((term) => term.trim());
     const hostOnly = new RegExp(`^\\s*${host}(\\s*\\|\\|\\s*${host})*\\s*$`).test(rule);
+    const prefixed = new RegExp(`^${accountHost}\\s*&&\\s*${prefixPattern}$`).test(rule);
     const qualified = terms.length === 3 && [host, path, method].every(
       (term) => terms.some((part) => exact(part, term)),
     );
     const hosts = sorted(extract(rule, host));
     if (!/^[a-z0-9-]+$/.test(name) || labels[`${prefix}.service`] !== "agency-web"
         || labels[`${prefix}.tls`] !== "true" || labels[`${prefix}.entrypoints`] !== "websecure"
-        || !(hostOnly || qualified) || !hosts.length) {
+        || !(hostOnly || qualified || prefixed) || !hosts.length) {
       throw new Error(invalid);
     }
     routers.push({
-      name, hosts, path: extract(rule, path)[0] ?? null, method: extract(rule, method)[0] ?? null,
+      name,
+      hosts,
+      path: extract(rule, path)[0] ?? null,
+      method: extract(rule, method)[0] ?? null,
+      pathPrefix: extract(rule, prefixPattern)[0] ?? null,
     });
   }
   if (!routers.length) throw new Error(invalid);
   return routers.sort((left, right) => compare(left.name, right.name));
+}
+
+function validateAccountIngress(labels) {
+  const router = (name, field) => labels[`traefik.http.routers.agency-${name}.${field}`];
+  const priority = (name) => {
+    const value = router(name, "priority");
+    return /^-?[0-9]+$/.test(value) ? Number(value) : Number.NaN;
+  };
+  const accountRoutes = [
+    ["account", "PathPrefix(`/api/auth/`)", "", "web"],
+    ["account-admin", "PathPrefix(`/api/admin/`)", "", "web"],
+    ["account-login", "Path(`/api/auth/sign-in`) && Method(`POST`)", "agency-admin-rate", "account"],
+    ["account-signup", "Path(`/api/auth/signup`) && Method(`POST`)", "agency-admin-rate", "account"],
+  ];
+  return router("web", "middlewares") === "agency-public"
+    && labels["traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie"] === ""
+    && accountRoutes.every(([name, rule, middleware, lowerPriority]) =>
+      router(name, "rule") === `Host(\`bapx.in\`) && ${rule}`
+      && (router(name, "middlewares") ?? "") === middleware
+      && priority(name) > priority(lowerPriority));
 }
 
 function validateIngress(service) {
@@ -90,6 +117,7 @@ function validateIngress(service) {
   );
   if (service.read_only !== true || labels["traefik.enable"] !== "true"
       || service.ports?.length
+      || !validateAccountIngress(labels)
       || !labels["traefik.http.routers.agency-sandbox-check.middlewares"]?.split(",").includes("agency-sandbox-headers")
       || labels["traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Cookie"] !== ""
       || labels["traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Authorization"] !== ""
@@ -206,13 +234,14 @@ function projectSources() {
     if (pattern === '  - "!**/.bundled-stage-*"') return ":(glob,exclude)gui/**/.bundled-stage-*/package.json";
     throw new Error(`Unsupported workspace package filter in ${workspaceConfig}: ${pattern}.`);
   });
-  const tracked = sorted(run("git", ["ls-files", "-z", "--", ".github/workflows", "gui/apps/www/src",
+  const tracked = sorted(run("git", ["ls-files", "-z", "--", ".github/workflows", "gui/apps/www/src", "core/src/web",
     ":(glob)core/src/*.rs", ":(glob)core/src/*/mod.rs", ":(glob)skills/**/SKILL.md",
     "gui/package.json", ...filters,
   ]).split("\0").filter(Boolean));
   return {
     workflows: tracked.filter((file) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file)),
     rust_entry_points: tracked.filter((file) => /^core\/src\/([^/]+\.rs|[^/]+\/mod\.rs)$/.test(file)),
+    web_runtime_sources: tracked.filter((file) => file.startsWith("core/src/web/")),
     web_sources: tracked.filter((file) => file.startsWith("gui/apps/www/src/")),
     workspace_packages: tracked.filter((file) => file.startsWith("gui/") && file.endsWith("/package.json")),
     bundled_skills: tracked.filter((file) => file.startsWith("skills/") && file.endsWith("/SKILL.md")),
@@ -220,8 +249,9 @@ function projectSources() {
 }
 
 function renderIndex(routers, guides, sources) {
-  const routes = routers.flatMap(({ name, hosts, method, path }) => hosts.map((host) => ({
+  const routes = routers.flatMap(({ name, hosts, method, path, pathPrefix }) => hosts.map((host) => ({
     host, router: name, method, path, source: compose,
+    ...(pathPrefix === null ? {} : { path_prefix: pathPrefix }),
   })));
   routes.sort((left, right) => compare(left.host, right.host)
     || compare(left.path ?? "", right.path ?? "") || compare(left.method ?? "", right.method ?? "")
@@ -238,12 +268,13 @@ function renderIndex(routers, guides, sources) {
 }
 
 function renderMap(routers, { publicHosts, adminHosts }) {
-  const edges = routers.flatMap(({ name, hosts, method, path }) => hosts.map((host) => {
+  const edges = routers.flatMap(({ name, hosts, method, path, pathPrefix }) => hosts.map((host) => {
     const router = name.replaceAll("-", "_");
     const hostId = host.replaceAll(".", "_dot_").replaceAll("-", "_dash_");
-    const qualifier = [method, path].filter(Boolean).map((part) => ` ${part}`).join("");
+    const qualifier = [method, path, pathPrefix].filter(Boolean).map((part) => ` ${part}`).join("");
     let target = "pilotRouter";
-    if (publicHosts.includes(host)) target = "webRouter";
+    if (name.startsWith("agency-account")) target = "accountRouter";
+    else if (publicHosts.includes(host)) target = "webRouter";
     else if (adminHosts.includes(host)) target = "adminRouter";
     return `    ingress_${router}_${hostId}["${host}${qualifier} · ${name}"] --> ${target}`;
   }));
@@ -252,7 +283,7 @@ flowchart TD
   workspace["Agency workspace · AGENTS.md and docs/project-index.json"]
 
   subgraph build["Source and build"]
-    webSource["Landing, Docs, MediaHub and Admin · gui/apps/www/src/build.ts"]
+    webSource["Landing, Docs, MediaHub, accounts and Admin · gui/apps/www/src/build.ts"]
     docsSources["Published Markdown registry · gui/apps/www/src/docs/pages.ts"]
     assets["Static build · pnpm build:web → gui/apps/www/dist"]
     rust["Rust Core build · core/src/main.rs"]
@@ -284,6 +315,7 @@ flowchart TD
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
     webRouter["Traefik TLS · first-party public routes"]
+    accountRouter["Traefik TLS · apex account and operator API"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
     webRuntime["bapx-core serve-web · core/src/web.rs"]
@@ -291,19 +323,24 @@ flowchart TD
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
     adminApi["Admin sign-in and authenticated API · core/src/web/admin.rs"]
+    accountApi["Apex signup, role checks and sign-in · core/src/web/accounts.rs"]
     staticPilot["Published assets · core/src/web/published.rs"]
-    webData["Private writable volume · briefs, notes and published copy"]
+    webData["Private writable volume · accounts, briefs, notes and published copy"]
     adminSecret["Private read-only bind · Admin sign-in credential"]
     webRouter --> webRuntime
+    accountRouter -->|"Forward host-only session"| webRuntime
     adminRouter --> webRuntime
     pilotRouter -->|"Strip Cookie and Authorization"| webRuntime
     webRuntime --> routing
     webRuntime --> readiness
     webRuntime --> briefs
     webRuntime --> adminApi
+    webRuntime --> accountApi
     webRuntime --> staticPilot
     briefs -->|"Persist accepted briefs"| webData
     adminApi -->|"Read briefs and update operator data"| webData
+    accountApi -->|"Persist invitations and accounts"| webData
+    accountApi -->|"Verify operator role"| adminApi
     adminSecret --> adminApi
 ${edges.join("\n")}
   end

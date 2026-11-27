@@ -6,6 +6,15 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 19:59 IST
+
+The [Build from source guide](https://docs.bapx.in/build-from-source/) links to the Agency project index and architecture map. The two inventories now share a source scan, and CI checks both for drift. Independent browser QA verified the Docs links on desktop and mobile, the same release revision across all five first-party hosts, and the signed-out Admin response. [PR #101](https://github.com/getwinharris/agency/pull/101)
+
+- Desktop source version `0.1.0`
+- Served SHA `e68f5a3ba546aaaeee4a7690ccb0bf09aff68b96`
+- Image `sha256:de3489c1977e6c05a2b40a3a8a9a08200d9144ba1e001c519747127983411146`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/46009874575), attempt 1 · [Production verification](https://github.com/getwinharris/agency/pull/101#issuecomment-7220972390)
+
 ### 27 November 2026, 19:19 IST
 
 The [Linux x64 packaging guide](https://docs.bapx.in/desktop-packaging/#linux-appimage-x64) explains how to start bapX Agents when FUSE is unavailable. The launcher keeps the backend in extract mode so both the window and backend start. The branded CI AppImage passed clean-profile VPS launches with FUSE and in extract mode. The public Linux installer remains pending. [PR #91](https://github.com/getwinharris/agency/pull/91)
@@ -153,6 +162,7 @@ Launched the Agency [landing page](https://bapx.in/) and [Docs](https://docs.bap
 ## Pending
 
 - **bapX CLI.** The primary command is `bapx-cli`, with `room-cli` compatibility. Packaged availability awaits platform release checks. [CLI branding #43](https://github.com/getwinharris/agency/issues/43)
+- **Managed workspace access.** The shared bapX account is the entry point for the planned hosted workflow. Authorized workspace grants, automatic desktop enrollment, and running and reconnecting to a real task still require production verification. [Workspace access #46](https://github.com/getwinharris/agency/issues/46) · [Hosted pairing #85](https://github.com/getwinharris/agency/issues/85)
 - **Desktop downloads and updates.** Apple Silicon, Windows x64, and Linux x64 have source packaging instructions and native CI build artifacts. Public downloads await platform release verification, signing where applicable, and publication in Agency Releases. [Package verification PR #64](https://github.com/getwinharris/agency/pull/64) · [Agency Releases](https://github.com/getwinharris/agency/releases)
 - **Apple Silicon beta.** The first planned beta uses package version `0.1.0` and the `v0.1.0` prerelease tag. The [release candidate procedure](../apps/desktop/README.md#build-an-apple-silicon-release-candidate) covers signed artifacts. Public Mac availability awaits signing, notarization, signup, installation, and real local integration tests. [Mac acceptance #60](https://github.com/getwinharris/agency/issues/60) · [Gatekeeper #88](https://github.com/getwinharris/agency/issues/88)
 - **Android and hosted agent runtimes.** The Android workspace and emulator QA remain under review. Hosted agent runtimes await public release verification. [Android PR #65](https://github.com/getwinharris/agency/pull/65) · [Private Core setup](../../core/docs/setup.md)

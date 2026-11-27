@@ -6,6 +6,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 - Use `bapx-cli` in agent Tools and supported installs, with `room-cli` compatibility.
 - Generate and check the Agency map and project index with the checkout CLI in local workflows and CI.
+- Add one bapX sign-in and invitation signup on the main site, with an in-window Admin menu for operators.
 - Revoke the previous hosted device credential when switching bapX Agents accounts.
 - Keep private Core status connected when an in-flight readiness check reloads the same saved connection.
 - Generate a searchable Agency source index, check Docs publication coverage in CI, and record independent browser verification after deployment.

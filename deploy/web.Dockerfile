@@ -27,6 +27,7 @@ RUN ln /usr/local/lib/bapx/bapx-core /usr/local/bin/bapx-core \
  && /usr/local/bin/bapx-core --version | grep -E '^bapx-core [0-9]' \
  && /usr/local/bin/cloudroom --version | grep -E '^cloudroom [0-9]'
 ENV BAPX_WEB_ROOT=/srv/bapx-web BAPX_WEB_DATA=/var/lib/bapx-web BAPX_WEB_LISTEN=0.0.0.0:8080
+ENV BAPX_ACCOUNTS_ENABLED=1
 ENV BAPX_WEB_REVISION=${BAPX_WEB_REVISION}
 RUN install -d -m 0700 -o 10001 -g 10001 /var/lib/bapx-web /var/lib/bapx-sites
 USER 10001:10001

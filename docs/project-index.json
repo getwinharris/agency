@@ -18,9 +18,39 @@
     },
     {
       "host": "bapx.in",
+      "router": "agency-account",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml",
+      "path_prefix": "/api/auth/"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account-admin",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml",
+      "path_prefix": "/api/admin/"
+    },
+    {
+      "host": "bapx.in",
       "router": "agency-web",
       "method": null,
       "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account-login",
+      "method": "POST",
+      "path": "/api/auth/sign-in",
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account-signup",
+      "method": "POST",
+      "path": "/api/auth/signup",
       "source": "deploy/compose.web.yml"
     },
     {
@@ -121,8 +151,19 @@
       "core/src/web.rs",
       "core/src/workspace/mod.rs"
     ],
+    "web_runtime_sources": [
+      "core/src/web/accounts.rs",
+      "core/src/web/accounts_tests.rs",
+      "core/src/web/admin.rs",
+      "core/src/web/admin_store.rs",
+      "core/src/web/admin_tests.rs",
+      "core/src/web/inquiry.rs",
+      "core/src/web/published.rs",
+      "core/src/web/tests.rs"
+    ],
     "web_sources": [
       "gui/apps/www/src/admin/pages.ts",
+      "gui/apps/www/src/auth/pages.ts",
       "gui/apps/www/src/brand.ts",
       "gui/apps/www/src/build.ts",
       "gui/apps/www/src/docs/markdown.ts",

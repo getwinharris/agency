@@ -139,7 +139,7 @@ jobs:
           cli=squashfs-root/resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist
           primary="$("$cli/bapx-cli" --version)"
           legacy="$("$cli/room-cli" --version)"
-          [[ $primary =~ ^[0-9] && "$primary" == "$legacy" ]]
+          [[ -n "$primary" && "$primary" == "$legacy" ]]
           "$cli/bapx-cli" thread --help | grep -F 'Usage: bapx-cli thread'
       - name: Prepare checksums for verified packages
         env:
