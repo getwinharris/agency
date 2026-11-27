@@ -45,8 +45,6 @@ a { color: var(--accent); }
   white-space: nowrap;
 }
 .brand img { display: block; inline-size: clamp(4.5rem, 12vw, 5.625rem); block-size: auto; }
-.brand-divider { block-size: 1.2rem; inline-size: 1px; background: #4e3c5d; }
-.domain-word { color: var(--accent); font-size: .84rem; font-weight: 650; letter-spacing: .055em; }
 .operator { display: flex; align-items: center; gap: .8rem; }
 .operator-name { font: .78rem ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
 

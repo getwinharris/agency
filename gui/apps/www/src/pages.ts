@@ -1,4 +1,4 @@
-import { faviconLinks, wordmark } from "./brand.ts";
+import { brandLockup, brandStylesheet, faviconLinks } from "./brand.ts";
 
 const website = "https://bapx.in";
 const docs = "https://docs.bapx.in";
@@ -61,8 +61,7 @@ function projectGuide() {
 }
 
 function brand(surface: "Agents" | "Docs") {
-  const href = surface === "Docs" ? docs : website;
-  return `<a class="brand" href="${href}/" aria-label="bapX ${surface} home"><img src="${wordmark}" alt="" width="120" height="40"><span class="brand-divider" aria-hidden="true">/</span><span class="brand-surface">${surface}</span></a>`;
+  return brandLockup("brand", 120, surface === "Docs" ? "Docs" : undefined);
 }
 
 function landingMenu() {
@@ -90,7 +89,12 @@ export function page({
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
-  <meta name="description" content="${description}">
+  <meta name="description" content="${description}">${landing ? `
+  <meta property="og:title" content="${title}">
+  <meta property="og:site_name" content="bapX">
+  <meta property="og:description" content="${description}">
+  <meta name="twitter:title" content="${title}">` : ""}
+  ${brandStylesheet}
   <meta name="theme-color" content="#0a090e">${landing ? `
   <link rel="stylesheet" href="/brand/landing-nav.css">
   <script src="/brand/landing-nav.js" defer></script>` : ""}
@@ -126,8 +130,8 @@ ${body}
 export function publicPages() {
   return {
     "index.html": page({
-      title: "bapX Agents | Native coding agents from Mac to Linux",
-      description: "Run Codex and other native coding agents on your Mac or a private Linux Core with bapX Agents, an open-source Cloudroom fork.",
+      title: "bapX",
+      description: "Run Codex and other native coding agents locally or on your private Linux Core with bapX.",
       canonical: `${website}/`,
       landing: true,
       body: `<main id="main" class="shell">
