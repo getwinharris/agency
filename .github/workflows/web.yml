@@ -4,8 +4,13 @@ on:
   pull_request:
     paths:
       - 'core/**'
+      - 'gui/README.md'
+      - 'gui/apps/desktop/README.md'
       - 'gui/apps/www/**'
+      - 'gui/docs/configuration.md'
+      - 'gui/docs/release-notes.md'
       - 'gui/package.json'
+      - 'gui/patches/**'
       - 'gui/pnpm-lock.yaml'
       - 'gui/pnpm-workspace.yaml'
       - 'gui/.nvmrc'
@@ -60,8 +65,22 @@ jobs:
           trap 'docker logs agency-web; docker stop agency-web' EXIT
           curl --retry 10 --retry-connrefused --fail --silent http://127.0.0.1:8080/healthz |
             jq -e --arg sha "$GITHUB_SHA" '.ready == true and .service == "bapx-web" and .revision == $sha'
-          curl --fail --silent -H 'Host: bapx.in' http://127.0.0.1:8080/ | grep -F 'Start on your Mac.'
-          curl --fail --silent -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ | grep -F 'bapX Agents documentation'
+          curl --fail --silent -H 'Host: bapx.in' http://127.0.0.1:8080/ | grep -F '<h1 id="headline">'
+          curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
+          grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"
+          grep -F '<a href="/release-notes/">release changelog</a>' "$RUNNER_TEMP/docs-home.html"
+          for slug in build-from-source desktop-packaging private-core project-skills release-notes; do
+            curl --fail --silent --show-error -H 'Host: docs.bapx.in' "http://127.0.0.1:8080/$slug/" --output "$RUNNER_TEMP/docs-$slug.html"
+          done
+          grep -F 'id="1-install-tools-and-build"' "$RUNNER_TEMP/docs-private-core.html"
+          grep -F '<pre tabindex="0"><code' "$RUNNER_TEMP/docs-private-core.html"
+          grep -F '<table>' "$RUNNER_TEMP/docs-desktop-packaging.html"
+          grep -F 'id="install-an-agency-skill-in-native-agents"' "$RUNNER_TEMP/docs-project-skills.html"
+          grep -F '>Verified web deployments</h2>' "$RUNNER_TEMP/docs-release-notes.html"
+          grep -F '>Pending</h2>' "$RUNNER_TEMP/docs-release-notes.html"
+          grep -E '>Served SHA <code>[a-f0-9]{40}</code></li>' "$RUNNER_TEMP/docs-release-notes.html"
+          curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/docs.css --output "$RUNNER_TEMP/docs.css"
+          test -s "$RUNNER_TEMP/docs.css"
           curl --fail --silent -H 'Host: mediahub.bapx.in' http://127.0.0.1:8080/clients/nebo-lifestyle-clinic/ | grep -iF 'Nebo Lifestyle Clinic'
           curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/ | grep -F '<h1 id="login-title">Sign in</h1>'
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: admin.bapx.in' http://127.0.0.1:8080/api/admin/session)" = 401

@@ -605,6 +605,9 @@ compatibility roots follow the related config and environment switches.
 
 ### Install an Agency skill in native agents
 
+The [release notes](release-notes.md) track public availability. Discovery of a
+project skill depends on the locally installed agent and its configuration.
+
 From the target Git checkout, install the bundled `file-tree` skill from
 Agency’s GitHub repository. Keep any existing project copy. Use Node.js and
 Git for the installer and the bundled tree command. Set `agency_revision` to

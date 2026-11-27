@@ -2,6 +2,10 @@
 
 Agency's Cloudroom-derived Core runs Codex or Pi through an HTTP API. Start with Codex below. [Pi configuration](harnesses.md#configure) uses the same service and API.
 
+This guide builds and runs Core on a machine you control. See the [release
+notes](../../gui/docs/release-notes.md) for Agency's public availability and
+the independently versioned public web service.
+
 Use a **fresh VM for one trusted user**, with sudo access, systemd, cgroup v2, and space for your repositories and tools. Disk warnings start at 5 GB available; there is no fixed agent allowance or additional reserve. The installer does not configure quotas or change `/etc/fstab`. Containers and other Linux distributions are outside this guide.
 
 Agents run without approval prompts and share their account's files. Do not give that account sudo or access to a Docker socket.
@@ -171,13 +175,13 @@ In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Setti
 
 ## Your own server vs Cloudroom Cloud
 
-**Works on your own server:**
+**Self-hosted capabilities described by Core:**
 
 - Codex and Pi, set up in `core.env`. Claude Code, Cursor, OpenCode, Hermes, Devin, Droid, Kimi Code, fx, OpenClaw, and Agent Zero's `a0` bridge turn on once they are installed and signed in under the agent account.
 - Cloud threads from the desktop app, with Mac access, web previews, secret requests, and synced skills and logins.
 - Saved history, kept on this machine.
 
-**Cloudroom Cloud only:**
+**Upstream Cloudroom Cloud capabilities:**
 
 - GPUs, Cloud loops, and computer use. Local loops still work.
 - Settings → Cloud environment (API keys, repos, setup script). Install your tools on the server yourself.
@@ -188,7 +192,11 @@ In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Setti
 
 ## Upgrade
 
-Pick a `core-v` version from the [releases](https://github.com/davidondrej/cloudroom/releases), then:
+A verified in-place upgrade procedure for Agency is pending. The [source
+instructions above](#1-install-tools-and-build) are for new installations.
+The archive procedure below applies to upstream Cloudroom installations.
+
+Pick a `core-v` version from the [upstream releases](https://github.com/davidondrej/cloudroom/releases), then:
 
 ```sh
 v=X.Y.Z; a=$(uname -m)

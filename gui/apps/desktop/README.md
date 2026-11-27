@@ -4,6 +4,9 @@ Electron shell for bapX Agents. The packaged `bb-app` launcher starts the embedd
 web UI, local server, and host daemon. Its upstream license and notices ship in
 each desktop package.
 
+See the [release notes](../../docs/release-notes.md) for the public download
+status. The packaging commands below produce local builds.
+
 ## Development
 
 From `gui/`, run `pnpm dev` in one terminal for the source server and
@@ -210,7 +213,7 @@ builds require an Apple Developer ID signature and notarization. Windows
 verification uses a silent install on a Windows Server runner. Verify the
 intended desktop OS before publishing the release in Agency.
 
-The stable app uses bundle and Windows application ID `in.bapx.agents`,
+Stable builds use bundle and Windows application ID `in.bapx.agents`,
 `~/.bapx-agents` for runtime data, and local ports 39888 and 39889. The desktop
 registers `bapx-agents://` and installs the `bapx-agents-cli` shell shim on
 macOS and Linux.
