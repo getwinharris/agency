@@ -220,6 +220,15 @@ sudo -u cloudroom-agent -H /usr/local/bin/codex login status
 
 A failed readiness check usually means the journal or disk protection needs attention. A failed agent start may mean login or model configuration. There is no fixed limit on open harness sessions; actual concurrency depends on available VM resources. Keep logs private when asking for help.
 
+After a restart, check the running Core build with `/v1/dashboard`. The health check reports service status and disk safety. Use the `api` helper from [step 5](#5-run-your-first-task) to print just the running version and commit, then compare them with the installed binary:
+
+```sh
+api http://127.0.0.1:9840/v1/dashboard | python3 -c 'import json, sys; runtime = json.load(sys.stdin)["runtime"]; print(runtime["version"], runtime.get("commit", "unknown"))'
+/usr/local/lib/cloudroom/cloudroom --version
+```
+
+If they differ, check the service’s `ExecStart` with `systemctl show --property=ExecStart cloudroom.service`.
+
 ## Machines without systemd
 
 Run `install/sandbox-start.sh` as root, detached, on every boot. It parses (never sources) `image.env` and `/etc/cloudroom/core.env`, creates the agents' cgroup, runs Core as `cloudroom` with only the capabilities it needs, and restarts it after a crash. Containers without cgroups run Core in [container mode](storage.md#containers). A second start is a no-op. The log is `/var/log/cloudroom/core.log`. With `"agent_sudo": true` in `storage.json`, agents keep sudo on that machine. Before a stop, `POST /v1/drain {"hold":true}` refuses new work and reports whether anything still runs, plus the thread's lifetime prompt counts (`work`: `prompts`, `failed`) for the website's sleep event; `{"hold":false}` reopens it.
