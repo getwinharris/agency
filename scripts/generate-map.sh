@@ -109,7 +109,8 @@ rust_public_hosts() {
     done
 }
 
-public_hosts=$(router_hosts agency-web)
+app_hosts=$(router_hosts agency-app)
+public_hosts=$(printf '%s\n%s\n' "$(router_hosts agency-web)" "$app_hosts" | host_set)
 admin_hosts=$(router_hosts agency-admin)
 pilot_hosts=$(router_hosts agency-sandbox-check)
 rust_public=$(rust_public_hosts | host_set)
@@ -135,11 +136,14 @@ ci_hosts=$(awk '
     /^[[:space:]]*done$/ { hosts = "" }
     /\/healthz/ && hosts != "" { print hosts }
 ' "$workflow" | host_set)
-vps_hosts=$(awk -v opening="done <<'ROUTES'" '
-    index($0, opening) { in_routes = 1; next }
-    /^ROUTES$/ { in_routes = 0 }
-    in_routes { print $1 }
-' "$driver" | host_set)
+vps_hosts=$({
+    awk -v opening="done <<'ROUTES'" '
+        index($0, opening) { in_routes = 1; next }
+        /^ROUTES$/ { in_routes = 0 }
+        in_routes { print $1 }
+    ' "$driver"
+    sed -nE '/^check_app\(\)/,/^}/s/.* host=([a-z0-9.-]+) redirect$/\1/p' "$driver"
+} | host_set)
 
 require_match "Traefik first-party routes and Public web CI health checks" "$first_party" "$ci_hosts"
 require_match "Traefik first-party routes and Hostinger HTTPS smoke checks" "$first_party" "$vps_hosts"
@@ -218,6 +222,11 @@ jq -e '
     ((.ports // []) | length == 0) and
     $l["traefik.http.routers.agency-web.middlewares"] == "agency-public" and
     $l["traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie"] == "" and
+    $l["traefik.http.routers.agency-app.rule"] == "Host(`app.bapx.in`)" and
+    $l["traefik.http.routers.agency-app.tls.certresolver"] == "letsencrypt" and
+    $l["traefik.http.routers.agency-app.middlewares"] == "agency-app-headers" and
+    $l["traefik.http.middlewares.agency-app-headers.headers.customrequestheaders.Cookie"] == "" and
+    $l["traefik.http.middlewares.agency-app-headers.headers.customrequestheaders.Authorization"] == "" and
     $l["traefik.http.routers.agency-account.rule"] == "Host(`bapx.in`) && PathPrefix(`/api/auth/`)" and
     $l["traefik.http.routers.agency-account-admin.rule"] == "Host(`bapx.in`) && PathPrefix(`/api/admin/`)" and
     $l["traefik.http.routers.agency-account-login.rule"] == "Host(`bapx.in`) && Path(`/api/auth/sign-in`) && Method(`POST`)" and
@@ -294,11 +303,12 @@ flowchart TD
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
     webRouter["Traefik TLS · first-party public routes"]
+    appRouter["Traefik TLS · exact App entry"]
     accountRouter["Traefik TLS · apex account and operator API"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
     webRuntime["bapx-core serve-web · core/src/web.rs"]
-    routing["Landing and privacy · Docs guides · MediaHub cases"]
+    routing["Landing and privacy · App account entry · Docs guides · MediaHub cases"]
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
     adminApi["Admin sign-in and authenticated API · core/src/web/admin.rs"]
@@ -307,6 +317,7 @@ flowchart TD
     webData["Private writable volume · accounts, briefs, notes and published copy"]
     adminSecret["Private read-only bind · Admin sign-in credential"]
     webRouter --> webRuntime
+    appRouter -->|"Strip Cookie and Authorization"| webRuntime
     accountRouter -->|"Forward host-only session"| webRuntime
     adminRouter --> webRuntime
     pilotRouter -->|"Strip Cookie and Authorization"| webRuntime
@@ -328,6 +339,8 @@ MAP
         for host in $hosts; do
             if [[ $name == agency-account* ]]; then
                 target=accountRouter
+            elif [[ $name == agency-app ]]; then
+                target=appRouter
             elif contains_host "$public_hosts" "$host"; then
                 target=webRouter
             elif contains_host "$admin_hosts" "$host"; then

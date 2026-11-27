@@ -4,6 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Add the App hostname to the shared Rust web release and route it to the bapX account window.
 - Add one bapX sign-in and invitation signup on the main site, with an in-window Admin menu for operators.
 - Revoke the previous hosted device credential when switching bapX Agents accounts.
 - Keep private Core status connected when an in-flight readiness check reloads the same saved connection.
