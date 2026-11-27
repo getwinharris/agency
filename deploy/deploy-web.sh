@@ -72,8 +72,8 @@ verify_build() {
         (.status == "in_progress" or (.status == "completed" and .conclusion == "success"))
     ' <<< "$run" >/dev/null || return 1
     # Rerunning only deploy leaves the upstream jobs on their prior attempt.
-    jobs=$(gh api --paginate --slurp "repos/$repo/actions/runs/$run_id/jobs?filter=all&per_page=100") || return 1
-    jq -e --arg sha "$sha" --arg attempt "$attempt" '
+    jobs=$(gh api --paginate "repos/$repo/actions/runs/$run_id/jobs?filter=all&per_page=100") || return 1
+    jq -es --arg sha "$sha" --arg attempt "$attempt" '
         [.[].jobs[] | select(.head_sha == $sha and .run_attempt <= ($attempt | tonumber))] |
         group_by(.name) | map(max_by([.run_attempt, .id])) |
         map(select(.status == "completed" and .conclusion == "success") | .name) as $passed |
