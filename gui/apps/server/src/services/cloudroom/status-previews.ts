@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { cloudroomCommands, cloudroomThreads } from "@cloudroom/db";
@@ -283,7 +284,7 @@ export class CloudStatusPreviews {
       if (selfHosted) {
         await this.rt.requirePrivateCoreReady(client, storage);
         const current = await this.rt.savedConnection();
-        if (current !== saved || epoch !== this.rt.epoch) throw new ApiError(409, "cloudroom_connection_changed", "The Core connection changed. Try again.");
+        if (epoch !== this.rt.epoch || !isDeepStrictEqual(current, saved)) throw new ApiError(409, "cloudroom_connection_changed", "The Core connection changed. Try again.");
         const catalog = this.rt.currentPrivateCatalog(connection, storage);
         if (catalog.failure) throw catalog.failure.error;
         capabilities = catalog.capabilities;
