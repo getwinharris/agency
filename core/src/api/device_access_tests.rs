@@ -241,6 +241,7 @@ async fn running_core_routes_scope_sessions_and_close_revoked_event_streams() {
     })
     .unwrap();
     manager.workspaces.resolve("project-a", None).unwrap();
+    let last_sequence = manager.session("cr_allowed").await.unwrap().last_sequence;
     let app = router_with_devices(manager, "disposable-operator-only".into(), Some(devices));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -300,7 +301,9 @@ async fn running_core_routes_scope_sessions_and_close_revoked_event_streams() {
         assert!(answer["error"].as_str().unwrap().contains("workspace"));
     }
 
-    let mut events = grant("sessions/cr_allowed/stream")
+    // Replay only the tail, so no pre-revocation history is left buffered.
+    let stream = format!("sessions/cr_allowed/stream?after={}", last_sequence - 1);
+    let mut events = grant(&stream)
         .send()
         .await
         .unwrap()
@@ -311,7 +314,10 @@ async fn running_core_routes_scope_sessions_and_close_revoked_event_streams() {
         .unwrap()
         .unwrap()
         .unwrap();
-    assert!(String::from_utf8_lossy(&first).contains("cr_allowed"));
+    let first = String::from_utf8_lossy(&first);
+    assert!(first.contains("cr_allowed"));
+    let expected_id = format!("id: {last_sequence}");
+    assert!(first.lines().any(|line| line == expected_id));
     fixture.registry("project-a", None);
     let end = tokio::time::timeout(Duration::from_secs(3), events.chunk())
         .await
