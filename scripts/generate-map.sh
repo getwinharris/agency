@@ -3,7 +3,7 @@ set -euo pipefail
 export LC_ALL=C
 
 fail() {
-    printf 'Agency map: %s\n' "$*" >&2
+    printf 'Agency inventory: %s\n' "$*" >&2
     exit 1
 }
 
@@ -13,9 +13,10 @@ case $# in
     1) case $1 in
         --check) mode=check ;;
         --stdout) mode=stdout ;;
-        *) fail 'Usage: scripts/generate-map.sh [--check | --stdout]' ;;
+        --index-stdout) mode=index ;;
+        *) fail 'Usage: scripts/generate-map.sh [--check | --stdout | --index-stdout]' ;;
     esac ;;
-    *) fail 'Usage: scripts/generate-map.sh [--check | --stdout]' ;;
+    *) fail 'Usage: scripts/generate-map.sh [--check | --stdout | --index-stdout]' ;;
 esac
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
@@ -24,6 +25,10 @@ compose=deploy/compose.web.yml
 rust_web=core/src/web.rs
 driver=deploy/deploy-web.sh
 publisher=deploy/publish-site.sh
+dockerfile=deploy/web.Dockerfile
+docs_registry=gui/apps/www/src/docs/pages.ts
+workspace_config=gui/pnpm-workspace.yaml
+index=docs/project-index.json
 
 # Resolve only the tracked override. No Docker daemon, host Compose file, or .env is needed.
 config=$(BAPX_WEB_IMAGE=agency-web:map docker compose --env-file /dev/null \
@@ -136,6 +141,72 @@ vps_hosts=$(awk -v opening="done <<'ROUTES'" '
 require_match "Traefik first-party routes and Public web CI health checks" "$first_party" "$ci_hosts"
 require_match "Traefik first-party routes and Hostinger HTTPS smoke checks" "$first_party" "$vps_hosts"
 
+guides=$(sed -n '/^const guides = \[/,/^];$/p' "$docs_registry" | sed '1d;$d;/^[[:space:]]*$/d')
+doc_rows=$(sed -nE 's/^[[:space:]]*\{ slug: "([a-z0-9-]+)", label: "[^"]+", source: "([a-zA-Z0-9_./-]+\.md)"(, section: "[^"]+")? \},?$/\1\t\2/p' <<< "$guides")
+[[ -n $doc_rows && $(wc -l <<< "$guides") == "$(wc -l <<< "$doc_rows")" ]] ||
+    fail "Could not inventory every guide in $docs_registry."
+doc_slugs=$(cut -f1 <<< "$doc_rows")
+[[ $(wc -l <<< "$doc_slugs") == "$(sort -u <<< "$doc_slugs" | wc -l)" ]] ||
+    fail "Duplicate guide slugs in $docs_registry."
+ci_doc_slugs=$(awk '
+    /^[[:space:]]*for slug in .*; do$/ {
+        slugs = $0
+        sub(/^[[:space:]]*for slug in /, "", slugs)
+        sub(/; do$/, "", slugs)
+    }
+    /^[[:space:]]*done$/ { slugs = "" }
+    /^[[:space:]]*curl --fail / && slugs != "" &&
+        index($0, "-H \047Host: docs.bapx.in\047") &&
+        index($0, "\"http://127.0.0.1:8080/$slug/\"") { print slugs }
+' "$workflow" | host_set)
+require_match "Published Docs slugs and Public web CI smoke checks" \
+    "$(host_set <<< "$doc_slugs")" "$ci_doc_slugs"
+
+# Inspect COPY inputs in the pages stage. A copy into the Rust stage does not
+# make a Markdown guide available to the web asset builder.
+pages_inputs=$(awk '
+    /^FROM / { if (pages) exit; pages = $NF == "pages" }
+    pages && /^COPY [^ -]/ { for (i = 2; i < NF; i++) print $i }
+' "$dockerfile")
+pr_inputs=$(awk '
+    /^  pull_request:$/ { pr = 1; next }
+    pr && /^  [^ ]/ { exit }
+    pr && /^    paths:$/ { paths = 1; next }
+    paths && /^    [^ ]/ { exit }
+    paths { print }
+' "$workflow" | sed -E "s@^      - '([^']+)'\$@\1@; /^[[:space:]]*(#|\$)/d")
+
+# The current filters use exact files and directory-wide /** includes. Reject
+# unsupported forms instead of silently interpreting different glob semantics.
+normalized_pr_inputs=$(
+    while IFS= read -r pattern; do
+        if [[ $pattern =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+            printf '%s\n' "$pattern"
+        elif [[ $pattern =~ ^[a-zA-Z0-9_./-]+/\*\*$ ]]; then
+            printf '%s\n' "${pattern%\*\*}"
+        else
+            fail "Unsupported Public web PR path filter: $pattern."
+        fi
+    done <<< "$pr_inputs"
+)
+
+covered_input() {
+    local source=$1 input
+    while IFS= read -r input; do
+        [[ $source == "$input" || ( $input == */ && $source == "$input"* ) ]] && return 0
+    done <<< "$2"
+    return 1
+}
+
+while IFS=$'\t' read -r slug source; do
+    [[ -f $source ]] && git ls-files --error-unmatch -- "$source" >/dev/null 2>&1 ||
+        fail "Guide $slug references a missing or untracked source: $source."
+    covered_input "$source" "$pages_inputs" ||
+        fail "Guide $slug source is missing from the web image pages stage: $source."
+    covered_input "$source" "$normalized_pr_inputs" ||
+        fail "Guide $slug source is missing from Public web PR path coverage: $source."
+done <<< "$doc_rows"
+
 jq -e '
     .services["agency-web"] |
     .labels as $l |
@@ -153,7 +224,7 @@ jq -e '
 
 require_source "$workflow" 'branches: [main]' 'needs: [app, core]' 'needs: web' \
     'name: agency-web-release' 'docker push' 'StrictHostKeyChecking=yes'
-require_source deploy/web.Dockerfile 'RUN corepack pnpm build:web' \
+require_source "$dockerfile" 'RUN corepack pnpm build:web' \
     '/build/gui/apps/www/dist /srv/bapx-web' 'ENTRYPOINT ["/usr/local/bin/bapx-core", "serve-web"]'
 require_source core/src/main.rs 'return cloudroom::web::serve().await;' \
     'cloudroom::serve(cloudroom::config::Config::from_env()?).await' \
@@ -169,7 +240,7 @@ render_map() {
     cat <<'MAP'
 %% Generated by scripts/generate-map.sh. Topology is derived from source, independent of live status.
 flowchart TD
-  workspace["Agency workspace · AGENTS.md and map.mmd"]
+  workspace["Agency workspace · AGENTS.md and docs/project-index.json"]
 
   subgraph build["Source and build"]
     webSource["Landing, Docs, MediaHub and Admin · gui/apps/www/src/build.ts"]
@@ -191,6 +262,7 @@ flowchart TD
     ssh["Actions deploy job · pinned SSH · deploy/deploy-web-ssh.sh"]
     rollout["Hostinger systemd rollout · deploy/deploy-web.sh"]
     receipt["Verified deployment receipt and previous healthy image"]
+    browserQA["Independent browser QA on the deployed SHA · AGENTS.md"]
     main --> checks --> webChecks
     webChecks --> registry
     webChecks --> artifact
@@ -198,6 +270,7 @@ flowchart TD
     registry --> rollout
     artifact --> rollout
     ssh --> rollout --> receipt
+    receipt --> browserQA
   end
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
@@ -294,14 +367,77 @@ MAP
 MAP
 }
 
+render_index() {
+    local pattern
+    local -a package_paths=(gui/package.json)
+    local workspace_patterns
+    workspace_patterns=$(awk '
+        /^packages:$/ { in_packages = 1; next }
+        in_packages && /^[^[:space:]#]/ { exit }
+        in_packages && !/^[[:space:]]*(#|$)/ { print }
+    ' "$workspace_config" | sed -E 's/^  - "([^"]+)"$/\1/')
+    [[ -n $workspace_patterns ]] || fail "Could not read packages in $workspace_config."
+    while IFS= read -r pattern; do
+        if [[ $pattern =~ ^[a-zA-Z0-9_/-]+/\*$ ]]; then
+            package_paths+=(":(glob)gui/$pattern/package.json")
+        elif [[ $pattern == '!**/.bundled-stage-*' ]]; then
+            package_paths+=(":(glob,exclude)gui/${pattern#!}/package.json")
+        else
+            fail "Unsupported workspace package filter in $workspace_config: $pattern."
+        fi
+    done <<< "$workspace_patterns"
+    git ls-files -z -- .github/workflows gui/apps/www/src \
+        ':(glob)core/src/*.rs' ':(glob)core/src/*/mod.rs' \
+        ':(glob)skills/**/SKILL.md' "${package_paths[@]}" |
+    jq -Rs --argjson routes "$routers" \
+        --arg compose "$compose" --arg docs "$doc_rows" --arg registry "$docs_registry" \
+        --arg workflow "$workflow" --arg driver "$driver" --arg dockerfile "$dockerfile" \
+        --arg workspace_config "$workspace_config" '
+        (split("\u0000") | map(select(length > 0)) | unique) as $tracked |
+        {
+            generated_by: "scripts/generate-map.sh",
+            scope: "Tracked source and declared routes. Verify live behavior separately.",
+            routes: [
+                $routes[] as $router | $router.hosts[] | {
+                    host: .,
+                    router: $router.name,
+                    method: ($router.method | if . == "" then null else . end),
+                    path: ($router.path | if . == "" then null else . end),
+                    source: $compose
+                }
+            ] | sort_by(.host, .path, .method, .router),
+            docs: {
+                registry: $registry,
+                guides: ($docs | split("\n") | map(split("\t") | {slug: .[0], source: .[1]}) | sort_by(.slug))
+            },
+            release: {workflow: $workflow, smoke_driver: $driver, image: $dockerfile},
+            workspace_config: $workspace_config,
+            sources: {
+                workflows: [$tracked[] | select(test("^\\.github/workflows/[^/]+\\.ya?ml$"))],
+                rust_entry_points: [$tracked[] | select(test("^core/src/([^/]+\\.rs|[^/]+/mod\\.rs)$"))],
+                web_sources: [$tracked[] | select(startswith("gui/apps/www/src/"))],
+                workspace_packages: [$tracked[] | select(startswith("gui/") and endswith("/package.json"))],
+                bundled_skills: [$tracked[] | select(endswith("/SKILL.md") and startswith("skills/"))]
+            }
+        }
+    '
+}
+
 if [[ $mode == stdout ]]; then
     render_map
+elif [[ $mode == index ]]; then
+    render_index
 elif [[ $mode == check ]]; then
     diff -u map.mmd <(render_map) || fail 'map.mmd is stale. Run scripts/generate-map.sh.'
+    diff -u "$index" <(render_index) || fail "$index is stale. Run scripts/generate-map.sh."
 else
-    pending=$(mktemp .map.XXXXXXXX)
-    trap 'rm -f -- "$pending"' EXIT
-    render_map > "$pending"
-    chmod 0644 "$pending"
-    mv -- "$pending" map.mmd
+    mkdir -p docs
+    pending_map=$(mktemp .map.XXXXXXXX)
+    trap 'rm -f -- "$pending_map" "${pending_index:-}"' EXIT
+    pending_index=$(mktemp docs/.project-index.XXXXXXXX)
+    render_map > "$pending_map"
+    render_index > "$pending_index"
+    chmod 0644 "$pending_map" "$pending_index"
+    mv -- "$pending_map" map.mmd
+    mv -- "$pending_index" "$index"
 fi
