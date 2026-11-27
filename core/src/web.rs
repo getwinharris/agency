@@ -67,10 +67,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     };
     if env::var("BAPX_ACCOUNTS_ENABLED").as_deref() == Ok("1") {
         let data = site.inquiries.parent().expect("data contains inquiries");
-        match accounts::Accounts::open(data) {
-            Ok(accounts) => site.accounts = Some(accounts),
-            Err(error) => eprintln!("BapX accounts are unavailable ({})", error.kind()),
-        }
+        site.accounts = Some(accounts::Accounts::open(data)?);
     }
     let listener = tokio::net::TcpListener::bind(listen).await?;
     eprintln!("bapx-web listening on {}", listener.local_addr()?);

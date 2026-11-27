@@ -94,7 +94,8 @@ customer sites retain their existing request isolation. The account registry
 and invitations use the service's private data volume. Browser sessions expire
 on service restart, and a user can sign in again with the same identity. The
 existing `admin.bapx.in` entry and operator credential remain available during
-migration.
+migration. The enabled image fails startup if it cannot read the account
+registry, so a failed account-store check follows the normal rollback path.
 
 Use a disposable account on an approved test deployment. Sign in through the
 apex page as an authorized operator, open Admin in the same window, and issue an

@@ -220,8 +220,18 @@ jq -e '
     $l["traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie"] == "" and
     $l["traefik.http.routers.agency-account.rule"] == "Host(`bapx.in`) && PathPrefix(`/api/auth/`)" and
     $l["traefik.http.routers.agency-account-admin.rule"] == "Host(`bapx.in`) && PathPrefix(`/api/admin/`)" and
+    $l["traefik.http.routers.agency-account-login.rule"] == "Host(`bapx.in`) && Path(`/api/auth/sign-in`) && Method(`POST`)" and
+    $l["traefik.http.routers.agency-account-signup.rule"] == "Host(`bapx.in`) && Path(`/api/auth/signup`) && Method(`POST`)" and
     ($l["traefik.http.routers.agency-account.middlewares"] // "") == "" and
     ($l["traefik.http.routers.agency-account-admin.middlewares"] // "") == "" and
+    $l["traefik.http.routers.agency-account-login.middlewares"] == "agency-admin-rate" and
+    $l["traefik.http.routers.agency-account-signup.middlewares"] == "agency-admin-rate" and
+    (($l["traefik.http.routers.agency-web.priority"] | tonumber) as $public |
+     ($l["traefik.http.routers.agency-account.priority"] | tonumber) as $account |
+     $account > $public and
+     ($l["traefik.http.routers.agency-account-admin.priority"] | tonumber) > $public and
+     ($l["traefik.http.routers.agency-account-login.priority"] | tonumber) > $account and
+     ($l["traefik.http.routers.agency-account-signup.priority"] | tonumber) > $account) and
     ($l["traefik.http.routers.agency-sandbox-check.middlewares"] |
         split(",") | index("agency-sandbox-headers") != null) and
     $l["traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Cookie"] == "" and
