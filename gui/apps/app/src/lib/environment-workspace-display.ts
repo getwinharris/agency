@@ -7,10 +7,10 @@ import { resolveEnvironmentDisplayProvider } from "@cloudroom/core-ui";
 import type { SystemEnvironmentProvider } from "@cloudroom/server-contract";
 import type { IconName } from "@cloudroom/shared-ui/icon";
 import {
-  CLOUDROOM_LOCAL_PRIMARY,
-  CLOUDROOM_LOCAL_WORKTREE,
-  cloudroomEnvironmentPresentation,
-} from "@/lib/cloudroom-environment-label";
+  LOCAL_PRIMARY_LABEL,
+  LOCAL_WORKTREE_LABEL,
+  environmentPresentation,
+} from "@/lib/bapx/environment-label";
 import { pluginIconName } from "@/components/plugin/PluginIcon";
 import { PersistentHostIconName } from "@/lib/host-display";
 import type { MachineLabelHost } from "@/components/machines/MachineLabel";
@@ -103,7 +103,7 @@ function localCloudroomPresentation(
   if (providerLookup.status !== "loaded" || providerLookup.provider === null) {
     return null;
   }
-  return cloudroomEnvironmentPresentation(providerLookup.provider.id, "local");
+  return environmentPresentation(providerLookup.provider.id, "local");
 }
 
 function getEnvironmentWorkspaceLabel({
@@ -181,8 +181,8 @@ export function getEnvironmentWorkspaceSummaryDisplay({
   const label =
     canonical?.label ??
     providerDisplayName ??
-    (isWorktree && display.compactModeLabel === CLOUDROOM_LOCAL_PRIMARY
-      ? CLOUDROOM_LOCAL_WORKTREE
+    (isWorktree && display.compactModeLabel === LOCAL_PRIMARY_LABEL
+      ? LOCAL_WORKTREE_LABEL
       : display.compactModeLabel);
   return {
     label,

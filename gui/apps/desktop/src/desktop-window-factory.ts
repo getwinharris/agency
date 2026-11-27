@@ -184,7 +184,7 @@ function createWindowOptions(
     minHeight: MIN_WINDOW_HEIGHT,
     minWidth: MIN_WINDOW_WIDTH,
     show: false,
-    title: "Cloudroom",
+    title: "bapX Agents",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

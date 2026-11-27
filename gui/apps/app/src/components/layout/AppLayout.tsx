@@ -112,7 +112,7 @@ import {
 } from "./faviconAttentionDot";
 import { AppLayoutSidebar } from "./AppLayoutSidebar";
 import { revealedSelectedThreadKeyAtom } from "@/components/sidebar/sidebarCollapsedAtoms";
-import { CloudroomVersionMark } from "./CloudroomVersionMark";
+import { BapxVersionMark } from "./BapxVersionMark";
 import {
   useAppCommandHandler,
   useAppCommandShortcut,
@@ -967,7 +967,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </ThreadActionsProvider>
         </ThreadTitleMentionResourcesProvider>
       </ProjectActionsProvider>
-      <CloudroomVersionMark />
+      <BapxVersionMark />
     </TooltipProvider>
   );
 }

@@ -43,6 +43,16 @@ fn main() {
 
 #[cfg(unix)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let executable = if std::env::args_os()
+        .next()
+        .as_deref()
+        .and_then(|arg| std::path::Path::new(arg).file_name())
+        .is_some_and(|name| name == "bapx-core")
+    {
+        "bapx-core"
+    } else {
+        "cloudroom"
+    };
     // `std::env::args()` panics on an argument that isn't UTF-8 (#705).
     let mut args = Vec::new();
     for (index, arg) in std::env::args_os().enumerate().skip(1) {
@@ -58,7 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     if args.first().map(String::as_str) == Some("--version") {
-        println!("cloudroom {} ({})", cloudroom::VERSION, cloudroom::COMMIT);
+        println!(
+            "{executable} {} ({})",
+            cloudroom::VERSION,
+            cloudroom::COMMIT
+        );
         return Ok(());
     }
     if args.first().map(String::as_str) == Some("--features") {
@@ -83,23 +97,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .worker_threads(2)
         .enable_all()
         .build()?
-        .block_on(run(args))
+        .block_on(run(args, executable))
 }
 
 #[cfg(unix)]
-async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Vec<String>, executable: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if args.first().map(String::as_str) == Some("serve-web") {
+        if args.len() != 1 {
+            return Err(format!("Usage: {executable} serve-web").into());
+        }
+        return cloudroom::web::serve().await;
+    }
     #[cfg(target_os = "linux")]
     if args.first().map(String::as_str) == Some("serve-business-sandbox") {
         let [_, policy] = args.as_slice() else {
-            return Err("Usage: cloudroom serve-business-sandbox POLICY.json".into());
+            return Err(format!("Usage: {executable} serve-business-sandbox POLICY.json").into());
         };
         return cloudroom::business_sandbox::serve(policy.as_ref()).await;
-    }
-    if args.first().map(String::as_str) == Some("serve-web") {
-        if args.len() != 1 {
-            return Err("Usage: cloudroom serve-web".into());
-        }
-        return cloudroom::web::serve().await;
     }
     if args.first().map(String::as_str) == Some("helper") {
         if let Err(error) = cloudroom::helper::cli(&args[1..]).await {

@@ -19,10 +19,16 @@ RUN cargo build --locked --release --bin cloudroom
 FROM debian:bookworm-slim
 ARG BAPX_WEB_REVISION
 COPY --from=pages /build/gui/apps/www/dist /srv/bapx-web
-COPY --from=core /build/target/release/cloudroom /usr/local/bin/cloudroom
+COPY --from=core /build/target/release/cloudroom /usr/local/lib/bapx/bapx-core
+# The host publishing helper copies the old path out of the image. Both
+# entry points must be executable regular files, including after extraction.
+RUN ln /usr/local/lib/bapx/bapx-core /usr/local/bin/bapx-core \
+ && ln /usr/local/lib/bapx/bapx-core /usr/local/bin/cloudroom \
+ && /usr/local/bin/bapx-core --version | grep -E '^bapx-core [0-9]' \
+ && /usr/local/bin/cloudroom --version | grep -E '^cloudroom [0-9]'
 ENV BAPX_WEB_ROOT=/srv/bapx-web BAPX_WEB_DATA=/var/lib/bapx-web BAPX_WEB_LISTEN=0.0.0.0:8080
 ENV BAPX_WEB_REVISION=${BAPX_WEB_REVISION}
 RUN install -d -m 0700 -o 10001 -g 10001 /var/lib/bapx-web /var/lib/bapx-sites
 USER 10001:10001
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/cloudroom", "serve-web"]
+ENTRYPOINT ["/usr/local/bin/bapx-core", "serve-web"]

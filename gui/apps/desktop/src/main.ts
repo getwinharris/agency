@@ -2320,7 +2320,7 @@ async function installDownloadedUpdate(): Promise<void> {
     if (process.platform === "win32" && !handedOff) {
       desktopAutoUpdateService.endInstall();
       if (stoppingForQuit) {
-        desktopLogger.error("The update didn't start after bapX Agents stopped; reopening Cloudroom.");
+        desktopLogger.error("The update didn't start after bapX Agents stopped. Reopening bapX Agents.");
         autoUpdater.autoInstallOnAppQuit = false;
         app.relaunch();
         app.exit(0);
@@ -3147,6 +3147,7 @@ async function runDesktopApp(): Promise<void> {
       dataHome: process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share"),
       desktopName: process.env.CHROME_DESKTOP ?? "",
       iconPath,
+      registerShareLinks: DESKTOP_RELEASE_INFO.channel === "latest",
     })
       .then((result) => {
         if (result.kind !== "unchanged") {

@@ -157,7 +157,7 @@ function createConnection(
   const browserInfo: CdpObject = {
     targetId: browserTargetId,
     type: "browser",
-    title: "Cloudroom",
+    title: "bapX Agents",
     url: "",
     attached: true,
     canAccessOpener: false,
