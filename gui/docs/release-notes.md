@@ -6,6 +6,24 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 19:19 IST
+
+The [Linux x64 packaging guide](https://docs.bapx.in/desktop-packaging/#linux-appimage-x64) explains how to start bapX Agents when FUSE is unavailable. The launcher keeps the backend in extract mode so both the window and backend start. The branded CI AppImage passed clean-profile VPS launches with FUSE and in extract mode. The public Linux installer remains pending. [PR #91](https://github.com/getwinharris/agency/pull/91)
+
+- Desktop source version `0.1.0`
+- Served SHA `0984df8ff923b96d66895be3058ecb9989d49a22`
+- Image `sha256:a9108528106e3ff97859c0d2f2cfa1f5ef32b1a0569d186bbd95d7b680da3fc1`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/46005054814), attempt 1 · [Production verification](https://github.com/getwinharris/agency/pull/91#issuecomment-7220019455)
+
+### 27 November 2026, 18:37 IST
+
+Restored the plain bapX wordmark and title on the [homepage](https://bapx.in/) and linked the wordmark on all first-party sites back to bapx.in. [Docs](https://docs.bapx.in/), [MediaHub](https://mediahub.bapx.in/), and [Admin](https://admin.bapx.in/) use their purple subdomain labels. Verified the original wordmark and favicon bytes, desktop and mobile navigation, and the signed-out Admin response. [PR #81](https://github.com/getwinharris/agency/pull/81)
+
+- Desktop source version `0.1.0`
+- Served SHA `cecb3b58d09ea7286146d8de05b87d5252cfbf36`
+- Image `sha256:dd393c9707dfd6318f89dcef0c1cd58eb439a396aa4b9d397cf4444142beb8c2`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45996973054), attempt 1 · [Production verification](https://github.com/getwinharris/agency/pull/81#issuecomment-7219151831)
+
 ### 27 November 2026, 18:11 IST
 
 Published the [Apple Silicon release candidate guide](https://docs.bapx.in/desktop-packaging/#build-an-apple-silicon-release-candidate) for building and verifying a signed candidate. It documents the supported CLI integrations and the separate Local Mac and approved Enterprise VM checks. The Mac beta download remains pending signing, notarization, and installed-app acceptance. [PR #90](https://github.com/getwinharris/agency/pull/90)
