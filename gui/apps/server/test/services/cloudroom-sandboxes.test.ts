@@ -683,16 +683,44 @@ it.each([
   ["existing checkout", null], ["fresh clone", null], ["existing checkout", "index.lock"], ["existing checkout", "terminated"],
   ["existing checkout", "checkout probe"], ["personal child", "checkout probe"], ["existing checkout", "status write"], ["existing checkout", "status write x3"],
   ["existing checkout", "agent branch"], ["child", null], ["child", "agent branch"], ["fresh clone", "clone 504"], ["existing checkout", "branch dropped"], ["existing checkout", "workspace slow"], ["child", "workspace late"],
-] as const)("`room-cli files wait` reads a new thread's %s as copying until its branch and files are ready (#816, fault: %s)", async (kind, fault) => {
+  ["fresh clone", null, "first push"], ["existing checkout", "branch dropped", "second push"],
+  ["fresh clone", null, "missing branch"], ["existing checkout", null, "missing branch"],
+  ["existing checkout", null, "local changes"],
+] as const)("`room-cli files wait` reads a new thread's %s as copying until its branch and files are ready (#816, fault: %s, selected branch: %s)", async (kind, fault, selection?) => {
   const root = await mkdtemp(join(tmpdir(), "cloudroom-files-ready-"));
   const folder = join(root, "project"), origin = join(root, "origin.git"), mac = join(root, "mac");
   const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.email=a@example.com", "-c", "user.name=A", ...args], { cwd, encoding: "utf8" }).trim();
   await mkdir(folder); await mkdir(mac);
+  const seed = join(root, "seed");
   git(root, "init", "-q", "-b", "main", "seed");
-  for (let i = 0; i < 20; i++) await writeFile(join(root, "seed", `file${i}.txt`), `${i}\n`);
-  git(join(root, "seed"), "add", "-A"); git(join(root, "seed"), "commit", "-q", "-m", "Base");
+  for (let i = 0; i < 20; i++) await writeFile(join(seed, `file${i}.txt`), `${i}\n`);
+  git(seed, "add", "-A"); git(seed, "commit", "-q", "-m", "Base");
   git(root, "clone", "-q", "--bare", "seed", origin);
+  const production = git(origin, "rev-parse", "refs/heads/main");
+  const baseBranch = selection ? "release/preview" : undefined;
+  let selectedHead: string | undefined, localHead: string | undefined;
+  if (selection === "missing branch") {
+    git(origin, "tag", baseBranch!, production);
+  } else if (baseBranch) {
+    git(seed, "switch", "-qc", baseBranch);
+    await writeFile(join(seed, "file0.txt"), "first authorized push\n");
+    git(seed, "commit", "-qam", "First preview");
+    selectedHead = git(seed, "rev-parse", "HEAD");
+    git(seed, "push", "-q", origin, `HEAD:refs/heads/${baseBranch}`);
+  }
   if (kind !== "fresh clone") git(root, "clone", "-q", origin, folder);
+  if (selection === "second push") {
+    git(folder, "switch", "-q", "--track", `origin/${baseBranch}`);
+    await writeFile(join(folder, "unpublished.txt"), "local commit\n");
+    git(folder, "add", "unpublished.txt"); git(folder, "commit", "-qm", "Local work");
+    localHead = git(folder, "rev-parse", "HEAD");
+    await writeFile(join(folder, "draft.txt"), "uncommitted draft\n");
+    await writeFile(join(seed, "file0.txt"), "second authorized push\n");
+    git(seed, "commit", "-qam", "Second preview");
+    selectedHead = git(seed, "rev-parse", "HEAD");
+    git(seed, "push", "-q", origin, `HEAD:refs/heads/${baseBranch}`);
+  }
+  if (selection === "local changes") await writeFile(join(folder, "file0.txt"), "local changes\n");
   // A Cloud child in a sandbox of its own gets its parent's code, committed here, once its copy lands.
   const source = join(root, "parent");
   if (kind === "child") { git(root, "clone", "-q", origin, source); await writeFile(join(source, "file0.txt"), "parent\n"); git(source, "commit", "-qam", "Parent work"); }
@@ -773,7 +801,7 @@ it.each([
   if (fault === "workspace late") vi.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, ms?: number, ...args: unknown[]) => later(run, ms === 9 * 60_000 ? 8_000 : ms, ...args)) as typeof setTimeout);
   try {
     await service.configure(null, { id: "11111111-1111-4111-8111-111111111111", email: "sandbox@example.com" }, undefined, websiteUrl, "a".repeat(64));
-    const created = await harness.app.request("/api/v1/threads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executionTarget: "cloud", requestId: "files-ready", title: "Files ready", projectId: project.id, parentThreadId: parent?.id, providerId: "codex", origin: "app", model: "test-model", reasoningLevel: "medium", environment: { type: "project-default" }, input: [{ type: "text", text: "test", mentions: [] }] }) });
+    const created = await harness.app.request("/api/v1/threads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ executionTarget: "cloud", requestId: "files-ready", title: "Files ready", projectId: project.id, parentThreadId: parent?.id, baseBranch, providerId: "codex", origin: "app", model: "test-model", reasoningLevel: "medium", environment: { type: "project-default" }, input: [{ type: "text", text: "test", mentions: [] }] }) });
     expect(created.status, await created.clone().text()).toBe(201);
     if (fault === "status write x3") {
       const thread = (await created.json()) as { id: string };
@@ -792,6 +820,27 @@ it.each([
       return;
     }
     await waitFor(() => atDone !== undefined, "ready or failed", 15_000);
+    if (selection) {
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(production);
+      if (selection === "missing branch") {
+        const error = kind === "fresh clone" ? "refs/remotes/origin/release/preview" : "Could not fetch selected branch release/preview from origin.";
+        expect(atDone?.marker).toMatch(/^failed:/);
+        expect(atDone?.marker).toContain(error);
+        expect(atDone?.branch).toBe(kind === "fresh clone" ? "" : "main");
+      } else if (selection === "local changes") {
+        expect(atDone).toMatchObject({ marker: expect.stringMatching(/^failed:.*would be overwritten/s), branch: "main" });
+        expect(await readFile(join(folder, "file0.txt"), "utf8")).toBe("local changes\n");
+      } else {
+        expect(atDone).toMatchObject({ marker: "ready", branch: expect.stringMatching(/^room\//) });
+        expect(git(folder, "rev-parse", "HEAD")).toBe(selectedHead);
+        expect(git(folder, "for-each-ref", "--format=%(refname)", "refs/cloudroom/incoming/")).toBe("");
+        if (selection === "second push") {
+          expect(git(folder, "rev-parse", `refs/heads/${baseBranch}`)).toBe(localHead);
+          expect(await readFile(join(folder, "draft.txt"), "utf8")).toBe("uncommitted draft\n");
+        }
+      }
+      return;
+    }
     if (fault === "index.lock" || fault === "terminated") expect(atDone).toMatchObject({ marker: expect.stringMatching(fault === "index.lock" ? /^failed: Cloudroom could not switch the folder to the thread's branch room\/.*, so it is still on main\. Git said: .*index\.lock/s : /^failed: .*Git said: exit code null$/), branch: "main" });
     // The child's parent has no folder, so its code (none) ends as failed, after the branch.
     // The agent's own branch keeps its commit; a child's code lands only on the thread's branch (#1377).
