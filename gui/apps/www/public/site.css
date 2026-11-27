@@ -278,6 +278,7 @@ img { display: block; max-width: 100%; height: auto; }
 }
 
 .demo-window {
+  container-type: inline-size;
   border: 1px solid var(--line);
   border-radius: 1rem;
   background: #111016;
@@ -307,7 +308,7 @@ img { display: block; max-width: 100%; height: auto; }
 }
 .demo-play {
   min-block-size: 2.75rem;
-  min-inline-size: 8.25rem;
+  min-inline-size: min(100%, 8.25rem);
   padding: .4rem .6rem;
   flex: none;
   cursor: pointer;
@@ -498,10 +499,10 @@ img { display: block; max-width: 100%; height: auto; }
   .demo-titlebar { gap: .4rem; font-size: .75rem; }
   .demo-steps { gap: .22rem; }
   .demo-steps button { font-size: .76rem; }
-  .demo-play { min-inline-size: 7.25rem; font-size: .8rem; }
+  .demo-play { min-inline-size: min(100%, 7.25rem); font-size: .8rem; }
 }
 
-.project-guide { margin-block: 3.05rem 2.4rem; }
+.project-guide { container-type: inline-size; margin-block: 3.05rem 2.4rem; }
 .project-guide h2 { padding-block: 1.9rem 1.1rem; border-top: 1px solid var(--line); }
 .project-panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .project-panel {
@@ -804,6 +805,11 @@ img { display: block; max-width: 100%; height: auto; }
   .site-header nav, .site-footer nav { width: 100%; }
   .site-footer { padding-block: 1rem; }
   .project-guide { margin-top: 2rem; }
+}
+
+@container (max-width: 16rem) {
+  .demo-steps, .project-choices { grid-template-columns: minmax(0, 1fr); }
+  .demo-steps button { text-align: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
