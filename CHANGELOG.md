@@ -31,5 +31,6 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Add an authenticated MediaHub inquiry inbox and homepage editor at Admin.
 - Use the bapX violet accent for primary buttons and keyboard navigation on the Agents, Docs, and Privacy pages.
 - Rebrand the macOS and Windows desktop package sources as bapX Agents v0.1.0 with an Agency update channel.
+- Build and verify versioned Apple Silicon release candidates before public distribution.
 - Update public contact and repository links.
 - Publish developer Markdown on Docs with local navigation and a verified release changelog.
