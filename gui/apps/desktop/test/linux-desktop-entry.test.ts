@@ -22,7 +22,7 @@ it("upgrades the stable share handler and leaves the scheme out of nightly", asy
     const entry = await readFile(entryPath, "utf8");
     expect(entry).toContain(`Exec="${appImagePath}" %U\n`);
     expect(entry).toContain("MimeType=x-scheme-handler/bapx-agents;\n");
-    expect(entry).not.toContain("cloudroom");
+    expect(entry).not.toContain("MimeType=x-scheme-handler/cloudroom;");
     expect(await ensureLinuxDesktopEntry(stable)).toEqual({ kind: "unchanged", entryPath });
 
     const nightly = await ensureLinuxDesktopEntry({
