@@ -34,6 +34,15 @@ Failed checks restore and verify the previously healthy image and its routing co
 
 Sign in to Admin as `operator` to view MediaHub inquiries and publish changes to its homepage. The web data volume contains briefs, operator notes, and published copy. Keep backups private because these include contact details and consent.
 
+## Record a verified release
+
+Use [release notes](../gui/docs/release-notes.md) for the public changes and their verification evidence. The desktop product version comes from [`gui/apps/desktop/package.json`](../gui/apps/desktop/package.json) at the deployed commit. Web releases have their own cadence and use the full `main` SHA as their revision.
+
+1. From the successful `Public web` run for the exact `main` SHA, read `release.json` in the `agency-web-release` artifact. Confirm the SHA and immutable image digest match the Hostinger `last-good.json` receipt and the image's OCI revision label. Check the run and attempt recorded in the receipt.
+2. Confirm each public `/healthz` reports the same SHA. Verify representative HTTPS pages and Admin sign-in and session authentication with read-only requests. Confirm the previous healthy image remains available.
+3. Add the verified release as a new dated entry before the older web deployments in the release notes. Record the verification time and time zone, desktop source version, full SHA, image digest, workflow run and attempt, and user-facing changes. Link the merge PR, successful run, and public pages. Keep the verification snapshot in the notes while the health endpoint follows the current deployment and the workflow artifact expires.
+4. Keep open PRs, local tests, staging runs, and public availability gaps under Pending. Move changes to a verified release entry after the applicable production checks pass. Record desktop download availability after verifying the published packages and update channel separately.
+
 ## Publish the sandbox pilot
 
 After the web release includes the exact pilot route and read-only release volume, approve one project under the [workspace layout](../core/docs/sites.md). Run the project's build in its own sandbox and have it produce `dist/index.html` and any standalone assets. Check that all output can be made public.
