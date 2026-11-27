@@ -5,6 +5,7 @@
 - Package a single public Node app-admin sample with an exact-main release, private storage, and verified rollback.
 - Verify isolated dynamic Node hosting over HTTPS and preserve app data through container replacement.
 - Let an app Admin starter listen on a private bridge behind its TLS proxy.
+- Add a responsive homepage menu with verified destinations and remove its GitHub link.
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Give the app admin starter a provider-free email and password flow with salted password hashes, app-local owner provisioning, and optional verified email and Google sign-in.
@@ -14,6 +15,7 @@
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.
 - Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.
+- Document recovery for missed Public web runs and require independent QA on the exact release PR head.
 - Add bapX Agents landing and documentation on the Cloudroom fork.
 - Add an interactive walkthrough of local and remote Core sessions.
 - Rebuild MediaHub and its seven case studies with a persistent Rust brief endpoint.
