@@ -48,9 +48,13 @@ first-party bapX sites.
 
 ## First-party runtime and customer deployments
 
-- Run the first-party bapX product and its services on the existing Rust bapX
-  Core and release path. Do not bundle, publish, or deploy Node.js as a runtime
-  for bapX itself. Existing Node.js frontend build and test tooling may stay.
+- Run first-party bapX services on Rust Core. Use Python only for a specific
+  need that is documented and reviewed. TypeScript and JavaScript may be
+  compiled to browser assets; they do not imply a Node.js server.
+- Do not add new first-party Node.js dependencies or bundle, publish, or deploy
+  a Node.js runtime for bapX. Identify existing Node-based build and test
+  tooling explicitly and track its removal separately; do not claim it is
+  gone or break the current build by removing it without a tested replacement.
 - Customers may build and test Node.js bundles for their own apps and deploy
   them independently. A supported deployment-only capability may publish
   those apps separately; that does not make Node.js part of the bapX runtime.
@@ -128,8 +132,9 @@ safe action; report non-deploying changes according to their actual scope.
   and exercise the affected browser flows. Check Admin sign-in and require
   authentication without changing production data. Treat a host revision
   mismatch as a failed verification; record the expected and observed SHAs.
-  A manual rollout does not count as proof of automatic deployment. Customer
-  sites have their own deployment scope.
+  The normal release must run after a merge without an operator starting a
+  file, shell command, or manual deployment. Manual recovery is not proof of
+  automatic release. Customer sites have their own deployment scope.
 - Follow the [release recording steps](deploy/README.md#record-a-verified-release)
   to update the [bapX release notes](gui/docs/release-notes.md) with verified
   public changes and their evidence. Use the desktop package version for the
