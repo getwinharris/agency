@@ -65,6 +65,113 @@ it("forwards Cursor login and keys without creating conversation records", async
   }
 });
 
+it("connects to a ready private Core while model discovery is pending and recovers its catalog", async () => {
+  const harness = await createTestAppHarness();
+  const service = cloudroom(harness.deps);
+  const firstToken = "x".repeat(40);
+  const nextToken = "y".repeat(40);
+  let releaseFirstCatalog = () => {};
+  let releaseNextCatalog = () => {};
+  let nextCatalogFinished = () => {};
+  const nextCatalogResponse = new Promise<void>((resolve) => { nextCatalogFinished = resolve; });
+  const setup = vi.spyOn(sync, "setupSync").mockResolvedValue(undefined);
+  const firstCatalog = new Promise<void>((resolve) => { releaseFirstCatalog = resolve; });
+  const nextCatalog = new Promise<void>((resolve) => { releaseNextCatalog = resolve; });
+  let readyStatus = 200;
+  let ready = true;
+  let blocked = false;
+  let unsupported = false;
+  const discoveryTokens: string[] = [];
+  const core = createServer(async (req, res) => {
+    const json = (body: unknown, status = 200) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    const token = req.headers.authorization?.slice("Bearer ".length);
+    if (token !== firstToken && token !== nextToken) return json({ error: "unauthorized" }, 401);
+    if (req.url === "/v1/health") return json(blocked ? { storage: {
+      enabled: true, level: "blocked", reason: "disk_capacity", workspace_available_bytes: 0, history_available_bytes: 0,
+      workspace_total_bytes: 80e9, history_total_bytes: 80e9, sampled_at: Date.now(),
+    } } : {});
+    if (req.url === "/v1/ready") return json({ ready }, readyStatus);
+    if (req.url === "/v1/capabilities") {
+      discoveryTokens.push(token);
+      if (unsupported) return json({ version: 2 });
+      await (token === firstToken ? firstCatalog : nextCatalog);
+      if (token === nextToken) res.once("finish", nextCatalogFinished);
+      return json({
+        version: 1, repository: token === firstToken ? "/first" : "/next", stop: true, resume: true, launch_settings: true,
+        workspaces: true, steer: true, sync: true, harnesses: [{ id: "opencode", model: "test/model", models: [{ model: "test/model", reasoning_levels: ["medium"] }] }],
+      });
+    }
+    return json({}, 404);
+  });
+  core.listen(0, "127.0.0.1");
+  await once(core, "listening");
+  const address = core.address();
+  if (!address || typeof address === "string") throw new Error("fixture did not listen");
+  const url = `http://127.0.0.1:${address.port}`;
+  const connect = (token: string) => harness.app.request("/api/v1/cloudroom", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, token }),
+  });
+  const status = async () => (await harness.app.request("/api/v1/cloudroom")).json();
+  const bindingPath = join(harness.config.dataDir, "cloudroom.json");
+  try {
+    const response = await connect(firstToken);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ready: true, selfHosted: true, harnesses: null, error: null });
+    expect(await status()).toMatchObject({ ready: true, selfHosted: true, harnesses: null, error: null });
+    expect(discoveryTokens).toEqual([firstToken]);
+    expect(setup).not.toHaveBeenCalled();
+    releaseFirstCatalog();
+    await expect.poll(status).toMatchObject({
+      ready: true, workspaces: true, steer: true, repository: "/first",
+      harnesses: [{ id: "opencode", models: [{ model: "test/model", reasoning_levels: ["medium"] }] }],
+    });
+    expect(setup).toHaveBeenCalledTimes(1);
+
+    const saved = await readFile(bindingPath, "utf8");
+    const rejected = await connect("z".repeat(40));
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ message: expect.stringContaining("authentication failed") });
+    ready = false;
+    const notReady = await connect(nextToken);
+    expect(notReady.status).toBe(503);
+    expect(await notReady.json()).toMatchObject({ code: "cloudroom_not_ready" });
+    expect(await status()).toMatchObject({ ready: false, error: expect.stringContaining("not ready") });
+    readyStatus = 503;
+    expect((await connect(nextToken)).ok).toBe(false);
+    ready = true;
+    readyStatus = 200;
+    blocked = true;
+    const noStorage = await connect(nextToken);
+    expect(noStorage.status).toBe(503);
+    expect(await noStorage.json()).toMatchObject({ code: "storage_blocked" });
+    expect(await status()).toMatchObject({ ready: false, storage: { level: "blocked" } });
+    expect(discoveryTokens).toEqual([firstToken]);
+
+    blocked = false;
+    unsupported = true;
+    expect((await connect(nextToken)).ok).toBe(false);
+    expect(await readFile(bindingPath, "utf8")).toBe(saved);
+    unsupported = false;
+
+    expect(await (await connect(nextToken)).json()).toMatchObject({ ready: true, harnesses: null, repository: null });
+    expect(await (await connect(firstToken)).json()).toMatchObject({ ready: true, repository: "/first" });
+    releaseNextCatalog();
+    await nextCatalogResponse;
+    expect(await status()).toMatchObject({ ready: true, repository: "/first" });
+  } finally {
+    setup.mockRestore();
+    releaseFirstCatalog();
+    releaseNextCatalog();
+    service.stop();
+    core.closeAllConnections();
+    await new Promise<void>((resolve) => core.close(() => resolve()));
+    await harness.cleanup();
+  }
+}, 10_000);
+
 it("reports storage before models and preserves transiently blocked messages through recovery", async () => {
   const harness = await createTestAppHarness();
   const { host } = seedHostSession(harness.deps);
@@ -1223,6 +1330,11 @@ it("starts Cloud Claude with no level at the Mac catalog default, after a retry'
   const core = createServer(async (req, res) => {
     let text = ""; for await (const chunk of req) text += chunk;
     const requestId = text ? JSON.parse(text).request_id : undefined;
+    if (req.url === "/v1/ready") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ready: true }));
+      return;
+    }
     if (req.url === "/v1/sessions/cr_shortcut/model" && JSON.parse(text).idle_only !== true) { res.writeHead(400); res.end(); return; }
     if (req.url === "/v1/sessions/cr_shortcut/model" && JSON.parse(text).model === "declined") {
       res.writeHead(400, { "Content-Type": "application/json" });
@@ -2043,7 +2155,15 @@ it("tells a Cloud parent once when Core keeps refusing its child's start for now
   const { project } = seedProjectWithSource(harness.deps, { hostId: seedHostSession(harness.deps).host.id });
   // Every start gets the 409 Core gives while its agent's model check fails, which says it will pass.
   let held: (() => void) | null = null, hold = false;
-  const core = createServer(async (req, res) => { if (hold && req.url === "/v1/sessions") await new Promise<void>(resolve => { held = resolve; }); res.writeHead(req.url === "/v1/sessions" ? 409 : 200, { "Content-Type": "application/json" }); res.end(JSON.stringify(req.url === "/v1/capabilities" ? { version: 1, repository: "/code/test", stop: true, resume: true, launch_settings: true, direct_workspaces: true, harnesses: [{ id: "codex", model: "test-model" }] } : { error: "model catalog unavailable", code: "model_catalog_unavailable" })); });
+  const core = createServer(async (req, res) => {
+    if (hold && req.url === "/v1/sessions") await new Promise<void>(resolve => { held = resolve; });
+    res.writeHead(req.url === "/v1/sessions" ? 409 : 200, { "Content-Type": "application/json" });
+    if (req.url === "/v1/ready") return res.end(JSON.stringify({ ready: true }));
+    res.end(JSON.stringify(req.url === "/v1/capabilities" ? {
+      version: 1, repository: "/code/test", stop: true, resume: true, launch_settings: true,
+      direct_workspaces: true, harnesses: [{ id: "codex", model: "test-model" }],
+    } : { error: "model catalog unavailable", code: "model_catalog_unavailable" }));
+  });
   core.listen(0, "127.0.0.1"); await once(core, "listening");
   const url = `http://127.0.0.1:${(core.address() as { port: number }).port}`, now = Date.now();
   try {

@@ -19,7 +19,7 @@ import {
   type CloudroomAccount,
   type SavedConnection,
 } from "./protocol.js";
-import type { CloudRuntime } from "./runtime.js";
+import type { CloudRuntime, PrivateCatalog } from "./runtime.js";
 import {
   cancelMacCodexLogin,
   cursorKeyRejected,
@@ -98,14 +98,17 @@ export class CloudAccountAuth {
       if (connection && savedBindings.length && existing?.projectId && connection.projectId && existing.projectId !== connection.projectId) {
         throw new ApiError(409, "cloudroom_project_in_use", "Existing legacy cloud threads keep their current project binding.");
       }
+      let privateCatalog: PrivateCatalog | null = null;
       if (connection && !account) {
-        const client = new CloudroomClient(connection);
+        const client = new CloudroomClient({ ...connection, timeoutMs: 5_000 });
         try {
-          this.rt.lastCapabilities = await this.rt.capabilities(client);
-          await client.ready();
+          const storage = await this.rt.storage(client);
+          await this.rt.requirePrivateCoreReady(client, storage);
+          privateCatalog = this.rt.probePrivateCatalog(connection, storage);
+          await this.rt.waitForPrivateCatalog(privateCatalog);
         } catch (error) {
           // The user typed these, so say what to fix instead of the client's internal error.
-          if (error instanceof CloudroomError && error.status === 401) {
+          if (error instanceof CloudroomError && (error.status === 401 || error.status === 403)) {
             throw new ApiError(400, "invalid_request", "Your Core refused the API token (authentication failed). Copy it again from /etc/cloudroom/core.env.");
           }
           if (error instanceof CloudroomConnectionError || (error instanceof DOMException && error.name === "AbortError")) {
@@ -137,6 +140,7 @@ export class CloudAccountAuth {
         if (existing?.token || existing?.sandboxToken) this.hooks.start();
         signal.throwIfAborted();
       }
+      this.rt.usePrivateCatalog(privateCatalog);
       this.hooks.start();
     });
   }
