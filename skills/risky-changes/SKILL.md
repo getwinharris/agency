@@ -16,7 +16,6 @@ Use for changes where being wrong is expensive or customer-visible:
 - Billing, pricing, caps, or quotas
 - Defaults, thresholds, or provider request parameters
 - Unverified assumptions about external data or user behavior
-- New release routes, runtime dependencies, or persistent storage
 
 If unsure whether a change qualifies, apply this process.
 
@@ -27,7 +26,8 @@ List the assumptions the change depends on. Mark which have evidence and which a
 Before adding a sample to a release workflow, establish who owns its runtime,
 whether it has a public route, and which product policy applies. For a CI
 fixture, use disposable storage and credentials and an isolated network.
-Exercise cleanup after success, failure, and partial setup.
+Exercise cleanup after success, failure, and partial setup. Use these
+fixture tests for an isolated sample with no public release.
 
 ## 2. Research before implementing
 
