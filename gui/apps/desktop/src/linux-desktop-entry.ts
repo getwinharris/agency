@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { BAPX_DESKTOP_SCHEME } from "../scripts/desktop-release-channel.mjs";
 
 export type LinuxDesktopEntryResult =
   | { kind: "created" | "updated" | "unchanged"; entryPath: string }
@@ -11,6 +12,7 @@ interface EnsureLinuxDesktopEntryArgs {
   dataHome: string;
   desktopName: string;
   iconPath: string;
+  registerShareLinks: boolean;
 }
 
 function quoteExecArgument(value: string): string {
@@ -49,7 +51,7 @@ export async function ensureLinuxDesktopEntry(
     "Terminal=false",
     "Categories=Development;",
     `StartupWMClass=${appId}`,
-    "MimeType=x-scheme-handler/cloudroom;",
+    ...(args.registerShareLinks ? [`MimeType=x-scheme-handler/${BAPX_DESKTOP_SCHEME};`] : []),
     "",
   ].join("\n");
   return { kind: await writeIfChanged(entryPath, entry), entryPath };
