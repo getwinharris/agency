@@ -8,6 +8,11 @@ first-party bapX sites.
 
 - Read this file and any applicable child `AGENTS.md` before changing files.
   Recheck the instructions for changed paths after implementation.
+- This is the canonical repository-wide agent policy. If a change alters shared
+  instructions or release mechanics, update this file and the affected docs,
+  child instructions, and tests in the same reviewed PR. Reconcile conflicting
+  guidance and verify the resulting behavior. Propose lessons from completed
+  work as reviewable edits; do not silently rewrite agent instructions.
 - Keep Agency at the workspace root. Use `map.mmd` to trace ownership, route,
   deployment, and data boundaries.
 - Keep customer projects under `users/<username>/<business-slug>/projects/<project-slug>/`.
