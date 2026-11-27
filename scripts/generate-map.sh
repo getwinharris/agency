@@ -138,10 +138,10 @@ ci_hosts=$(awk '
 ' "$workflow" | host_set)
 vps_hosts=$({
     awk -v opening="done <<'ROUTES'" '
-    index($0, opening) { in_routes = 1; next }
-    /^ROUTES$/ { in_routes = 0 }
-    in_routes { print $1 }
-' "$driver"
+        index($0, opening) { in_routes = 1; next }
+        /^ROUTES$/ { in_routes = 0 }
+        in_routes { print $1 }
+    ' "$driver"
     sed -nE '/^check_app\(\)/,/^}/s/.* host=([a-z0-9.-]+) redirect$/\1/p' "$driver"
 } | host_set)
 

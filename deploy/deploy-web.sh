@@ -199,12 +199,18 @@ check_app() {
 }
 
 check_configured_app() {
-    local image=$1 revision=$2 retries=$3 rule
+    local image=$1 revision=$2 wait_seconds=$3 rule deadline
     rule=$(compose "$image" config --format json |
         jq -r '.services["agency-web"].labels["traefik.http.routers.agency-app.rule"] // ""') || return 1
     case "$rule" in
         '') return 0 ;; # An earlier five-host release can still be restored.
-        'Host(`app.bapx.in`)') wait_for "$retries" check_app "$revision" ;;
+        'Host(`app.bapx.in`)')
+            deadline=$((SECONDS + wait_seconds))
+            until check_app "$revision"; do
+                ((SECONDS < deadline)) || return 1
+                sleep 2
+            done
+            ;;
         *) echo 'Unexpected first-party App router rule.' >&2; return 1 ;;
     esac
 }
@@ -213,7 +219,7 @@ check_current_release() {
     local image=$1 revision=$2 hash=$3
     [[ $(file_hash "$override_file") == "$hash" ]] &&
         check_container "$image" "$revision" && check_public "$revision" &&
-        check_configured_app "$image" "$revision" 1
+        check_configured_app "$image" "$revision" 0
 }
 
 abandon_pending() {
@@ -258,7 +264,7 @@ restore_pending() {
             compose "$prior" up -d --no-deps --pull never "$service" &&
             wait_for 20 check_container "$prior" "$revision" &&
             wait_for 8 check_public "$revision" &&
-            check_configured_app "$prior" "$revision" 8 || return 1
+            check_configured_app "$prior" "$revision" 16 || return 1
     else
         local candidate_config
         candidate_config=$(snapshot_path "$candidate_hash")
@@ -467,7 +473,7 @@ compose "$image" up -d --no-deps --pull never "$service"
 wait_for 20 check_container "$image" "$sha"
 wait_for 8 check_public "$sha"
 # The first App release may need time for Traefik to obtain its certificate.
-check_configured_app "$image" "$sha" 45
+check_configured_app "$image" "$sha" 90
 jq '{sha, image, composeSha256, run, attempt,
      previousImage: .prior.image, previousComposeSha256: .prior.composeSha256,
      previousRelease: (.prior | {sha, revision, run, attempt})}' \

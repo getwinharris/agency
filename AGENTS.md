@@ -216,8 +216,8 @@ superseded releases.
   independently deployed sites or SPAs. Identify the image by its immutable
   digest, record its Git SHA, and keep the previous healthy image for rollback.
 - Verify the same exact `main` SHA on `bapx.in`, `www.bapx.in`, `docs.bapx.in`,
-  `mediahub.bapx.in`, `admin.bapx.in`, `app.bapx.in`, and any additional first-party hosts
-  explicitly configured for that release. Run HTTPS smoke checks on each host
+  `mediahub.bapx.in`, `admin.bapx.in`, `app.bapx.in`, and any additional
+  first-party hosts explicitly configured for that release. Run HTTPS smoke checks on each host
   and exercise the affected browser flows. Check Admin sign-in and require
   authentication without changing production data. Treat a host revision
   mismatch as a failed verification; record the expected and observed SHAs.
