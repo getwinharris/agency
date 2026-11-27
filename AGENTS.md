@@ -113,8 +113,18 @@ safe action; report non-deploying changes according to their actual scope.
 
 - Before merging a web release, verify that required CI passed and independent QA signed off on the exact PR head. Confirm the PR is eligible to merge and all blocking review findings are resolved. Recheck after any new push.
 - Use the existing CI/CD workflow so every push to `main` that affects the live web release automatically builds and deploys to Hostinger after required checks pass. Include changes to shared code, build inputs, and deployment configuration that affect the web release.
-- Deploy the image built from the exact `main` commit, identified by its immutable digest. Record the deployed Git SHA and keep the previous healthy image available for rollback.
-- After deployment, verify the live revision matches the `main` commit and run HTTPS smoke checks for bapx.in, docs.bapx.in, mediahub.bapx.in, and admin.bapx.in. Check that Admin serves sign-in and requires authentication without changing production data.
+- Ship the first-party web hosts together as one Rust Core release. The landing,
+  Docs, MediaHub, and Admin assets are part of the exact `main` image, not
+  independently deployed sites or SPAs. Identify the image by its immutable
+  digest, record its Git SHA, and keep the previous healthy image for rollback.
+- Verify the same exact `main` SHA on `bapx.in`, `docs.bapx.in`,
+  `mediahub.bapx.in`, `admin.bapx.in`, and any additional first-party hosts
+  explicitly configured for that release. Run HTTPS smoke checks on each host
+  and exercise the affected browser flows. Check Admin sign-in and require
+  authentication without changing production data. Treat a host revision
+  mismatch as a failed verification; record the expected and observed SHAs.
+  A manual rollout does not count as proof of automatic deployment. Customer
+  sites have their own deployment scope.
 - Follow the [release recording steps](deploy/README.md#record-a-verified-release)
   to update the [bapX release notes](gui/docs/release-notes.md) with verified
   public changes and their evidence. Use the desktop package version for the
