@@ -44,20 +44,23 @@ routers=$(jq -ec '
         $labels["\($key).rule"] as $rule |
         "Host\\(`([a-z0-9.-]+)`\\)" as $host |
         "Path\\(`(/[a-zA-Z0-9/_-]+)`\\)" as $path |
+        "PathPrefix\\(`(/api/(?:auth|admin)/)`\\)" as $prefix |
         "Method\\(`([A-Z]+)`\\)" as $method |
         {name: $name, hosts: ([$rule | scan($host) | .[0]] | unique),
             path: ([$rule | scan($path) | .[0]] | first // ""),
+            prefix: ([$rule | scan($prefix) | .[0]] | first // ""),
             method: ([$rule | scan($method) | .[0]] | first // ""),
             valid: (($name | test("^[a-z0-9-]+$")) and
                 $labels["\($key).service"] == "agency-web" and
                 $labels["\($key).tls"] == "true" and
                 $labels["\($key).entrypoints"] == "websecure" and
                 ($rule | test("^\\s*" + $host + "(\\s*\\|\\|\\s*" + $host + ")*\\s*$") or
+                    test("^Host\\(`bapx\\.in`\\)\\s*&&\\s*" + $prefix + "$") or
                     (split("&&") | map(gsub("^\\s+|\\s+$"; "")) |
                         length == 3 and any(.[]; test("^" + $host + "$")) and
                         any(.[]; test("^" + $path + "$")) and any(.[]; test("^" + $method + "$")))))}
     ] | select(length > 0 and all(.[]; .valid and (.hosts | length > 0)))
-' <<< "$config") || fail "The agency-web routers in $compose must use exact HTTPS Host rules or Host with exact Path and Method."
+' <<< "$config") || fail "The agency-web routers in $compose must declare HTTPS hosts and scoped endpoint rules."
 
 host_set() {
     awk '{for (i = 1; i <= NF; i++) print $i}' | sort -u
@@ -213,6 +216,12 @@ jq -e '
     .environment.BAPX_ADMIN_PASSWORD_FILE as $password_file |
     .read_only == true and ($l["traefik.enable"] == "true") and
     ((.ports // []) | length == 0) and
+    $l["traefik.http.routers.agency-web.middlewares"] == "agency-public" and
+    $l["traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie"] == "" and
+    $l["traefik.http.routers.agency-account.rule"] == "Host(`bapx.in`) && PathPrefix(`/api/auth/`)" and
+    $l["traefik.http.routers.agency-account-admin.rule"] == "Host(`bapx.in`) && PathPrefix(`/api/admin/`)" and
+    ($l["traefik.http.routers.agency-account.middlewares"] // "") == "" and
+    ($l["traefik.http.routers.agency-account-admin.middlewares"] // "") == "" and
     ($l["traefik.http.routers.agency-sandbox-check.middlewares"] |
         split(",") | index("agency-sandbox-headers") != null) and
     $l["traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Cookie"] == "" and
@@ -243,7 +252,7 @@ flowchart TD
   workspace["Agency workspace · AGENTS.md and docs/project-index.json"]
 
   subgraph build["Source and build"]
-    webSource["Landing, Docs, MediaHub and Admin · gui/apps/www/src/build.ts"]
+    webSource["Landing, Docs, MediaHub, accounts and Admin · gui/apps/www/src/build.ts"]
     docsSources["Published Markdown registry · gui/apps/www/src/docs/pages.ts"]
     assets["Static build · pnpm build:web → gui/apps/www/dist"]
     rust["Rust Core build · core/src/main.rs"]
@@ -275,6 +284,7 @@ flowchart TD
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
     webRouter["Traefik TLS · first-party public routes"]
+    accountRouter["Traefik TLS · apex account and operator API"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
     webRuntime["bapx-core serve-web · core/src/web.rs"]
@@ -282,26 +292,33 @@ flowchart TD
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
     adminApi["Admin sign-in and authenticated API · core/src/web/admin.rs"]
+    accountApi["Apex signup, role checks and sign-in · core/src/web/accounts.rs"]
     staticPilot["Published assets · core/src/web/published.rs"]
-    webData["Private writable volume · briefs, notes and published copy"]
+    webData["Private writable volume · accounts, briefs, notes and published copy"]
     adminSecret["Private read-only bind · Admin sign-in credential"]
     webRouter --> webRuntime
+    accountRouter -->|"Forward host-only session"| webRuntime
     adminRouter --> webRuntime
     pilotRouter -->|"Strip Cookie and Authorization"| webRuntime
     webRuntime --> routing
     webRuntime --> readiness
     webRuntime --> briefs
     webRuntime --> adminApi
+    webRuntime --> accountApi
     webRuntime --> staticPilot
     briefs -->|"Persist accepted briefs"| webData
     adminApi -->|"Read briefs and update operator data"| webData
+    accountApi -->|"Persist invitations and accounts"| webData
+    accountApi -->|"Verify operator role"| adminApi
     adminSecret --> adminApi
 MAP
     # Keep endpoint-specific overlays and host aliases visible as distinct routes.
     while IFS=$'\t' read -r name hosts qualifier; do
         router_id=${name//-/_}
         for host in $hosts; do
-            if contains_host "$public_hosts" "$host"; then
+            if [[ $name == agency-account* ]]; then
+                target=accountRouter
+            elif contains_host "$public_hosts" "$host"; then
                 target=webRouter
             elif contains_host "$admin_hosts" "$host"; then
                 target=adminRouter
@@ -314,7 +331,7 @@ MAP
                 "$router_id" "$host_id" "$host" "$qualifier" "$name" "$target"
         done
     done < <(jq -r 'sort_by(.name)[] |
-        [.name, (.hosts | join(" ")), ([.method, .path] | map(select(length > 0) | " " + .) | join(""))] |
+        [.name, (.hosts | join(" ")), ([.method, .path, .prefix] | map(select(length > 0) | " " + .) | join(""))] |
         @tsv' <<< "$routers")
     cat <<'MAP'
   end
@@ -386,7 +403,7 @@ render_index() {
             fail "Unsupported workspace package filter in $workspace_config: $pattern."
         fi
     done <<< "$workspace_patterns"
-    git ls-files -z -- .github/workflows gui/apps/www/src \
+    git ls-files -z -- .github/workflows gui/apps/www/src core/src/web \
         ':(glob)core/src/*.rs' ':(glob)core/src/*/mod.rs' \
         ':(glob)skills/**/SKILL.md' "${package_paths[@]}" |
     jq -Rs --argjson routes "$routers" \
@@ -404,7 +421,7 @@ render_index() {
                     method: ($router.method | if . == "" then null else . end),
                     path: ($router.path | if . == "" then null else . end),
                     source: $compose
-                }
+                } + (if $router.prefix == "" then {} else {path_prefix: $router.prefix} end)
             ] | sort_by(.host, .path, .method, .router),
             docs: {
                 registry: $registry,
@@ -415,6 +432,7 @@ render_index() {
             sources: {
                 workflows: [$tracked[] | select(test("^\\.github/workflows/[^/]+\\.ya?ml$"))],
                 rust_entry_points: [$tracked[] | select(test("^core/src/([^/]+\\.rs|[^/]+/mod\\.rs)$"))],
+                web_runtime_sources: [$tracked[] | select(startswith("core/src/web/"))],
                 web_sources: [$tracked[] | select(startswith("gui/apps/www/src/"))],
                 workspace_packages: [$tracked[] | select(startswith("gui/") and endswith("/package.json"))],
                 bundled_skills: [$tracked[] | select(endswith("/SKILL.md") and startswith("skills/"))]

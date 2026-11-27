@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { signInUrl } from "../auth/pages.ts";
 import { page } from "../pages.ts";
 import { escapeHtml, renderMarkdown, repositoryLink } from "./markdown.ts";
 
@@ -18,7 +19,7 @@ function layout(body: string, current: string) {
     `<li><a href="${slug ? `/${slug}/` : "/"}"${slug === current ? ' aria-current="page"' : ""}>${label}</a></li>`
   )).join("");
   return `<div class="shell docs-layout">
-  <nav class="docs-nav" aria-label="Documentation"><ul>${links}</ul></nav>
+  <nav class="docs-nav" aria-label="Documentation"><ul>${links}<li><a href="${signInUrl}">Sign in</a></li></ul></nav>
   <main id="main" tabindex="-1" class="document docs-content">${body}</main>
 </div>`;
 }

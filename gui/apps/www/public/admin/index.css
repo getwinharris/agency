@@ -88,9 +88,12 @@ a { color: var(--accent); }
 .nav-icon::after { content: ""; position: absolute; inset: .22rem .15rem auto; border-block-start: 1.5px solid currentColor; }
 .icon-page { inline-size: .75rem; block-size: .95rem; margin-inline: .1rem; }
 
-main { inline-size: 100%; min-inline-size: 0; padding: clamp(1.1rem, 3.3vw, 2.65rem); }
-main:focus { outline: none; }
+.admin-main { inline-size: 100%; min-inline-size: 0; padding: clamp(1.1rem, 3.3vw, 2.65rem); }
+.admin-main:focus { outline: none; }
 .workspace { max-inline-size: 88rem; margin-inline: auto; }
+.invite-form { max-inline-size: 34rem; padding: 1.2rem; }
+.invite-form .control { margin-top: .7rem; }
+.invite-form #invite-result { margin-top: 1rem; }
 .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.6rem; }
 .eyebrow { margin: 0 0 .55rem; color: var(--accent); font: 650 .74rem ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 h1 { margin: 0; font-size: clamp(1.95rem, 4.5vw, 3rem); line-height: 1.08; letter-spacing: -.065em; }
@@ -272,13 +275,14 @@ thead tr:hover { background: transparent; }
   .shell { flex-direction: column; }
   .sidebar { flex-basis: auto; padding: .55rem 1rem; border: 0; border-block-end: 1px solid var(--border); }
   .sidebar nav { display: flex; gap: .35rem; }
+  .sidebar nav:has(#nav-invitations:not([hidden])) { flex-wrap: wrap; }
   .sidebar h2 { position: absolute; clip: rect(0 0 0 0); width: 1px; height: 1px; overflow: hidden; }
   .nav-button, .nav-external { width: auto; margin: 0; white-space: nowrap; }
   .nav-external { margin-inline-start: auto; }
   .copy-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 30rem) {
-  main { padding: 1rem; }
+  .admin-main { padding: 1rem; }
   .topbar { padding-inline: 1rem; }
   .operator-name { display: none; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
