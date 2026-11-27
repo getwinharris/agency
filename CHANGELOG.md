@@ -4,6 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- List, read, and explicitly edit tracked Agency skills from the checkout CLI.
 - Use `bapx-cli` in agent Tools and supported installs, with `room-cli` compatibility.
 - Generate and check the Agency map and project index with the checkout CLI in local workflows and CI.
 - Add one bapX sign-in and invitation signup on the main site, with an in-window Admin menu for operators.

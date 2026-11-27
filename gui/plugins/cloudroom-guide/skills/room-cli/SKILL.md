@@ -3,7 +3,7 @@ name: room-cli
 description: 'Inspect and control Cloudroom Local and Cloud threads, projects, settings, plugins, and the cloud VM with bapx-cli. Use for bapX CLI tasks.'
 ---
 
-# Cloudroom CLI
+# bapX CLI
 
 Use `bapx-cli` for bapX Agents. Existing `room-cli` invocations remain supported. Never inspect or message unrelated threads unless the user asks.
 
@@ -13,7 +13,7 @@ Use `bapx-cli` for bapX Agents. Existing `room-cli` invocations remain supported
 bapx-cli status --json
 ```
 
-Confirm the server URL and project/thread before acting. Standalone `bapx-cli` targets the installed Cloudroom backend at `http://127.0.0.1:39886`, not the cloud VM. Official BB remains separate.
+Confirm the server URL and project/thread before acting. Standalone `bapx-cli` targets the installed bapX Agents backend at `http://127.0.0.1:39886`, not the cloud VM. Official BB remains separate.
 
 `--self` uses `ROOM_THREAD_ID` where supported. Thread IDs select Local or Cloud execution; connection settings still point to the same GUI backend.
 
@@ -59,7 +59,7 @@ bapx-cli thread queue list THREAD                     # messages still waiting (
 
 A Local message steers the running turn. A Cloud message queues. `thread wait --status idle` only checks a status. Queued work may still be waiting. Check the queue and correlate the requested task with its actual output; after compaction, verify a follow-up completes, and after an attachment upload, verify the agent can read its content.
 
-`thread queue` runs only in the Cloudroom app's `room-cli`. Inside a Cloud thread it exits 2. There, check a child instead:
+`thread queue` runs only in the bapX Agents app's `bapx-cli`. Inside a Cloud thread it exits 2. There, check a child instead:
 
 - `bapx-cli thread show CHILD`: `status: active` means it is still working.
 - `bapx-cli thread output CHILD` or `thread log CHILD`: what it did.

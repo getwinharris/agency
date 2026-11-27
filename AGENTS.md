@@ -34,6 +34,8 @@ the first-party bapX sites.
 
 **Always use relevant repository skills.** Before starting each task, check the
 tracked `skills/` catalog and identify any skills whose scope matches the work.
+Use `./gui/apps/cli/bin/bapx-cli repo skills list` to see the tracked skills
+and `repo skills read NAME` with the same launcher to read a selected skill.
 Read each matching `SKILL.md` and apply its relevant steps during implementation,
 review, and verification. Do not substitute a generic workflow for an applicable
 repository skill. In the issue or PR checkpoint, or the task handoff when there

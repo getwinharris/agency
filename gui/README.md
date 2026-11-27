@@ -20,6 +20,23 @@ macOS the stable app sets up `~/.local/bin/bapx-cli`. On Windows use
 Existing scripts can continue to use `room-cli`. For development from this
 checkout, run `pnpm bapx-cli --help` from `gui/`.
 
+## Work with repository skills
+
+From the Agency checkout root, list the tracked skill names, read the one you
+need, and explicitly update its `SKILL.md`:
+
+```sh
+./gui/apps/cli/bin/bapx-cli repo skills list
+./gui/apps/cli/bin/bapx-cli repo skills read browser-harness
+./gui/apps/cli/bin/bapx-cli repo skills edit browser-harness --stdin < revised-skill.md
+git diff -- skills/browser-harness/SKILL.md
+```
+
+Use `list --json` for scripts. On Windows or from `gui/`, the workspace command
+is `pnpm bapx-cli repo skills list`. Repository commands act on the tracked
+`skills/<name>/SKILL.md` files in the source checkout. To work with skills
+installed in bapX Agents, use `bapx-cli skill --help`.
+
 ## Run in dev mode
 
 Start the backend and browser UI, then Electron in a second terminal:

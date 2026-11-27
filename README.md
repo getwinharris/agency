@@ -21,7 +21,8 @@ and verify runtime behavior separately. Use `repo inventory map` or
 `repo inventory index` with the same checkout launcher to print a report.
 
 The installed `bapx-cli` command manages agents and their tools. Existing
-`room-cli` invocations still work on supported installations. [CLI configuration](gui/docs/configuration.md#cloudroom-cli)
+`room-cli` invocations still work on supported installations. Use the
+[checkout skills commands](gui/README.md#work-with-repository-skills) to work with tracked Agency skills. [CLI configuration](gui/docs/configuration.md#cloudroom-cli)
 
 ## Upstream Cloudroom
 

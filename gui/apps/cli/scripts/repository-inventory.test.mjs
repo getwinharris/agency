@@ -20,7 +20,8 @@ test("checkout CLI preserves generated outputs and rejects drift without writing
   const inventory = JSON.parse(index);
   const compose = inventory.routes[0].source;
   const files = new Set([
-    launcher, "gui/apps/cli/scripts/repository-inventory.mjs", mapPath, indexPath,
+    launcher, "gui/apps/cli/scripts/repository-cli.mjs",
+    "gui/apps/cli/scripts/repository-inventory.mjs", mapPath, indexPath,
     compose, inventory.docs.registry, inventory.workspace_config,
     ...Object.values(inventory.release), ...Object.values(inventory.sources).flat(),
     ...inventory.docs.guides.map(({ source }) => source),

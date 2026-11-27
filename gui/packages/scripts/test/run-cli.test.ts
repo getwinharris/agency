@@ -73,6 +73,18 @@ describe("run-cli", () => {
     ]);
   });
 
+  it("routes repository skills to the checkout launcher", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const execution = resolveCliExecution(["--", "repo", "skills", "list", "--json"]);
+    expect(execution.args).toEqual([
+      "apps/cli/scripts/repository-cli.mjs",
+      "skills",
+      "list",
+      "--json",
+    ]);
+    expect(execution.cwd).toBe(repoRoot);
+  });
+
   it("lets explicit development CLI targets win", () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("ROOM_SERVER_URL", "http://localhost:4444");

@@ -862,7 +862,7 @@ async fn local_run(
                 cancel.armed = false;
                 return Ok(Json(
                     json!({"job":id,"state":"unknown","mac":mac.name_of(&job.device),
-                    "message":format!("The Mac disconnected while this command was running. It may still finish; check later with: room-cli mac result {id}")}),
+                    "message":format!("The Mac disconnected while this command was running. It may still finish; check later with: bapx-cli mac result {id}")}),
                 ));
             }
         }
@@ -1238,14 +1238,14 @@ pub async fn cli(args: &[String]) -> io::Result<i32> {
         socket = args.remove(1);
         args.remove(0);
     }
-    let usage = "room-cli mac run [--cwd DIR] [--stdin] [--write] COMMAND
-room-cli mac pull MAC_PATH [VM_PATH]
-room-cli mac push VM_PATH [MAC_PATH]
-room-cli mac result JOB
-room-cli mac status
-room-cli mac computer-use status | tools [TOOL] | call TOOL ['JSON'] [--purpose WHY]
+    let usage = "bapx-cli mac run [--cwd DIR] [--stdin] [--write] COMMAND
+bapx-cli mac pull MAC_PATH [VM_PATH]
+bapx-cli mac push VM_PATH [MAC_PATH]
+bapx-cli mac result JOB
+bapx-cli mac status
+bapx-cli mac computer-use status | tools [TOOL] | call TOOL ['JSON'] [--purpose WHY]
 Runs on the user's paired Mac as the user, in their home folder by default.
-Flags go before COMMAND: room-cli mac run --cwd DIR 'COMMAND'. Later words,
+Flags go before COMMAND: bapx-cli mac run --cwd DIR 'COMMAND'. Later words,
 flags included, go to COMMAND. DIR is relative to their home folder, or absolute.
 Add --write when a command changes the Mac. Unless the user gives Full access,
 other commands run read-only, and --write needs their approval.
@@ -1293,7 +1293,7 @@ else under that new name, which must not exist yet.";
             let stdout = value["stdout"].as_str().and_then(unhex);
             if stdout.is_some_and(|stdout| transfer::archive(&stdout)) {
                 return Err(io::Error::other(format!(
-                    "Mac job {job} was part of a room-cli mac pull. Its output is copy data only that pull could use, so it isn't printed. Nothing was copied to the VM: run the pull again."
+                    "Mac job {job} was part of a bapx-cli mac pull. Its output is copy data only that pull could use, so it isn't printed. Nothing was copied to the VM: run the pull again."
                 )));
             }
             print_result(value).await
@@ -1329,7 +1329,7 @@ const APP_CLI: &str = "c=\"$HOME/.local/bin/bapx-cli\"; [ -x \"$c\" ] || \
 /// Where `mac computer-use` saves the screenshots its replies carry.
 const SHOTS: &str = "/tmp/cloudroom-mac-computer-use";
 
-/// `room-cli mac computer-use ARGS`: the app's Computer Use on the user's computer, as this thread, so its sidebar row
+/// `bapx-cli mac computer-use ARGS`: the app's Computer Use on the user's computer, as this thread, so its sidebar row
 /// shows it and the user approves each app in this thread (docs/scopes/computer-use.md). This sandbox's own screen
 /// stays `room-cli computer-use`. Every call counts as a change: Read-only refuses it, Ask first asks.
 async fn computer_use(socket: &str, args: &[String]) -> io::Result<i32> {
@@ -1435,7 +1435,7 @@ async fn print_result(value: Value) -> io::Result<i32> {
     if cut && code == Some(0) {
         let gap = if mac.is_some() { "" } else { gap };
         eprintln!(
-            "{gap}The command exited 0, but its output passed 16 MiB and was cut, so this exits 1. Do not rerun it as is: write the output to a file on the Mac and copy it with `room-cli mac pull`."
+            "{gap}The command exited 0, but its output passed 16 MiB and was cut, so this exits 1. Do not rerun it as is: write the output to a file on the Mac and copy it with `bapx-cli mac pull`."
         );
         return Ok(1);
     }

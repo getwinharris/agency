@@ -449,7 +449,7 @@ function writeOutputs(reports) {
   }
 }
 
-function main([action, ...extra]) {
+export function runInventory([action, ...extra]) {
   const usage = `Usage: ${command} <generate | check | map | index>\n\n`
     + "generate  Write the architecture map and project index.\n"
     + "check     Validate source and check both generated files for drift.\n"
@@ -471,11 +471,4 @@ function main([action, ...extra]) {
   } else {
     process.stdout.write(reports[action === "map" ? 0 : 1][1]);
   }
-}
-
-try {
-  main(process.argv.slice(2));
-} catch (error) {
-  console.error(`Agency inventory: ${error.message}`);
-  process.exitCode = 1;
 }

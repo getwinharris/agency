@@ -20,6 +20,7 @@ on:
       - 'map.mmd'
       - 'docs/project-index.json'
       - 'gui/apps/cli/bin/bapx-cli'
+      - 'gui/apps/cli/scripts/repository-cli.mjs'
       - 'gui/apps/cli/scripts/repository-inventory.mjs'
       - '.github/workflows/source-inventory.yml'
       - '.github/workflows/app.yml'

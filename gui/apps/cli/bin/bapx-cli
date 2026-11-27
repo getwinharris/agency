@@ -10,11 +10,11 @@ done
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$entry")" && pwd)
 
 # Repository maintenance runs from an Agency checkout, without building the app.
-if [ "${1:-}" = repo ] && [ "${2:-}" = inventory ] &&
+if [ "${1:-}" = repo ] &&
   [ -e "$SCRIPT_DIR/../../../../.git" ] &&
-  [ -f "$SCRIPT_DIR/../scripts/repository-inventory.mjs" ]; then
-  shift 2
-  exec node "$SCRIPT_DIR/../scripts/repository-inventory.mjs" "$@"
+  [ -f "$SCRIPT_DIR/../scripts/repository-cli.mjs" ]; then
+  shift
+  exec node "$SCRIPT_DIR/../scripts/repository-cli.mjs" "$@"
 fi
 
 exec "$SCRIPT_DIR/room-cli" "$@"

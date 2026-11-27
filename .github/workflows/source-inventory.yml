@@ -18,5 +18,5 @@ jobs:
           node-version-file: gui/.nvmrc
       - name: Check the architecture map and project index
         run: ./gui/apps/cli/bin/bapx-cli repo inventory check
-      - name: Verify inventory command parity and failure behavior
-        run: node --test gui/apps/cli/scripts/repository-inventory.test.mjs
+      - name: Verify checkout command behavior and file boundaries
+        run: node --test gui/apps/cli/scripts/repository-*.test.mjs

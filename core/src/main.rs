@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(arg) => args.push(arg),
             Err(arg) => {
                 eprintln!(
-                    "Argument {index} isn't valid UTF-8: {}. Pass text; send bytes on stdin instead (room-cli mac run --stdin).",
+                    "Argument {index} isn't valid UTF-8: {}. Pass text; send bytes on stdin instead (bapx-cli mac run --stdin).",
                     arg.to_string_lossy()
                 );
                 std::process::exit(2);

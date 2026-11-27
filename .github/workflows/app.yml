@@ -49,6 +49,7 @@ jobs:
           apps/server/test/services/plugins/plugin-cli.test.ts
           apps/app/src/components/tools/detail-page-recipes.test.tsx
           packages/plugin-sdk/src/internal/command-guard.test.ts
+          packages/scripts/test/run-cli.test.ts
       - name: App starter tests
         working-directory: starters/app-admin
         run: |
