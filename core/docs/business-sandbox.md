@@ -72,13 +72,18 @@ Restart the service to change worker settings.
 
 The native access policy associates a bapX member UUID with an existing
 business, project and dedicated private Core. Keep this policy separate from the
-worker's one-shot job policy. Put it in a private file owned by the service user
-and replace it atomically when removing or changing a grant.
+worker's one-shot job policy. Store it in a service-owned file with mode
+`0600` inside a directory writable only by its owner. The directory path
+must have no symlinks. Use directories owned by root or the service user,
+with group and other writes disabled except at sticky ancestors such as
+`/var/tmp`. Replace the file atomically when removing or changing a grant.
 
 The policy has `version: 1` and a `projects` array. Each project has
-`business_id`, `project_id`, `core_id`, `core_origin`, `workspace_id`, and a
-unique list of member UUIDs in `members`. The Core origin must be HTTPS.
-Each business/project pair and each dedicated Core have one policy row.
+`business_id`, `project_id`, `core_id`, `core_origin`, `workspace_id`, and
+`members` containing the UUID of the single member assigned to the dedicated
+Core. Use an empty array to revoke that assignment. The Core ID can be at
+most 63 characters to match `CLOUDROOM_INSTANCE`. The Core origin must be
+HTTPS. Each business/project pair and each dedicated Core have one policy row.
 Validate the file offline as the service owner with
 `bapx-core check-workspace-access POLICY.json`. The command never reaches the
 Core or reads a provider credential.

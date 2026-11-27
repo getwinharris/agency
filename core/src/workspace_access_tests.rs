@@ -1,7 +1,12 @@
 use super::*;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{Value, json};
-use std::{fs, io::Write, os::unix::fs::PermissionsExt, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    os::unix::fs::{PermissionsExt, symlink},
+    path::PathBuf,
+};
 
 const MEMBER: &str = "65c18bec-bbc3-40c3-9712-8bb080e56e54";
 const OUTSIDER: &str = "b0b269b8-fd77-4a82-9236-9f3400899941";
@@ -87,9 +92,16 @@ fn resolves_only_the_signed_in_members_project_and_observes_revocation() {
             .workspace_id,
         "ws_a"
     );
-    fixture.policy(vec![project("a", OUTSIDER)]);
+    let mut revoked = project("a", MEMBER);
+    revoked["members"] = json!([]);
+    fixture.policy(vec![revoked]);
     assert!(
         authorize(Some(&path), MEMBER, "business-a", "project-a")
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        single_workspace_for_member(Some(&path), MEMBER)
             .unwrap()
             .is_none()
     );
@@ -123,4 +135,50 @@ fn rejects_unsafe_policy_permissions_targets_and_bindings() {
     let path = fixture.policy(vec![project("a", MEMBER)]);
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
     assert!(check_policy(&path).is_err());
+}
+
+#[test]
+fn rejects_writable_and_symlinked_policy_ancestors() {
+    let fixture = Fixture::new();
+    let path = fixture.policy(vec![project("a", MEMBER)]);
+    let outer = fixture.0.join("outer");
+    let parent = outer.join("private");
+    fs::create_dir_all(&parent).unwrap();
+    fs::set_permissions(&outer, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+    let protected_path = parent.join("policy.json");
+    fs::rename(&path, &protected_path).unwrap();
+    check_policy(&protected_path).unwrap();
+
+    let alias = fixture.0.join("alias");
+    symlink(&outer, &alias).unwrap();
+    assert!(check_policy(&alias.join("private/policy.json")).is_err());
+
+    fs::set_permissions(&outer, fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(check_policy(&protected_path).is_err());
+
+    fs::set_permissions(&outer, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o1777)).unwrap();
+    assert!(check_policy(&protected_path).is_err());
+}
+
+#[test]
+fn rejects_two_members_on_a_dedicated_core() {
+    let fixture = Fixture::new();
+    let mut shared = project("a", MEMBER);
+    shared["members"] = json!([MEMBER, OUTSIDER]);
+    assert!(check_policy(&fixture.policy(vec![shared])).is_err());
+}
+
+#[test]
+fn core_id_limit_matches_the_native_instance_limit() {
+    let fixture = Fixture::new();
+    let mut grant = project("a", MEMBER);
+    grant["business_id"] = json!("b".repeat(64));
+    grant["project_id"] = json!("p".repeat(64));
+    grant["core_id"] = json!("c".repeat(63));
+    check_policy(&fixture.policy(vec![grant.clone()])).unwrap();
+
+    grant["core_id"] = json!("c".repeat(64));
+    assert!(check_policy(&fixture.policy(vec![grant])).is_err());
 }

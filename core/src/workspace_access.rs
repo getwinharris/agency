@@ -7,10 +7,10 @@ use reqwest::Url;
 use serde::Deserialize;
 use std::{
     collections::BTreeSet,
-    fs::OpenOptions,
+    fs::{self, OpenOptions},
     io::{self, Read},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
-    path::Path,
+    path::{self, Component, Path, PathBuf},
 };
 
 const MAX_POLICY_BYTES: usize = 128 * 1024;
@@ -116,13 +116,14 @@ impl ProjectGrant {
 
 impl Policy {
     fn read(path: &Path) -> io::Result<Self> {
+        // SAFETY: geteuid has no arguments and does not modify process state.
+        let euid = unsafe { libc::geteuid() };
+        let path = protected_policy_path(path, euid)?;
         let file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(path)?;
         let metadata = file.metadata()?;
-        // SAFETY: geteuid has no arguments and does not modify process state.
-        let euid = unsafe { libc::geteuid() };
         if !metadata.is_file() || metadata.uid() != euid || metadata.mode() & 0o077 != 0 {
             return Err(invalid(
                 "workspace policy must be a private file owned by the service user",
@@ -151,6 +152,7 @@ impl Policy {
             if !stable_id(&grant.business_id)
                 || !stable_id(&grant.project_id)
                 || !stable_id(&grant.core_id)
+                || grant.core_id.len() > 63
                 || crate::workspace::valid_id(&grant.workspace_id).is_err()
                 || grant.workspace_id == crate::workspace::ROOT
                 || !https_origin(&grant.core_origin)
@@ -163,17 +165,50 @@ impl Policy {
             {
                 return Err(invalid("repeated workspace project or Core target"));
             }
-            let mut members = BTreeSet::new();
-            if !grant
+            if grant.members.len() > 1 {
+                return Err(invalid("a dedicated Core can have at most one member"));
+            }
+            if grant
                 .members
-                .iter()
-                .all(|member| member_id(member) && members.insert(member))
+                .first()
+                .is_some_and(|member| !member_id(member))
             {
-                return Err(invalid("invalid or repeated workspace member"));
+                return Err(invalid("invalid workspace member"));
             }
         }
         Ok(())
     }
+}
+
+fn protected_policy_path(path: &Path, service_uid: u32) -> io::Result<PathBuf> {
+    let path = path::absolute(path)?;
+    if path.components().any(|part| part == Component::ParentDir) {
+        return Err(invalid(
+            "workspace policy path must not contain parent traversal",
+        ));
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid("workspace policy requires a parent directory"))?;
+    let directories: Vec<_> = parent.ancestors().collect();
+    // Check from the root so each child is reached through a trusted parent.
+    for directory in directories.into_iter().rev() {
+        let metadata = fs::symlink_metadata(directory)?;
+        let owner = metadata.uid();
+        let mode = metadata.mode();
+        // A trusted sticky ancestor, such as /var/tmp, protects the next
+        // component once we verify that its owner is also trusted.
+        let protected_sticky_ancestor = directory != parent && mode & libc::S_ISVTX != 0;
+        if !metadata.is_dir()
+            || (owner != 0 && owner != service_uid)
+            || (mode & 0o022 != 0 && !protected_sticky_ancestor)
+        {
+            return Err(invalid(
+                "workspace policy directories must be protected and owned by root or the service user",
+            ));
+        }
+    }
+    Ok(path)
 }
 
 fn invalid(message: &'static str) -> io::Error {
