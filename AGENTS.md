@@ -214,7 +214,8 @@ superseded releases.
   public changes and their evidence. Use the desktop package version for the
   product and the full `main` SHA for web deployments. Keep pending work and
   availability gaps marked in the notes.
-- Restore the previous healthy release on a confirmed post-deploy failure and
-  report the blocker. Report the PR, deployed SHA, workflow run, and verified
-  live URLs. Completion requires the live revision, smoke checks, and independent
-  browser acceptance for the in-scope user journey.
+- Restore the previous healthy release on a confirmed post-deploy failure.
+  Follow the [recovery procedure](deploy/README.md#recover-a-missed-main-run)
+  when only browser acceptance fails. Report the PR, deployed SHA, workflow run,
+  and verified live URLs. Completion requires the live revision, smoke checks,
+  and independent browser acceptance for the in-scope user journey.

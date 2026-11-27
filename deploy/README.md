@@ -15,6 +15,13 @@ state and verify the new revision separately.
 1. Read the current `main` SHA and find the exact `push` run in [Public web](https://github.com/getwinharris/agency/actions/workflows/web.yml). Follow a queued or running attempt. For a failed App, Core, web or deploy job, inspect its log and rerun after a transient issue clears. A deploy-only rerun may reuse the successful upstream jobs and release artifact from the same run and SHA. If the artifact has expired, rerun all jobs. Changes to source or workflow code go through a new PR.
 2. If there is no run, check the repository’s [Actions tab](https://github.com/getwinharris/agency/actions). A maintainer can re-enable Actions if GitHub has paused the fork. Recheck the current SHA before taking further action. If the push still has no run to rerun, merge the next eligible PR through GitHub with green CI, independent QA on its exact head, and all blocking reviews resolved. Its new `main` SHA becomes the release candidate.
 3. For a failed deployment, inspect the `deploy` job and the matching `bapx-agency-web-release-<run>-<attempt>-<pid>.service` in the VPS journal. Check the recorded rollback before retrying. If a newer release has already deployed, verify that release and leave the older attempt superseded. Use the [verified release checks](#record-a-verified-release) after the deploy job succeeds.
+4. If independent browser QA finds a confirmed regression after HTTP checks
+   passed, record the live SHA, browser evidence, previous verified digest, and
+   recovery owner on the PR. The release owner coordinates recovery with an
+   authorized maintainer. Use the approved previous-image recovery if
+   available, or a reviewed revert through the normal main workflow to restore
+   the last healthy behavior. An older run cannot replace a newer live SHA.
+   Keep acceptance pending until the recovery passes HTTPS and browser checks.
 
 ## Set up the Hostinger deployment
 
