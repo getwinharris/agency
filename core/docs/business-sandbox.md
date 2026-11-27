@@ -81,9 +81,12 @@ with group and other writes disabled except at sticky ancestors such as
 The policy has `version: 1` and a `projects` array. Each project has
 `business_id`, `project_id`, `core_id`, `core_origin`, `workspace_id`, and
 `members` containing the UUID of the single member assigned to the dedicated
-Core. Use an empty array to revoke that assignment. The Core ID can be at
-most 63 characters to match `CLOUDROOM_INSTANCE`. The Core origin must be
-HTTPS. Each business/project pair and each dedicated Core have one policy row.
+Core. Use an empty `members` array to revoke workspace selection and new device
+enrollment. To revoke already issued credentials, also remove the corresponding
+grants from that private Core's device registry. The Core ID can be at most 63
+characters to match `CLOUDROOM_INSTANCE`. The Core origin must be HTTPS, and the
+reserved workspace IDs `root` and `legacy` cannot be granted. Each
+business/project pair and each dedicated Core have one policy row.
 Validate the file offline as the service owner with
 `bapx-core check-workspace-access POLICY.json`. The command never reaches the
 Core or reads a provider credential.

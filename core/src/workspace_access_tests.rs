@@ -171,6 +171,17 @@ fn rejects_two_members_on_a_dedicated_core() {
 }
 
 #[test]
+fn rejects_reserved_native_workspaces() {
+    let fixture = Fixture::new();
+    for workspace in [crate::workspace::ROOT, "legacy"] {
+        let mut grant = project("a", MEMBER);
+        grant["workspace_id"] = json!(workspace);
+        let policy = fixture.policy(vec![grant]);
+        assert!(check_policy(&policy).is_err(), "accepted {workspace}");
+    }
+}
+
+#[test]
 fn core_id_limit_matches_the_native_instance_limit() {
     let fixture = Fixture::new();
     let mut grant = project("a", MEMBER);

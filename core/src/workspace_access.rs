@@ -154,7 +154,10 @@ impl Policy {
                 || !stable_id(&grant.core_id)
                 || grant.core_id.len() > 63
                 || crate::workspace::valid_id(&grant.workspace_id).is_err()
-                || grant.workspace_id == crate::workspace::ROOT
+                || matches!(
+                    grant.workspace_id.as_str(),
+                    crate::workspace::ROOT | "legacy"
+                )
                 || !https_origin(&grant.core_origin)
             {
                 return Err(invalid("invalid workspace project or Core target"));
