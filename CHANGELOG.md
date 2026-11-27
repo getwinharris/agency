@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add a responsive homepage menu with verified destinations and remove its GitHub link.
+- Keep app Admin enquiries and account controls readable on narrow screens.
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
 - Give the app admin starter a provider-free email and password flow with salted password hashes, app-local owner provisioning, and optional verified email and Google sign-in.
