@@ -101,8 +101,11 @@ progress; record the blocker and continue another ready issue when appropriate.
    and customer data; resume the existing branch rather than duplicating it.
 2. **Implement a scoped change.** Reuse the owning component and existing
    deployment path. Define the user-visible acceptance criteria and record the
-   checks needed for the affected behavior. Keep docs, release instructions,
-   and the changelog aligned, without marking unverified work as shipped.
+   checks needed for the affected behavior. In every cycle, review the affected
+   documentation, release timeline, and changelog; update them in the same PR.
+   Follow the existing version policy and record the version or tag where it
+   applies. Record why if no docs, changelog, or version update is warranted;
+   do not invent a version bump or mark pending work as shipped.
 3. **Verify before merge.** Run builds and focused regression tests on the
    actual change. Every engineering loop must include actual browser
    verification. Use Ego on relevant viewports for affected UI flows; for
