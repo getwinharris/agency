@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { pluginCliCall } from "@cloudroom/domain/plugin-cli";
+import { BAPX_CLI_NAME, bapxCliUsage, pluginCliCall } from "@cloudroom/domain/plugin-cli";
 import { PLUGIN_CLI_OUTPUT_MAX_BYTES } from "@get-bb/plugin-sdk";
 import type { PluginCliCommandInfo } from "./plugin-api.js";
 
@@ -26,25 +26,21 @@ function renderPluginCommandsSkill(
   contributions: readonly PluginCliContribution[],
 ): string {
   const sections = contributions.map((contribution) => {
-    const directForms = [`room-cli ${contribution.name}`, `bb ${contribution.name}`];
+    const direct = `${BAPX_CLI_NAME} ${contribution.name}`;
     const invocation = pluginCliCall(contribution.pluginId, contribution.name);
     const lines = [
       `## ${invocation} — ${contribution.summary}`,
       "",
       `Contributed by plugin \`${contribution.pluginId}\`. Run \`${invocation} --help\` for details.`,
-      `\`room-cli plugin run ${contribution.pluginId} <args...>\` is always available.`,
+      `\`bapx-cli plugin run ${contribution.pluginId} <args...>\` is always available.`,
     ];
     if (contribution.commands.length > 0) {
       lines.push("");
       for (const command of contribution.commands) {
-        const direct = directForms.find(
-          (prefix) =>
-            command.usage === prefix || command.usage.startsWith(`${prefix} `),
-        );
-        const usage =
-          direct === undefined
-            ? command.usage
-            : `${invocation}${command.usage.slice(direct.length)}`;
+        const branded = bapxCliUsage(command.usage);
+        const usage = branded === direct || branded.startsWith(`${direct} `)
+          ? `${invocation}${branded.slice(direct.length)}`
+          : branded;
         lines.push(`- \`${usage}\` — ${command.summary}`);
       }
     }
@@ -54,13 +50,13 @@ function renderPluginCommandsSkill(
     "---",
     `name: ${SKILL_NAME}`,
     "description: Discover CLI commands contributed by installed Cloudroom plugins and their invocation paths.",
-    // Kept out of the model's skill list: `room-cli --help` shows the same commands.
+    // Kept out of the model's skill list: `bapx-cli --help` shows the same commands.
     "disable-model-invocation: true",
     "---",
     "",
     "# Plugin Commands",
     "",
-    "Installed Cloudroom plugins contribute commands; core-name collisions use the explicit plugin-id form while others use a top-level `room-cli` subcommand.",
+    "Installed Cloudroom plugins contribute commands; core-name collisions use the explicit plugin-id form while others use a top-level `bapx-cli` subcommand.",
     `Combined stdout and stderr is capped at ${PLUGIN_CLI_OUTPUT_MAX_BYTES} UTF-8 bytes. Above-limit`,
     "results fail atomically as `plugin_cli_output_too_large` and are never clipped;",
     "use pagination or file/streaming commands for large results.",

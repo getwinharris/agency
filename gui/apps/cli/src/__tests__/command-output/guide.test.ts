@@ -26,7 +26,7 @@ describe("room-cli guide command output", () => {
 
     const output = collectLogLines(vi.mocked(console.log)).join("\n");
     expect(output).toContain("exactly one explicit scope");
-    expect(output).toContain("room-cli terminal list --thread <thread-id>");
-    expect(output).toContain("room-cli terminal rename <terminal-id> <title>");
+    expect(output).toContain("bapx-cli terminal list --thread <thread-id>");
+    expect(output).toContain("bapx-cli terminal rename <terminal-id> <title>");
   });
 });

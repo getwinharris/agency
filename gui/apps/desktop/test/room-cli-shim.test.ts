@@ -50,6 +50,19 @@ afterEach(async () => {
 });
 
 describe("room-cli shim", () => {
+  it("preserves an existing upstream alias when adding desktop compatibility", async () => {
+    await mkdir(dirname(shimPath), { recursive: true });
+    const upstream = "/Applications/Cloudroom.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist/room-cli";
+    await symlink(upstream, shimPath);
+    const cli = join(root, "bapx-entry");
+    await writeFile(cli, "#!/bin/sh\n", { mode: 0o755 });
+    const result = await ensureRoomCliShim({
+      cliPath: cli, homeDir, commandName: "room-cli", preserveExistingLink: true,
+    });
+    expect(result).toMatchObject({ kind: "skipped", reason: "user-owned" });
+    expect(await readlink(shimPath)).toBe(upstream);
+  });
+
   it("resolves the CLI bundled beside the app asar", () => {
     expect(
       resolveBundledRoomCliPath(

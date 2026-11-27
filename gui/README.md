@@ -14,6 +14,12 @@ pnpm exec turbo run build typecheck --filter=@cloudroom/app --filter=@cloudroom/
 
 SQLite, file watching, and terminals use native modules, so their install scripts must run: `pnpm-workspace.yaml` lists the allowed ones. If your pnpm version differs, use `npx --yes pnpm@10.34.9`.
 
+Use `bapx-cli --help` after installing and launching bapX Agents. On Linux and
+macOS the stable app sets up `~/.local/bin/bapx-cli`. On Windows use
+`bapx-cli.cmd` or `bapx-cli.ps1` in the installed host-daemon directory.
+Existing scripts can continue to use `room-cli`. For development from this
+checkout, run `pnpm bapx-cli --help` from `gui/`.
+
 ## Run in dev mode
 
 Start the backend and browser UI, then Electron in a second terminal:

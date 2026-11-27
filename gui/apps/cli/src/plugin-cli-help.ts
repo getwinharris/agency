@@ -1,3 +1,4 @@
+import { bapxCliUsage } from "@cloudroom/domain/plugin-cli";
 import type { Command } from "commander";
 import { Writable } from "node:stream";
 import {
@@ -11,7 +12,7 @@ const HELP_TIMEOUT_MS = 1000;
 
 /**
  * Adds the plugin commands (loop, secret, gpu, ...) to the top-level help, so
- * `room-cli --help` lists the whole CLI. Call it only when help will print:
+ * `bapx-cli --help` lists the whole CLI. Call it only when help will print:
  * the added commands do nothing.
  *
  * Returns a note for the help text when the commands could not be listed.
@@ -44,10 +45,10 @@ export function renderPluginCommandHelp(
 ): string {
   const usages = (entry.commands ?? []).map(
     (command) =>
-      `  ${command.usage.replace(/^(bb|room|cloudroom) /, "room-cli ")}`,
+      `  ${bapxCliUsage(command.usage)}`,
   );
   return [
-    `room-cli ${entry.name}: ${entry.summary}`,
+    `bapx-cli ${entry.name}: ${entry.summary}`,
     ...(usages.length > 0 ? ["", ...usages] : []),
   ].join("\n");
 }
@@ -64,7 +65,7 @@ function collect(): { stream: Writable; text: () => string } {
 }
 
 /**
- * Prints `room-cli PLUGIN --help`. A plugin that answers `--help` itself keeps
+ * Prints `bapx-cli PLUGIN --help`. A plugin that answers `--help` itself keeps
  * its own text. Most do not and fail with "Unknown flag --help": those get the
  * help built from their command list. Always exits 0.
  */

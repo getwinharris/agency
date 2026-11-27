@@ -117,3 +117,25 @@ sudo bash deploy/publish-site.sh ACCOUNT BUSINESS PROJECT
 The helper uses the verified web image from the deployment record. The native `cloudroom publish-site stage` command copies the approved build into an operator-private directory. Then `cloudroom publish-site release` runs once in the same image with a read-only snapshot and the writable `agency-web-sites` volume of the proxy's Compose project. The web service reads this separate volume at `/var/lib/bapx-sites`. The first release binds the label to the approved project. Run the same command for its next build.
 
 Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts, `/healthz`, and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the five first-party hosts for release revision checks. Preserve the site release volume on deployment and keep its backups private.
+
+## Agency checkout script inventory
+
+Compared with Cloudroom commit `501f5123cb8e25097040ffb164d4bfdd205f929f`,
+Agency added six tracked shell scripts. The inventory generator moved to
+`./gui/apps/cli/bin/bapx-cli repo inventory`. The workflow loads the checked-in
+Compose configuration without talking to the Docker daemon.
+
+| Agency-added script | Disposition |
+| --- | --- |
+| `scripts/generate-map.sh` | Replaced by `repo inventory generate`, `check`, `map`, and `index`. |
+| `deploy/deploy-web-ssh.sh` | Keep the restricted SSH entry point. It validates the request and hands off to a systemd job through the existing sudoers rule. |
+| `deploy/deploy-web.sh` | Keep the host-only rollout driver. It verifies the manifest, Compose checksum and image digest, serializes rollouts, runs HTTPS checks, and restores the previous healthy release on failure. |
+| `deploy/publish-site.sh` | Keep the operator wrapper. It selects the verified web image and the operator-owned volume. Rust already implements the stage and release operations. |
+| `gui/apps/desktop/scripts/verify-macos-release.sh` | Keep the release verifier on the signing Mac. It runs the platform's signature, notarization, and Gatekeeper checks. |
+| `core/tests/claude_login_fixture.sh` | Keep the executable test fixture. Core CI invokes it as a substitute for the provider login process. |
+
+Checkout inventory commands are separate from the installed agent CLI and the
+business sandbox API. Operator scripts are installed on the release host.
+Customer jobs run under the existing project grants in a non-root container
+with a project volume and no Docker socket or network. Customer publishing
+requires its own authorized product flow.

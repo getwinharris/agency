@@ -1,35 +1,35 @@
 ---
 name: room-cli
-description: 'Inspect and control Cloudroom Local and Cloud threads, projects, settings, plugins, and the cloud VM with room-cli. Use for Cloudroom CLI tasks, not official BB.'
+description: 'Inspect and control Cloudroom Local and Cloud threads, projects, settings, plugins, and the cloud VM with bapx-cli. Use for bapX CLI tasks.'
 ---
 
 # Cloudroom CLI
 
-Use `room-cli` for Cloudroom, not official BB's `bb`. Never inspect or message unrelated threads unless the user asks.
+Use `bapx-cli` for bapX Agents. Existing `room-cli` invocations remain supported. Never inspect or message unrelated threads unless the user asks.
 
 ## Check context first
 
 ```sh
-room-cli status --json
+bapx-cli status --json
 ```
 
-Confirm the server URL and project/thread before acting. Standalone `room-cli` targets the installed Cloudroom backend at `http://127.0.0.1:39886`, not the cloud VM. Official BB remains separate.
+Confirm the server URL and project/thread before acting. Standalone `bapx-cli` targets the installed Cloudroom backend at `http://127.0.0.1:39886`, not the cloud VM. Official BB remains separate.
 
 `--self` uses `ROOM_THREAD_ID` where supported. Thread IDs select Local or Cloud execution; connection settings still point to the same GUI backend.
 
-On Windows (PowerShell), or to point `room-cli` at another backend, first read "Shell and environment variables" in [configuration](references/configuration.md).
+On Windows (PowerShell), or to point `bapx-cli` at another backend, first read "Shell and environment variables" in [configuration](references/configuration.md).
 
 ## Top workflows
 
 ### See what is going on
 
 ```sh
-room-cli project list --json
-room-cli thread list --project PROJECT --status active
-room-cli thread list --pinned --fields id,title,status
-room-cli thread show THREAD --json
-room-cli thread log THREAD      # what it did
-room-cli thread output THREAD   # its last reply
+bapx-cli project list --json
+bapx-cli thread list --project PROJECT --status active
+bapx-cli thread list --pinned --fields id,title,status
+bapx-cli thread show THREAD --json
+bapx-cli thread log THREAD      # what it did
+bapx-cli thread output THREAD   # its last reply
 ```
 
 Keep `thread list` small. Filter first: `--project`, `--status`, `--provider`, `--machine local|cloud`, `--pinned`. The table shows the 50 most recently updated threads; `--limit N` or `--all` changes that. `--json` prints every match as full records, about 1.5 KB per thread: pipe it to `jq`, never read it. To read JSON, pick keys with `--fields id,title,status`.
@@ -39,38 +39,38 @@ Keep `thread list` small. Filter first: `--project`, `--status`, `--provider`, `
 ### Run subagents: fan out, collect, archive
 
 ```bash
-room-cli thread spawn --parent-self --prompt "Task A"   # once per task
+bapx-cli thread spawn --parent-self --prompt "Task A"   # once per task
 # End your turn to wait for free — Cloudroom wakes you when children finish
-room-cli thread output CHILD
-room-cli thread archive CHILD_A CHILD_B
+bapx-cli thread output CHILD
+bapx-cli thread archive CHILD_A CHILD_B
 ```
 
-Use `room-cli thread wait --children` only if you must block inside one turn (it times out after 9 minutes, or 100 seconds in Cloud, with exit 2).
+Use `bapx-cli thread wait --children` only if you must block inside one turn (it times out after 9 minutes, or 100 seconds in Cloud, with exit 2).
 
 ### Message or stop a thread
 
 ```sh
-room-cli thread tell THREAD "Continue with this task"
-room-cli thread tell THREAD --message-file notes.md   # a long message
-room-cli thread tell --parent "Done: see my branch"   # the thread that started this one
-room-cli thread stop THREAD
-room-cli thread queue list THREAD                     # messages still waiting (app CLI only)
+bapx-cli thread tell THREAD "Continue with this task"
+bapx-cli thread tell THREAD --message-file notes.md   # a long message
+bapx-cli thread tell --parent "Done: see my branch"   # the thread that started this one
+bapx-cli thread stop THREAD
+bapx-cli thread queue list THREAD                     # messages still waiting (app CLI only)
 ```
 
 A Local message steers the running turn. A Cloud message queues. `thread wait --status idle` only checks a status. Queued work may still be waiting. Check the queue and correlate the requested task with its actual output; after compaction, verify a follow-up completes, and after an attachment upload, verify the agent can read its content.
 
 `thread queue` runs only in the Cloudroom app's `room-cli`. Inside a Cloud thread it exits 2. There, check a child instead:
 
-- `room-cli thread show CHILD`: `status: active` means it is still working.
-- `room-cli thread output CHILD` or `thread log CHILD`: what it did.
+- `bapx-cli thread show CHILD`: `status: active` means it is still working.
+- `bapx-cli thread output CHILD` or `thread log CHILD`: what it did.
 
 These can't confirm whether your message is waiting, was received, or was lost. Unchanged output is no reason to resend: an active child may still get it. Cloudroom messages you when the child finishes. Resend only once it is idle and its reply shows the task was never done.
 
 ### Unblock a thread that needs input
 
 ```sh
-room-cli thread interactions list THREAD
-room-cli thread interactions show INTERACTION THREAD
+bapx-cli thread interactions list THREAD
+bapx-cli thread interactions show INTERACTION THREAD
 ```
 
 `show` prints the question or approval and the exact command that answers it. `thread wait --children` prints this `show` command for each child that needs input.
@@ -78,32 +78,32 @@ room-cli thread interactions show INTERACTION THREAD
 ### Start a Cloud thread
 
 ```sh
-room-cli cloud status --json
-room-cli thread spawn --project PROJECT --machine cloud --provider codex \
+bapx-cli cloud status --json
+bapx-cli thread spawn --project PROJECT --machine cloud --provider codex \
   --model MODEL --request-id UNIQUE_ID --prompt "Task"
 ```
 
-- Retry an unconfirmed start, Local or Cloud, with the same `--request-id` (an unanswered spawn prints it). For a rejected start, use `room-cli cloud retry-start THREAD`. Do not blindly resend uncertain work.
+- Retry an unconfirmed start, Local or Cloud, with the same `--request-id` (an unanswered spawn prints it). For a rejected start, use `bapx-cli cloud retry-start THREAD`. Do not blindly resend uncertain work.
 - A Local parent's Cloud child (`--parent-self --machine cloud --provider PROVIDER --model MODEL`) starts from GitHub, so push first and pass `--base-branch BRANCH`. It messages the parent when it finishes.
-- Queues, a full disk, the phone, `room-cli vm`, and what Cloud agents can do themselves: "Cloud threads" in [thread operation](references/thread-operation.md).
+- Queues, a full disk, the phone, `bapx-cli vm`, and what Cloud agents can do themselves: "Cloud threads" in [thread operation](references/thread-operation.md).
 
 ### Schedule work
 
-A loop runs a prompt or script on a schedule, Local or Cloud: `room-cli loop --help` and the `automations` skill.
+A loop runs a prompt or script on a schedule, Local or Cloud: `bapx-cli loop --help` and the `automations` skill.
 
 ### Tidy up
 
 ```sh
-room-cli thread update THREAD --title "New title"
-room-cli thread move THREAD --project PROJECT
-room-cli thread archive THREAD_A THREAD_B
+bapx-cli thread update THREAD --title "New title"
+bapx-cli thread move THREAD --project PROJECT
+bapx-cli thread archive THREAD_A THREAD_B
 ```
 
 Moves, parent links, unarchive, worktrees, and chat from a terminal: "Moving, parents, and worktrees" in [thread operation](references/thread-operation.md).
 
 ## Before a Local launch
 
-Inspect `room-cli machine provider-cli status MACHINE --json`. A cached model list does not prove the executable is installed or logged in. If Claude is installed but reports `Not logged in`, ask the user to run `claude` and `/login`; do not collect credentials or install another copy.
+Inspect `bapx-cli machine provider-cli status MACHINE --json`. A cached model list does not prove the executable is installed or logged in. If Claude is installed but reports `Not logged in`, ask the user to run `claude` and `/login`; do not collect credentials or install another copy.
 
 ## Skills the list leaves out
 
@@ -111,12 +111,12 @@ These stay off the skill list to keep it short. Read the file when the task call
 
 - Build or change a Cloudroom plugin: `../plugin-authoring/SKILL.md`.
 - Create or improve a skill: `../skill-creator/SKILL.md`.
-- Commands that plugins add: `../plugin-commands/SKILL.md`, or `room-cli --help`.
-- Share a local server to the user's phone or another device: `room-cli connect --help`.
+- Commands that plugins add: `../plugin-commands/SKILL.md`, or `bapx-cli --help`.
+- Share a local server to the user's phone or another device: `bapx-cli connect --help`.
 
 ## References
 
-Use `room-cli --help`, `room-cli GROUP --help`, or `room-cli guide CHAPTER` for current options. Read only the relevant reference:
+Use `bapx-cli --help`, `bapx-cli GROUP --help`, or `bapx-cli guide CHAPTER` for current options. Read only the relevant reference:
 
 - [Command index](references/command-index.md): all core command paths.
 - [Thread creation](references/thread-creation.md): projects, machines, Local launches and forks.

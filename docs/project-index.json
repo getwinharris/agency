@@ -1,5 +1,5 @@
 {
-  "generated_by": "scripts/generate-map.sh",
+  "generated_by": "bapx-cli repo inventory generate",
   "scope": "Tracked source and declared routes. Verify live behavior separately.",
   "routes": [
     {

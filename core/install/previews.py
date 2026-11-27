@@ -109,8 +109,8 @@ Match all
                        'import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.mkdir(parents=True,exist_ok=True); f=p/"SKILL.md"; data=sys.stdin.read(); f.write_text(data) if not f.exists() or p.name == "cloud-mac" else None',
                        str(Path(agent.pw_dir) / base / 'skills' / name)]
             subprocess.run(command, input=skill, text=True, check=True)
-    # `room-cli` is the agent CLI's name (ADR 0240); `cloudroom` is the old one.
-    for link in [Path('/usr/local/bin/cloudroom'), Path('/usr/local/bin/room-cli')]:
+    # Retain both historical CLI aliases for existing agents and scripts.
+    for link in [Path('/usr/local/bin/bapx-cli'), Path('/usr/local/bin/room-cli'), Path('/usr/local/bin/cloudroom')]:
         if not link.exists() and not link.is_symlink():
             link.symlink_to(binary)
     print('Preview SSH access configured. The desktop supplies its own public key through the core API.')
@@ -150,7 +150,7 @@ def self_hosted(state, binary, tunnel):
                        'import pathlib,sys; p=pathlib.Path(sys.argv[1]); p.mkdir(parents=True,exist_ok=True); f=p/"SKILL.md"; data=sys.stdin.read(); f.write_text(data) if not f.exists() or p.name == "cloud-mac" else None',
                        str(Path(agent.pw_dir) / base / 'skills' / name)]
             subprocess.run(command, input=skill, text=True, check=True)
-    for link in [Path('/usr/local/bin/cloudroom'), Path('/usr/local/bin/room-cli')]:
+    for link in [Path('/usr/local/bin/bapx-cli'), Path('/usr/local/bin/room-cli'), Path('/usr/local/bin/cloudroom')]:
         if not link.exists() and not link.is_symlink():
             link.symlink_to(binary)
     print('Tunnel previews configured.' if tunnel else 'Agent tools updated.', 'No account or SSH changes.')

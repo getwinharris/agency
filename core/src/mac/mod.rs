@@ -1321,7 +1321,9 @@ else under that new name, which must not exist yet.";
 }
 
 /// The Cloudroom app's CLI on the user's computer: its `~/.local/bin` link, else the macOS app's copy, else PATH's.
-const APP_CLI: &str = "c=\"$HOME/.local/bin/room-cli\"; [ -x \"$c\" ] || \
+const APP_CLI: &str = "c=\"$HOME/.local/bin/bapx-cli\"; [ -x \"$c\" ] || \
+     c=\"$HOME/.local/bin/bapx-agents-cli\"; [ -x \"$c\" ] || \
+     c=\"$HOME/.local/bin/room-cli\"; [ -x \"$c\" ] || \
      c=/Applications/Cloudroom.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist/room-cli; \
      [ -x \"$c\" ] || c=room-cli;";
 /// Where `mac computer-use` saves the screenshots its replies carry.

@@ -15,20 +15,20 @@ and completion persist across server restarts. Attached checkout and
 personal-workspace paths skip both hooks. These semantics apply equally to CLI,
 SDK, and app launches; see [worktrees.md](worktrees.md).
 
-The Machines settings creation drawer prepares an existing-machine command when access is ready, otherwise shows setup guidance. After access is ready, Choose a machine provider reviews provider inputs and launches through `hosts.experimental_create`/`room-cli machine create`. A machine belongs to no project; projects reach it later through project sources.
+The Machines settings creation drawer prepares an existing-machine command when access is ready, otherwise shows setup guidance. After access is ready, Choose a machine provider reviews provider inputs and launches through `hosts.experimental_create`/`bapx-cli machine create`. A machine belongs to no project; projects reach it later through project sources.
 
-`room-cli machine list` enumerates persistent machines and takes `--all` to include
+`bapx-cli machine list` enumerates persistent machines and takes `--all` to include
 disposable provider sandboxes, matching the app's Show all machines reveal.
-`room-cli updates` and `room-cli skill install-cli-skills` default to persistent machines
+`bapx-cli updates` and `bapx-cli skill install-cli-skills` default to persistent machines
 and still accept a sandbox through an explicit `--machine`.
 
-Machine maintenance state is part of `room-cli machine list --json`; there is no
+Machine maintenance state is part of `bapx-cli machine list --json`; there is no
 separate machine lifecycle command. Keep the machine guide and cloudroom command
 index aligned with this surface.
 
 Local installed-daemon start, stop, and uninstall operations are flags on
-`install-machine.sh`, not `room-cli machine` subcommands.
+`install-machine.sh`, not `bapx-cli machine` subcommands.
 
-`room-cli thread spawn --machine-inputs <json>` configures either an explicit
+`bapx-cli thread spawn --machine-inputs <json>` configures either an explicit
 `--new-machine` or the machine provider owned by a composed
 `--environment-provider`; a composition rejects separate machine selectors.

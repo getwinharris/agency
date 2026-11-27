@@ -15,9 +15,9 @@ the first-party bapX sites.
 - Keep Agency at the workspace root. Search `docs/project-index.json` for the
   exact host, guide, or source path. Use `map.mmd` for wiring and follow the
   pointer to the owning source. Verify live behavior separately.
-- Stage added or removed inventory inputs, run `bash scripts/generate-map.sh`,
+- Stage added or removed inventory inputs, run `./gui/apps/cli/bin/bapx-cli repo inventory generate`,
   and commit both generated files with the source changes. Run
-  `bash scripts/generate-map.sh --check` before review. Source inventory checks
+  `./gui/apps/cli/bin/bapx-cli repo inventory check` before review. Source inventory checks
   every PR. Public web repeats the check on the release revision.
 - Keep customer projects under `users/<username>/<business-slug>/projects/<project-slug>/`.
   On a host with customer workspaces, read its local `OKF.md` for the workspace

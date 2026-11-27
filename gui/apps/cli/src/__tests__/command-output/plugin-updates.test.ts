@@ -216,7 +216,7 @@ describe("room-cli plugin update commands", () => {
     expect(output).toContain(
       'command: room-cli plugin run shadower — Shadow threads (core command "room-cli thread" takes precedence)',
     );
-    expect(output).toContain("command: room-cli notes — Take notes");
+    expect(output).toContain("command: bapx-cli notes — Take notes");
     expect(output).not.toContain('core command "room-cli notes"');
   });
 

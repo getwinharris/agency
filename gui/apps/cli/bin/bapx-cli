@@ -1,0 +1,20 @@
+#!/bin/sh
+entry=$0
+while [ -L "$entry" ]; do
+  target=$(readlink "$entry") || exit $?
+  case $target in
+    /*) entry=$target ;;
+    *) entry=$(dirname -- "$entry")/$target ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$entry")" && pwd)
+
+# Repository maintenance runs from an Agency checkout, without building the app.
+if [ "${1:-}" = repo ] && [ "${2:-}" = inventory ] &&
+  [ -e "$SCRIPT_DIR/../../../../.git" ] &&
+  [ -f "$SCRIPT_DIR/../scripts/repository-inventory.mjs" ]; then
+  shift 2
+  exec node "$SCRIPT_DIR/../scripts/repository-inventory.mjs" "$@"
+fi
+
+exec "$SCRIPT_DIR/room-cli" "$@"

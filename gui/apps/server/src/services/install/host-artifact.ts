@@ -27,6 +27,7 @@ const HOST_DEPENDENCIES = [
   "pino-roll",
 ] as const;
 const HOST_DAEMON_FILES = [
+  "bapx-cli",
   "room-cli",
   "room-parcel-watcher-child.mjs",
   "room-plugin-host-worker.mjs",
@@ -35,11 +36,13 @@ const HOST_DAEMON_FILES = [
 ] as const;
 const HOST_PACKAGE_FILES = ["dist", "host-daemon", "README.md"] as const;
 const HOST_BINS = {
+  "bapx-cli": "dist/room-cli.js",
   "room-cli": "dist/room-cli.js",
   "bb-app": "dist/bb-app.js",
 } as const;
 const HOST_EXECUTABLES: ReadonlySet<string> = new Set([
   ...Object.values(HOST_BINS),
+  "host-daemon/dist/bapx-cli",
   "host-daemon/dist/room-cli",
 ]);
 const NPM_PACK_MTIME = new Date("1985-10-26T08:15:00.000Z");
@@ -199,7 +202,7 @@ async function materializePackagedHostPackage(
   const hostDaemonTarget = join(hostPackageRoot, "host-daemon", "dist");
   await mkdir(hostDaemonTarget, { recursive: true });
   await mkdir(distDir, { recursive: true });
-  for (const target of Object.values(HOST_BINS)) {
+  for (const target of new Set(Object.values(HOST_BINS))) {
     await copyFile(join(packageRoot, target), join(hostPackageRoot, target));
   }
   for (const fileName of HOST_DAEMON_FILES) {

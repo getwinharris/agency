@@ -24,7 +24,7 @@ const covers = (carried: string, file: string) =>
   file === carried || file.startsWith(`${carried.replace(/\/+$/u, "")}/`);
 
 // Moving keeps the thread's ID and chat in a Cloudroom-managed worktree, which Cloudroom deletes later.
-// Hand-made `git worktree add` folders are never cleaned up. Forking stays in `room-cli thread fork`.
+// Hand-made `git worktree add` folders are never cleaned up. Forking stays in `bapx-cli thread fork`.
 export function registerWorktreeCommand(parent: Command, getUrl: () => string): void {
   parent
     .command("worktree [thread-id]")

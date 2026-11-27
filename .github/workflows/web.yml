@@ -18,7 +18,10 @@ on:
       - 'deploy/**'
       - 'starters/app-admin/**'
       - 'map.mmd'
-      - 'scripts/generate-map.sh'
+      - 'docs/project-index.json'
+      - 'gui/apps/cli/bin/bapx-cli'
+      - 'gui/apps/cli/scripts/repository-inventory.mjs'
+      - '.github/workflows/source-inventory.yml'
       - '.github/workflows/app.yml'
       - '.github/workflows/core.yml'
       - '.github/workflows/desktop-packages.yml'
@@ -55,8 +58,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: gui/.nvmrc
       - name: Check the architecture map and project index
-        run: bash scripts/generate-map.sh --check
+        run: ./gui/apps/cli/bin/bapx-cli repo inventory check
       - name: Check deployment scripts
         run: |
           bash -n deploy/deploy-web.sh

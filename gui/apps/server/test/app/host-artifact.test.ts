@@ -37,6 +37,7 @@ const packageJson = {
     "pino-roll": "4.0.0",
   },
   bin: {
+    "bapx-cli": "dist/room-cli.js",
     "room-cli": "dist/room-cli.js",
     "bb-app": "dist/bb-app.js",
   },
@@ -59,6 +60,7 @@ async function writeHostPackage(root: string, readme: string): Promise<void> {
   await writeFile(join(root, "dist/room-cli.js"), "#!/usr/bin/env node\n");
   await writeFile(join(root, "README.md"), readme);
   for (const fileName of [
+    "bapx-cli",
     "room-cli",
     "room-parcel-watcher-child.mjs",
     "room-plugin-host-worker.mjs",
@@ -151,7 +153,7 @@ async function packageRootFixture(): Promise<string> {
 describe("packHostPackage", () => {
   it("sets executable modes that survive Windows", async () => {
     const hostPackageRoot = await packageRootFixture();
-    for (const file of ["host-daemon/dist/room-cli", "dist/room-cli.js"]) {
+    for (const file of ["host-daemon/dist/bapx-cli", "host-daemon/dist/room-cli", "dist/room-cli.js"]) {
       await chmod(join(hostPackageRoot, file), 0o644);
     }
     expect(await packedEntries(hostPackageRoot)).toEqual({
@@ -162,6 +164,7 @@ describe("packHostPackage", () => {
       "package/host-daemon/dist/room-plugin-host-worker.mjs": "644",
       "package/host-daemon/dist/room-provider-bridge-worker.mjs": "644",
       "package/host-daemon/dist/daemon-bundle.mjs": "644",
+      "package/host-daemon/dist/bapx-cli": "755",
       "package/host-daemon/dist/room-cli": "755",
       "package/host-daemon/dist/room-cli-chunks/chunk-TEST.js": "644",
       "package/package.json": "644",
@@ -247,6 +250,7 @@ describe("bb-app artifact service (desktop packaging)", () => {
           "package/package.json",
           "package/dist/bb-app.js",
           "package/dist/room-cli.js",
+          "package/host-daemon/dist/bapx-cli",
           "package/host-daemon/dist/room-cli",
           "package/host-daemon/dist/room-cli-chunks/chunk-TEST.js",
           "package/host-daemon/dist/room-parcel-watcher-child.mjs",
@@ -337,6 +341,7 @@ describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
       expect(listing).toContain("package/dist/bb-app.js");
       expect(listing).toContain("package/dist/room-cli.js");
       expect(listing).toContain("package/host-daemon/dist/daemon-bundle.mjs");
+      expect(listing).toContain("package/host-daemon/dist/bapx-cli");
       expect(listing).toContain("package/host-daemon/dist/room-cli");
       expect(listing).not.toContain("package/private.txt");
       expect(listing.some((entry) => entry.startsWith("package/app/"))).toBe(
@@ -358,6 +363,7 @@ describe.each(MODES)("bb-app artifact service (%s)", (mode) => {
         name: "bb-app",
         version: "1.2.3-test",
         bin: {
+          "bapx-cli": "dist/room-cli.js",
           "room-cli": "dist/room-cli.js",
           "bb-app": "dist/bb-app.js",
         },

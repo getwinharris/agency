@@ -1,4 +1,4 @@
-// An agent or room-cli asked to install or update a plugin, or to install a
+// An agent or bapx-cli asked to install or update a plugin, or to install a
 // skill from skills.sh. Only a click here runs it (ADR 0260): the server holds
 // the request until a person answers, and it says what the request would do.
 // This only prints that.
@@ -125,7 +125,7 @@ export function HumanClickRequests() {
           <DialogTitle>{shown.title}</DialogTitle>
           <DialogDescription>
             {shown.askedBy === null
-              ? "An agent or room-cli"
+              ? "An agent or bapx-cli"
               : `The agent in "${shown.askedBy}"`}{" "}
             asked for this. Nothing happens until you click {shown.verb}.
           </DialogDescription>

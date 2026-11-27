@@ -86,7 +86,7 @@ export async function waitForChildren(
         );
         if (child.state === "queued") {
           console.log(
-            `             Its next message has not started (paused or scheduled): room-cli thread queue list ${child.id}`,
+            `             Its next message has not started (paused or scheduled): bapx-cli thread queue list ${child.id}`,
           );
         }
         if (child.state === "running") {
@@ -99,7 +99,7 @@ export async function waitForChildren(
             );
           if (warning) {
             console.log(
-              `             ${warning} (room-cli thread stop ${child.id})`,
+              `             ${warning} (bapx-cli thread stop ${child.id})`,
             );
           }
           continue;
@@ -112,7 +112,7 @@ export async function waitForChildren(
         for (const interaction of interactions) {
           if (interaction.status !== "pending") continue;
           console.log(
-            `             See what it asks and how to answer: room-cli thread interactions show ${interaction.id} ${child.id}`,
+            `             See what it asks and how to answer: bapx-cli thread interactions show ${interaction.id} ${child.id}`,
           );
         }
       }

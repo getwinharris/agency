@@ -43,6 +43,7 @@
     "qa:standalone:stop": "node tests/qa/scripts/run-root-command.mjs standalone:stop",
     "qa:standalone:cleanup": "node tests/qa/scripts/run-root-command.mjs standalone:cleanup",
     "codex:archive-tmp-sessions": "pnpm run --silent scripts:prepare && node packages/scripts/dist/commands/archive-codex-tmp-sessions.js",
+    "bapx-cli": "node --import tsx scripts/set-env.mjs NODE_ENV=production pnpm run --silent cli:prepare 1>&2 && node --import tsx scripts/set-env.mjs NODE_ENV=production node packages/scripts/dist/commands/run-cli.js",
     "room-cli": "node --import tsx scripts/set-env.mjs NODE_ENV=production pnpm run --silent cli:prepare 1>&2 && node --import tsx scripts/set-env.mjs NODE_ENV=production node packages/scripts/dist/commands/run-cli.js",
     "room:dev": "node --import tsx scripts/set-env.mjs NODE_ENV=development node --conditions=source --import tsx packages/scripts/src/commands/run-cli.ts",
     "server": "pnpm --filter @cloudroom/server start",
