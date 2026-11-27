@@ -94,10 +94,17 @@ jobs:
           for host in bapx.in www.bapx.in; do
             curl --fail --silent --show-error -H "Host: $host" http://127.0.0.1:8080/ \
               --output "$RUNNER_TEMP/$host-home.html"
-            grep -Fq '<h1 id="headline">' "$RUNNER_TEMP/$host-home.html" || {
-              printf 'Expected landing heading is missing for %s.\n' "$host" >&2
-              exit 1
-            }
+            for marker in '<h1 id="headline">' 'id="how-it-works"' 'data-demo-step' 'data-demo-agent-picker' 'data-demo-agent-unavailable' 'bapx-agent-roster' 'id="faq"'; do
+              grep -Fq "$marker" "$RUNNER_TEMP/$host-home.html" || {
+                printf 'Expected landing markup %s is missing for %s.\n' "$marker" "$host" >&2
+                exit 1
+              }
+            done
+          done
+          for icon in codex claude-code cursor hermes opencode pi; do
+            curl --fail --silent --show-error -H 'Host: bapx.in' \
+              "http://127.0.0.1:8080/brand/agents/$icon.svg" --output "$RUNNER_TEMP/$icon.svg"
+            grep -Fq '<svg' "$RUNNER_TEMP/$icon.svg"
           done
           curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
           grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"

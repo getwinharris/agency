@@ -1,0 +1,88 @@
+:is(.bapx-agent-roster, .bapx-faq-list details) > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.65rem;
+  align-items: center;
+  gap: .875rem;
+  list-style: none;
+}
+
+:is(.bapx-agent-roster, .bapx-faq-list details) > summary::-webkit-details-marker {
+  display: none;
+}
+
+:is(.bapx-agent-roster, .bapx-faq-list details) > summary::before,
+:is(.bapx-agent-roster, .bapx-faq-list details) > summary::after {
+  content: "";
+  grid-area: 1 / 2;
+  place-self: center;
+}
+
+:is(.bapx-agent-roster, .bapx-faq-list details) > summary::before {
+  box-sizing: border-box;
+  inline-size: 1.65rem;
+  block-size: 1.65rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+}
+
+:is(.bapx-agent-roster, .bapx-faq-list details) > summary::after {
+  inline-size: .45rem;
+  block-size: .45rem;
+  border-inline-end: 1.5px solid currentColor;
+  border-block-end: 1.5px solid currentColor;
+  transform: translateY(-.1rem) rotate(45deg);
+}
+
+:is(.bapx-agent-roster, .bapx-faq-list details)[open] > summary::before {
+  border-color: currentColor;
+}
+
+:is(.bapx-agent-roster, .bapx-faq-list details)[open] > summary::after {
+  transform: translateY(.1rem) rotate(225deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(.bapx-agent-roster, .bapx-faq-list details) > summary::before {
+    transition: border-color .18s ease;
+  }
+
+  :is(.bapx-agent-roster, .bapx-faq-list details) > summary::after {
+    transition: transform .18s ease;
+  }
+
+  :is(.bapx-agent-roster, .bapx-faq-list details)[open] > :is(.bapx-agent-roster-list, .bapx-faq-answer):not(:focus-within) {
+    animation: disclosure-settle .18s ease-out;
+  }
+
+  @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+    /* If a reader tabs into the answer, show the focus target immediately. */
+    :is(.bapx-agent-roster, .bapx-faq-list details)[open]:not(:has(> :is(.bapx-agent-roster-list, .bapx-faq-answer):focus-within))::details-content {
+      interpolate-size: allow-keywords;
+      animation: disclosure-expand .24s cubic-bezier(.2, .65, .3, 1);
+    }
+
+    :is(.bapx-agent-roster, .bapx-faq-list details)[open] > :is(.bapx-agent-roster-list, .bapx-faq-answer):not(:focus-within) {
+      animation: none;
+    }
+  }
+}
+
+@keyframes disclosure-settle {
+  from { transform: translateY(-.22rem); }
+  to { transform: translateY(0); }
+}
+
+@keyframes disclosure-expand {
+  from { block-size: 0; overflow: clip; }
+  to { block-size: auto; overflow: clip; }
+}
+
+@media (forced-colors: active) {
+  :is(.bapx-agent-roster, .bapx-faq-list details) > summary::before {
+    border-color: ButtonBorder;
+  }
+
+  :is(.bapx-agent-roster, .bapx-faq-list details)[open] > summary::before {
+    border-color: currentColor;
+  }
+}

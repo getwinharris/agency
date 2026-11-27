@@ -55,7 +55,7 @@ function documentPage(title: string, summary: string, path: string, content: str
   <meta property="og:description" content="${escapeHtml(summary)}">
   <meta property="og:url" content="${canonical}">
   <meta property="og:image" content="${mediaHubUrl}${socialImage}">
-  <link rel="stylesheet" href="/mediahub/site.css?v=wordmark">
+  <link rel="stylesheet" href="/mediahub/site.css?v=brief-focus">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
