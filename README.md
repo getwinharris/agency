@@ -8,6 +8,9 @@ website, documentation, MediaHub, and its operator workspace.
 [MediaHub](https://mediahub.bapx.in/) · [Admin](https://admin.bapx.in/) ·
 [Agency releases](https://github.com/getwinharris/agency/releases)
 
+The [bapX release notes](gui/docs/release-notes.md) record verified web
+deployments and desktop download availability.
+
 ## Upstream Cloudroom
 
 The following upstream overview describes the architecture and Cloudroom's
@@ -51,16 +54,24 @@ For Apple Silicon Macs (macOS 13+), Linux x64, and Windows 11.
 ## What's in this repo
 
 - [`gui/`](gui/): the desktop app, built on [BB](https://github.com/get-bb/bb).
+- [`gui/apps/www/`](gui/apps/www/) builds the first-party sites and developer Docs.
 - [`core/`](core/): the Rust service that runs agents in the cloud and saves their history.
 - [`skills/`](skills/): the skills every Cloudroom agent ships with.
 
 ## Get started
 
-**Use the app.** [Build bapX Agents](gui/README.md) from this checkout. Published bapX builds will appear in [Agency releases](https://github.com/getwinharris/agency/releases).
+**Use the app.** [Build bapX Agents](gui/README.md) from this checkout. See Docs
+for [macOS](https://docs.bapx.in/#mac) and
+[Windows or Linux](https://docs.bapx.in/#windows-linux) build options. Published
+bapX builds will appear in [Agency releases](https://github.com/getwinharris/agency/releases).
 
-**Host a private Core.** Follow the [Ubuntu setup guide](core/docs/setup.md)
-and [pair the app](core/docs/setup.md#connect-the-desktop-app) with your
-server's URL and token.
+**Host a private Core.** See the [private Core overview](https://docs.bapx.in/#private-core),
+follow the [Ubuntu setup guide](core/docs/setup.md), and
+[pair the app](core/docs/setup.md#connect-the-desktop-app) with your server's
+URL and token.
+
+**Install project skills.** See the [project skills guide](https://docs.bapx.in/#portable-skills)
+for setup and native agent discovery.
 
 **Build from source.** The app: see [gui/README.md](gui/README.md). The core needs Rust 1.89+:
 
