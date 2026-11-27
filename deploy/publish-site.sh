@@ -8,8 +8,10 @@ fi
 
 umask 077
 slug=sandbox-check
-users=/root/bapx.in/users
-volume=traefik-vmm1_agency-web-sites
+# The production operator configures the existing Compose project on the VPS.
+source /etc/bapx-agency/web-deploy.conf
+users=${BAPX_SITE_USERS_ROOT:-$(git rev-parse --show-toplevel)/users}
+volume=${project_name:?}_agency-web-sites
 image=$(jq -er '.image' /var/lib/bapx-agency-web-deploy/last-good.json)
 if [[ ! "$image" =~ ^ghcr\.io/getwinharris/agency-web@sha256:[0-9a-f]{64}$ ]]; then
     echo "Expected the verified Agency web image digest" >&2
