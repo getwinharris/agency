@@ -9,6 +9,7 @@ import { webGuideSlugs, webHealthHosts } from "./repository-web-verification.mjs
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const workflow = ".github/workflows/web.yml";
 const verifier = "gui/apps/cli/scripts/repository-web-verification.mjs";
+const verifyCommand = './gui/apps/cli/bin/bapx-cli repo verify web --revision "$GITHUB_SHA" --origin http://127.0.0.1:8080';
 const compose = "deploy/compose.web.yml";
 const rustWeb = "core/src/web.rs";
 const driver = "deploy/deploy-web.sh";
@@ -198,6 +199,9 @@ function publishedGuides(ci, tracked) {
   const covers = (inputs, source) => inputs.some(
     (input) => source === input || (input.endsWith("/") && source.startsWith(input)),
   );
+  if (!covers(prInputs, verifier)) {
+    throw new Error(`Web verifier is missing from Public web PR path coverage: ${verifier}.`);
+  }
   for (const { slug, source } of guides) {
     if (!tracked.has(source) || !statSync(join(root, source), { throwIfNoEntry: false })?.isFile()) {
       throw new Error(`Guide ${slug} references a missing or untracked source: ${source}.`);
@@ -395,7 +399,9 @@ function outputs() {
   const service = config.services?.["agency-web"] ?? {};
   const routers = parseRouters(service.labels ?? {});
   const ci = read(workflow);
-  requireSource(workflow, ['bapx-cli repo verify web --revision "$GITHUB_SHA" --origin http://127.0.0.1:', verifier]);
+  if (!ci.split("\n").some((line) => line.trim() === verifyCommand)) {
+    throw new Error(`Public web CI must run ${verifyCommand}.`);
+  }
   const routeGroups = validateRoutes(routers);
   const tracked = new Set(run("git", ["ls-files", "-z"]).split("\0"));
   const guides = publishedGuides(ci, tracked);

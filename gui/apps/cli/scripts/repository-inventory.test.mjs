@@ -78,8 +78,10 @@ test("checkout CLI preserves generated outputs and rejects drift without writing
 
     const workflow = inventory.release.workflow;
     const ci = read(workflow);
-    write(workflow, ci.replace("repo verify web --revision", "repo verify web --wrong-option"));
-    expectFailure("check", /Update the architecture map for \.github\/workflows\/web\.yml/);
+    write(workflow, ci.replace(/^( +)(.+repo verify web --revision.+)$/m, "$1# $2"));
+    expectFailure("check", /Public web CI must run/);
+    write(workflow, ci.replace(`      - '${verifier}'\n`, ""));
+    expectFailure("check", /Web verifier is missing from Public web PR path coverage/);
     write(workflow, ci);
 
     const ingress = read(compose);
