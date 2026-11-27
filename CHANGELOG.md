@@ -24,6 +24,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Verify the landing heading landmark and exact release revision on both bapX landing hostnames.
 - Document recovery for missed Public web runs and require independent QA on the exact release PR head.
 - Add bapX Agents landing and documentation on the Cloudroom fork.
+- Run the public Rust image as `bapx-core` and keep the legacy executable available to existing publishing tools.
+- Use bapX Agents in local App and desktop labels and repair the stable Linux AppImage share-link registration.
 - Add an interactive walkthrough of local and remote Core sessions.
 - Rebuild MediaHub and its seven case studies with a persistent Rust brief endpoint.
 - Add an authenticated MediaHub inquiry inbox and homepage editor at Admin.

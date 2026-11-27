@@ -40,7 +40,7 @@ the first-party bapX sites.
   and `cargo test --locked --all-targets` for relevant Core changes.
 - `gui/apps/www/` owns the landing page, docs, MediaHub and Admin assets.
   Build with `pnpm build:web` from `gui/` using Node.js 24. The Rust
-  `cloudroom serve-web` process serves the output and API.
+  `bapx-core serve-web` process in the public image serves the output and API.
 - `gui/apps/www/src/docs/` owns the Docs navigation, Markdown renderer, and
   list of published Markdown sources. Edit guides at their source, preserve
   public slugs and heading anchors, and ensure the web image and workflow

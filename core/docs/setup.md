@@ -6,6 +6,12 @@ This guide builds and runs Core on a machine you control. See the [release
 notes](../../gui/docs/release-notes.md) for Agency's public availability and
 the independently versioned public web service.
 
+The public web image starts `bapx-core serve-web` from the executable
+installed under `/usr/local/lib/bapx` in the image. It also provides
+`/usr/local/bin/cloudroom` with the original CLI version format for existing
+publishing tools. Private Core setup below uses the existing native service
+and paths, including `/usr/local/lib/cloudroom`.
+
 Use a **fresh VM for one trusted user**, with sudo access, systemd, cgroup v2, and space for your repositories and tools. Disk warnings start at 5 GB available; there is no fixed agent allowance or additional reserve. The installer does not configure quotas or change `/etc/fstab`. Containers and other Linux distributions are outside this guide.
 
 Agents run without approval prompts and share their account's files. Do not give that account sudo or access to a Docker socket.

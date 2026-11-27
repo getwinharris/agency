@@ -110,12 +110,12 @@ function isAllowedPopupNavigationUrl(url: string): boolean {
 
 function popupWindowTitle(url: string | null): string {
   if (url === null || url === "about:blank" || url.length === 0) {
-    return "Cloudroom browser popup";
+    return "bapX Agents browser popup";
   }
   try {
-    return `Cloudroom browser — ${new URL(url).origin}`;
+    return `bapX Agents browser — ${new URL(url).origin}`;
   } catch {
-    return "Cloudroom browser popup";
+    return "bapX Agents browser popup";
   }
 }
 

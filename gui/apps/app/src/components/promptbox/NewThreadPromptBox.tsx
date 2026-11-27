@@ -44,10 +44,10 @@ import {
   type TypeaheadConfig,
 } from "@/components/promptbox/PromptBoxInternal";
 import {
-  CLOUDROOM_CLOUD_PRIMARY,
-  CLOUDROOM_LOCAL_PRIMARY,
-  CLOUDROOM_LOCAL_WORKTREE,
-} from "@/lib/cloudroom-environment-label";
+  CLOUD_PRIMARY_LABEL,
+  LOCAL_PRIMARY_LABEL,
+  LOCAL_WORKTREE_LABEL,
+} from "@/lib/bapx/environment-label";
 import { usePromptModePermissionDisplay } from "@/components/promptbox/usePromptModePermissionDisplay";
 import { PROMPT_PLACEHOLDER_HINT } from "@/components/promptbox/follow-up-placeholder";
 import { usePromptVoice } from "@/components/promptbox/usePromptVoice";
@@ -206,21 +206,21 @@ function promptLocationCommands(
   if (hostId !== null && localPrimary && onSelectProvider) {
     commands.push({
       name: "local",
-      description: `Switch to ${CLOUDROOM_LOCAL_PRIMARY}`,
+      description: `Switch to ${LOCAL_PRIMARY_LABEL}`,
       onSelect: () => onSelectProvider(localPrimary, hostId),
     });
   }
   if (hostId !== null && localWorktree && onSelectProvider) {
     commands.push({
       name: "worktree",
-      description: `Switch to ${CLOUDROOM_LOCAL_WORKTREE}`,
+      description: `Switch to ${LOCAL_WORKTREE_LABEL}`,
       onSelect: () => onSelectProvider(localWorktree, hostId),
     });
   }
   if (cloud.unavailableReason === null) {
     commands.push({
       name: "cloud",
-      description: `Switch to ${CLOUDROOM_CLOUD_PRIMARY}`,
+      description: `Switch to ${CLOUD_PRIMARY_LABEL}`,
       onSelect: cloud.onSelect,
     });
   }

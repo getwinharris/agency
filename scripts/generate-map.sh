@@ -154,7 +154,7 @@ jq -e '
 require_source "$workflow" 'branches: [main]' 'needs: [app, core]' 'needs: web' \
     'name: agency-web-release' 'docker push' 'StrictHostKeyChecking=yes'
 require_source deploy/web.Dockerfile 'RUN corepack pnpm build:web' \
-    '/build/gui/apps/www/dist /srv/bapx-web' 'ENTRYPOINT ["/usr/local/bin/cloudroom", "serve-web"]'
+    '/build/gui/apps/www/dist /srv/bapx-web' 'ENTRYPOINT ["/usr/local/bin/bapx-core", "serve-web"]'
 require_source core/src/main.rs 'return cloudroom::web::serve().await;' \
     'cloudroom::serve(cloudroom::config::Config::from_env()?).await'
 require_source "$driver" 'gh run download' 'check_public "$sha"' 'restore_pending'
@@ -174,7 +174,7 @@ flowchart TD
     webSource["Landing, Docs, MediaHub and Admin · gui/apps/www/src/build.ts"]
     docsSources["Published Markdown registry · gui/apps/www/src/docs/pages.ts"]
     assets["Static build · pnpm build:web → gui/apps/www/dist"]
-    rust["Rust Cloudroom binary · core/src/main.rs"]
+    rust["Rust Core build · core/src/main.rs"]
     image["One image · deploy/web.Dockerfile"]
     docsSources --> webSource --> assets
     assets -->|"Copied to /srv/bapx-web"| image
@@ -203,7 +203,7 @@ flowchart TD
     webRouter["Traefik TLS · first-party public routes"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
-    webRuntime["cloudroom serve-web · core/src/web.rs"]
+    webRuntime["bapx-core serve-web · core/src/web.rs"]
     routing["Landing and privacy · Docs guides · MediaHub cases"]
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
