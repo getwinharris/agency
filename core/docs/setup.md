@@ -179,6 +179,22 @@ Never use `tailscale funnel` for Core: it opens the API to the whole internet.
 
 In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Settings or **Use my own Core** during first-run setup. Enter the private HTTPS URL and the Core token from `/etc/cloudroom/core.env`. Cloud threads then run on this machine and share its files.
 
+## Agent environment on a private Core
+
+**Settings → Machines → Advanced → Machine environment** applies to machines
+provisioned by app plugins. Manage your private Core's agent environment on
+the Core host.
+
+Put one literal `NAME=value` entry per line in
+`$CLOUDROOM_STATE_DIR/environment`. With this guide's service configuration,
+the full path is `/var/lib/cloudroom/history/environment`. Keep the file owned
+by the Core service account with permissions `0600`. For example, use
+`BAPX_ENV_TEST=hello` to check that a newly launched agent sees the setting.
+The file is read as data, without shell expansion.
+
+Core reads the file when it launches a new agent process. Already-running
+processes keep their current environment.
+
 ## Your own server vs Cloudroom Cloud
 
 **Self-hosted capabilities described by Core:**

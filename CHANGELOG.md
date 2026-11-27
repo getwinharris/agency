@@ -28,6 +28,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
 - Compare draft and published MediaHub copy before publishing in Admin.
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.
+- Show where to configure a private Core's agent environment from Machine environment settings.
 - Add an opt-in business sandbox pilot with account and project grants, read-only Linux images, and project-scoped writable volumes.
 - Stop active pilot sandbox jobs after access is revoked while retaining project files.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.
