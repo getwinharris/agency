@@ -19,6 +19,8 @@ flowchart TD
   root --> core
   web --> webMode
   deploy --> webMode
+  deploy --> dynamicPilot["deploy/dynamic-pilot: isolated Node HTTPS and replacement check"]
+  appStarter --> dynamicPilot
 
   webMode --> landing["bapx.in: product and privacy"]
   webMode --> docs["docs.bapx.in: documentation"]

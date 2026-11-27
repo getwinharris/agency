@@ -1,0 +1,22 @@
+name: Isolated dynamic hosting
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/dynamic-pilot/**'
+      - 'starters/app-admin/**'
+      - '.github/workflows/dynamic-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dynamic-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash deploy/dynamic-pilot/verify.sh "$GITHUB_SHA"

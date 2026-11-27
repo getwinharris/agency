@@ -47,3 +47,22 @@ sudo bash deploy/publish-site.sh ACCOUNT BUSINESS PROJECT
 The helper uses the verified web image from the deployment record. The native `cloudroom publish-site stage` command copies the approved build into an operator-private directory. Then `cloudroom publish-site release` runs once in the same image with a read-only snapshot and a writable `traefik-vmm1_agency-web-sites` volume. The web service reads this separate volume at `/var/lib/bapx-sites`. The first release binds the label to the approved project. Run the same command for its next build.
 
 Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the existing four-host health checks for first-party release verification. Preserve the site release volume on deployment and keep its backups private.
+
+## Verify an isolated dynamic app deployment
+
+Run `bash deploy/dynamic-pilot/verify.sh SOURCE_SHA` with Docker and OpenSSL.
+The source commit must include the app starter's opt-in bridge listener from
+[#72](https://github.com/getwinharris/agency/pull/72). The Docker build uses the
+existing `starters/app-admin` code at that exact commit.
+
+The fixture puts the Node app and its TLS proxy on a disposable internal Docker
+bridge with unpublished ports. The test client trusts a fixture certificate for
+`https://dynamic-check.app.bapx.in:8443/` within that bridge. The production DNS
+and Hostinger proxy configuration stay untouched. The proxy passes the app's
+email challenge and session cookies and drops unrelated credentials. The sample
+uses local fixture mail and exercises email sign-in only.
+
+The test signs in, submits an enquiry, replaces the app process, and reopens the
+same enquiry with the same session and app data volume. It reports the build SHA,
+image ID, and enquiry ID. The disposable containers and network stop at the end.
+The test volumes and private verification file remain available for inspection.
