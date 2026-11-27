@@ -20,10 +20,38 @@ function passwordRegistration(email, passwordHash, role = "customer") {
   return { id: randomUUID(), email, role, signupMethod: "email", subject: email, passwordHash, verifiedAt: null };
 }
 
+function rollbackOwners(state) {
+  const verified = state.users.find((user) => user.role === "owner");
+  const provisioned = state.passwordRegistrations?.find((user) => user.role === "owner");
+  return verified && provisioned ? { verified, provisioned } : null;
+}
+
+function reconcileOwner(state) {
+  const owners = rollbackOwners(state);
+  if (!owners) return state;
+  const { verified, provisioned } = owners;
+  if (verified.email !== provisioned.email) throw new Error("The verified and provisioned owner addresses differ.");
+  const replacedId = verified.id;
+  const ownerId = provisioned.id;
+  // The older release could verify the same mailbox under a second owner ID.
+  verified.id = ownerId;
+  verified.passwordHash = provisioned.passwordHash;
+  state.passwordRegistrations = state.passwordRegistrations.filter((user) => user.id !== ownerId);
+  for (const record of [...state.sessions, ...state.signIns, ...state.submissions]) {
+    if (record.userId === replacedId) record.userId = ownerId;
+  }
+  for (const submission of state.submissions) {
+    if (submission.lead.assigneeId === replacedId) submission.lead.assigneeId = ownerId;
+  }
+  return state;
+}
+
 export async function initializeOwnerPassword(config, store) {
+  const state = await store.read();
+  const reconciled = rollbackOwners(state) ? await store.update(reconcileOwner) : state;
   if (!config.ownerPasswordFile) return;
   const findOwner = (state) => appAccounts(state).find((user) => user.role === "owner");
-  const owner = findOwner(await store.read());
+  const owner = findOwner(reconciled);
   if (owner && owner.email !== config.ownerEmail) throw new Error("The configured owner differs from the existing app owner.");
   if (owner?.passwordHash) return;
   const password = normalizePassword((await readFile(config.ownerPasswordFile, "utf8")).replace(/\r?\n$/, ""));

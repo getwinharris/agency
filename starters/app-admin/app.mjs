@@ -134,14 +134,13 @@ export async function createApp({ config, sendEmail = null, google = null, repor
     }
     if (route !== "/" && route !== "/admin") throw new RequestError(404, "This page could not be found.");
     const state = await store.read();
+    const session = sessionFor(config, request, state);
     const message = query.has("saved") ? "Changes saved." : query.has("submitted") ? "Enquiry submitted." :
-      query.has("email-verified") ? "Email address verified." : "";
+      session?.emailVerified && query.has("email-verified") ? "Email address verified." : "";
     if (route === "/") {
-      const session = sessionFor(config, request, state);
       const form = forms.find((entry) => entry.id === query.get("form")) ?? forms[0];
       return html(response, home({ session, form, message, signup: query.has("signup") }));
     }
-    const session = sessionFor(config, request, state);
     if (!session) return html(response, home({ message: "Sign in to open Admin." }), 401);
     if (!appStaff(session)) throw new RequestError(403, "This account cannot open Admin.");
     const filters = filtersOf(query);

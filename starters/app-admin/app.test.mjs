@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createApp } from "./app.mjs";
+import { openStore } from "./store.mjs";
 
 const ownerEmail = "owner@example.test";
 const emailCustomer = "customer@example.test";
@@ -288,7 +289,7 @@ async function passwordFixture(t, sendEmail = null) {
     await once(server, "listening");
     config.host = `127.0.0.1:${server.address().port}`;
     config.origin = `http://${config.host}`;
-    return { server, origin: config.origin, port: server.address().port,
+    return { server, origin: config.origin, port: server.address().port, appId, dataDir,
       state: async () => JSON.parse(await readFile(join(dataDir, "state.json"), "utf8")) };
   }
   return { start, stop, ownerPasswordFile };
@@ -405,4 +406,40 @@ test("email verification preserves the password identity and prevents account pr
   assert.equal(mailboxOwner.passwordHash, undefined);
   assert.doesNotMatch(expectStatus(await preclaimed.get("/"), 200).body, /Submit enquiry/);
   expectStatus(await preclaimed.post("/auth/password/signin", { email: claimedEmail, password: customerPassword }), 401);
+});
+
+test("upgrading after a pre-password rollback preserves both owner sessions and the provisioned identity", async (t) => {
+  const fixture = await passwordFixture(t);
+  const initial = await fixture.start();
+  const owner = browser(initial.origin);
+  expectStatus(await owner.post("/auth/password/signin", { email: ownerEmail, password: ownerPassword }), 303);
+  const before = await initial.state();
+  const [provisioned] = before.passwordRegistrations;
+  await fixture.stop(initial.server);
+  await rm(fixture.ownerPasswordFile);
+
+  const store = await openStore(initial);
+  const legacyId = "legacy-owner";
+  const legacyToken = "A".repeat(43);
+  const now = new Date().toISOString();
+  await store.update((state) => {
+    state.users.push({ id: legacyId, email: ownerEmail, role: "owner", signupMethod: "email", subject: ownerEmail, verifiedAt: now });
+    state.sessions.push({ userId: legacyId, key: createHash("sha256").update(legacyToken).digest("base64url"),
+      expiresAt: Date.now() + 60_000, csrf: "legacy-csrf" });
+    state.signIns.push({ userId: legacyId, method: "email", occurredAt: now });
+    state.submissions.push({ id: "legacy-enquiry", formId: "enquiry", formTitle: "Project enquiry", fields: [], createdAt: now,
+      userId: legacyId, lead: { assigneeId: legacyId, status: "in_progress", notes: [] } });
+  });
+
+  const restored = await fixture.start({ port: initial.port });
+  expectStatus(await owner.get("/admin"), 200);
+  expectStatus(await browser(restored.origin).get("/admin", { headers: { Cookie: `bapx-app-session=${legacyToken}` } }), 200);
+  expectStatus(await owner.post("/auth/password/signin", { email: ownerEmail, password: ownerPassword }), 303);
+  const after = await restored.state();
+  assert.deepEqual(after.users, [{ ...provisioned, verifiedAt: now }]);
+  assert.deepEqual(after.passwordRegistrations, []);
+  assert.ok(after.sessions.every((session) => session.userId === provisioned.id));
+  assert.ok(after.signIns.every((entry) => entry.userId === provisioned.id));
+  assert.equal(after.submissions[0].userId, provisioned.id);
+  assert.equal(after.submissions[0].lead.assigneeId, provisioned.id);
 });

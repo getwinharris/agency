@@ -67,6 +67,8 @@ must include a tested compatibility or migration plan.
 Releases before password sign-in can still read the verified account and form
 records. During such a rollback, only the older release's sign-in methods are
 available. Returning to the password-enabled release restores its credentials.
+If the older release verifies the same provisioned owner's mailbox, the upgrade
+preserves the original owner ID and password along with both releases' records.
 
 Edit `forms.json` to add or change forms. Keep form and field IDs stable when
 renaming them. Submissions save the original form title and field IDs, labels,
