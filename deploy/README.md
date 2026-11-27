@@ -4,11 +4,24 @@ The [Public web Actions workflow](https://github.com/getwinharris/agency/actions
 
 The downstream `deploy` job connects to Hostinger using pinned SSH and passes the exact `main` SHA, run ID, and run attempt. Main pushes share one concurrency group with `queue: max`. The VPS verifies the successful App, Core, and web jobs for that run, checks that the candidate is in `main` history and advances the deployed revision, and downloads the matching release artifact. After verifying the digest, OCI revision, and Compose checksum, it updates only `agency-web`. Compose settings ship with the verified commit.
 
+The PR names a release owner and a browser verifier separate from the
+implementer. The owner records the merge SHA, run and attempt, and last observed
+live SHA on the PR. Follow the exact run while queued or running. Record who
+accepts any handoff. When a newer deployment supersedes the target, record that
+state and verify the new revision separately.
+
 ## Recover a missed main run
 
 1. Read the current `main` SHA and find the exact `push` run in [Public web](https://github.com/getwinharris/agency/actions/workflows/web.yml). Follow a queued or running attempt. For a failed App, Core, web or deploy job, inspect its log and rerun after a transient issue clears. A deploy-only rerun may reuse the successful upstream jobs and release artifact from the same run and SHA. If the artifact has expired, rerun all jobs. Changes to source or workflow code go through a new PR.
 2. If there is no run, check the repository’s [Actions tab](https://github.com/getwinharris/agency/actions). A maintainer can re-enable Actions if GitHub has paused the fork. Recheck the current SHA before taking further action. If the push still has no run to rerun, merge the next eligible PR through GitHub with green CI, independent QA on its exact head, and all blocking reviews resolved. Its new `main` SHA becomes the release candidate.
 3. For a failed deployment, inspect the `deploy` job and the matching `bapx-agency-web-release-<run>-<attempt>-<pid>.service` in the VPS journal. Check the recorded rollback before retrying. If a newer release has already deployed, verify that release and leave the older attempt superseded. Use the [verified release checks](#record-a-verified-release) after the deploy job succeeds.
+4. If independent browser QA finds a confirmed regression after HTTP checks
+   passed, record the live SHA, browser evidence, previous verified digest, and
+   recovery owner on the PR. The release owner coordinates recovery with an
+   authorized maintainer. Use the approved previous-image recovery if
+   available, or a reviewed revert through the normal main workflow to restore
+   the last healthy behavior. An older run cannot replace a newer live SHA.
+   Keep acceptance pending until the recovery passes HTTPS and browser checks.
 
 ## Set up the Hostinger deployment
 
@@ -77,9 +90,19 @@ Sign in to Admin as `operator` to view MediaHub inquiries and publish changes to
 Use [release notes](../gui/docs/release-notes.md) for the public changes and their verification evidence. The desktop product version comes from [`gui/apps/desktop/package.json`](../gui/apps/desktop/package.json) at the deployed commit. Web releases have their own cadence and use the full `main` SHA as their revision.
 
 1. From the successful `Public web` run for the exact released `main` SHA, read `release.json` in the `agency-web-release` artifact. Confirm the SHA and immutable image digest match the Hostinger `last-good.json` receipt and the image's OCI revision label. Match the run and attempt to the `deploy` job and the VPS journal.
-2. Confirm each public `/healthz` reports the same SHA. Exercise the changed behavior and representative pages in a real browser. Check Admin sign-in and a signed-out HTTP 401 from `GET /api/admin/session` without changing production data. Confirm the previous healthy image remains available.
+2. Confirm each public `/healthz` reports the same SHA. The independent verifier
+   uses an authorized browser to exercise the changed behavior and record the
+   URL, viewport, exact served SHA, and result on the PR. Check the Admin
+   sign-in page and signed-out HTTP 401 from `GET /api/admin/session` without
+   changing production data. Confirm the previous healthy image remains
+   available. Leave acceptance pending if browser capacity or permission blocks
+   the check. Follow rollback for a confirmed production regression.
 3. Add the verified release as a new dated entry before the older web deployments in the release notes. Record the verification time and time zone, desktop source version, full SHA, image digest, workflow run and attempt, and user-facing changes. Link the merge PR, successful run, and public pages. Keep the verification snapshot in the notes while the health endpoint follows the current deployment and the workflow artifact expires.
-4. Keep open PRs, local tests, staging runs, and public availability gaps under Pending. Move changes to a verified release entry after the applicable production checks pass. Record desktop download availability after verifying the published packages and update channel separately.
+4. Keep open PRs, local tests, staging runs, and public availability gaps under
+   Pending. The dated entry can follow in a reviewed evidence-only PR once
+   independent production acceptance passes. Verify that the entry renders
+   after its automatic rollout. The evidence-only rollout needs no duplicate
+   product release entry. Verify desktop downloads and update channels separately.
 
 ## Publish the sandbox pilot
 
