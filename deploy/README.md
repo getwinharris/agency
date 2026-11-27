@@ -85,6 +85,33 @@ Failed checks restore and verify the previously healthy image and its routing co
 
 Sign in to Admin as `operator` to view MediaHub inquiries and publish changes to its homepage. The web data volume contains briefs, operator notes, and published copy. Keep backups private because these include contact details and consent.
 
+## Verify the shared bapX account flow
+
+The public image serves the shared account window from `bapx.in`. Operators
+manage the site through its Admin menu. The proxy forwards the host-only
+session cookie on the apex account and operator API routes. Public content and
+customer sites retain their existing request isolation. The account registry
+and invitations use the service's private data volume. Browser sessions expire
+on service restart, and a user can sign in again with the same identity. The
+existing `admin.bapx.in` entry and operator credential remain available during
+migration. The enabled image fails startup if it cannot read the account
+registry, so a failed account-store check follows the normal rollback path.
+
+Use a disposable account on an approved test deployment. Sign in through the
+apex page as an authorized operator, open Admin in the same window, and issue an
+invitation for a test address. Open the invitation in a fresh browser profile,
+set a password, and confirm that the same sign-in page recognizes the account
+after signing out. The signed-in member sees the account page without an Admin
+menu. The Admin API must return HTTP 403 to the member and HTTP 401 to a signed
+out browser. Confirm that reusing an invitation fails and that an unrecognized
+return URL stays on the account page. Check the existing operator access without
+changing live MediaHub records.
+
+Invitation signup establishes a bapX identity. Workspace grants and native
+device enrollment require the authorized sandbox path tracked in
+[#46](https://github.com/getwinharris/agency/issues/46) and
+[#85](https://github.com/getwinharris/agency/issues/85).
+
 ## Record a verified release
 
 Use [release notes](../gui/docs/release-notes.md) for the public changes and their verification evidence. The desktop product version comes from [`gui/apps/desktop/package.json`](../gui/apps/desktop/package.json) at the deployed commit. Web releases have their own cadence and use the full `main` SHA as their revision.

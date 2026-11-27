@@ -1,6 +1,7 @@
 import { brandLockup, brandStylesheet, faviconLinks } from "./brand.ts";
 import { landingFaq, landingHero, runModes } from "./landing.ts";
 import { sessionWalkthrough } from "./walkthrough.ts";
+import { signInUrl } from "./auth/pages.ts";
 
 const website = "https://bapx.in";
 const docs = "https://docs.bapx.in";
@@ -12,6 +13,7 @@ const landingLinks = [
   ["Product", "#how-it-works"],
   ["Docs", `${docs}/`],
   ["Media Hub", mediaHub],
+  ["Sign in", signInUrl],
 ];
 
 const projectPaths = [
@@ -116,6 +118,7 @@ ${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</hea
     <a href="${docs}/"${surface === "Docs" ? ' aria-current="page"' : ""}>Docs</a>
     <a href="${mediaHub}">MediaHub</a>
     <a href="${source}">GitHub <span class="arrow" aria-hidden="true"></span></a>
+    <a href="${signInUrl}">Sign in</a>
   </nav>`}
 </header>
 ${body}
@@ -151,10 +154,11 @@ export function publicPages() {
     }),
     "privacy/index.html": page({
       title: "Privacy | bapX",
-      description: "How bapX handles information submitted in MediaHub project briefs.",
+      description: "How bapX handles account information and MediaHub project briefs.",
       canonical: `${website}/privacy/`,
       body: `<main id="main" class="shell document">
   <h1>Privacy</h1>
+  <section><h2>bapX accounts</h2><p>When you accept an invitation, we keep the invited email address and a password hash to operate your account. We use a secure browser cookie to keep you signed in. You can sign out from your account page.</p></section>
   <section><h2>MediaHub project briefs</h2><p>When you send a brief, we store the contact and project information you provide, your consent and limited source context such as campaign parameters, referrer and device category. We use it to review and respond to your engagement request. Your brief is only complete after the server validates and saves it.</p></section>
   <section><h2>Access and retention</h2><p>Only authorised bapX operators can access stored briefs. We keep them as long as needed to review or deliver the engagement and meet operational and legal obligations.</p></section>
   <section><h2>Your choices</h2><p>For access, correction or deletion requests, write to <a href="mailto:${contact}">${contact}</a>.</p></section>

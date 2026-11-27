@@ -81,8 +81,12 @@ the first-party bapX sites.
   and project brief form. Scope every engagement individually in INR. Store
   accepted briefs in private persistent storage and use
   `bapxmediahub@gmail.com` for public business contact.
-- `admin.bapx.in` is the private operator surface. Keep MediaHub briefs,
-  permissions, and published content under authenticated API controls.
+- The first-party surfaces share the bapX account service and sign-in page on
+  `bapx.in`. App, MediaHub and Docs belong to the same first-party release.
+  Site management is an Admin menu in the signed-in account window. Enforce
+  operator roles in Rust and keep the session cookie host-only. Preserve the
+  existing `admin.bapx.in` operator access during the migration. A separate
+  routing change requires live acceptance of the in-window replacement.
 - Public web runs separately from the native coding Core. Verify that the
   public router exposes no agent execution endpoints.
 
