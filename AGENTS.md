@@ -38,6 +38,10 @@ first-party bapX sites.
 - `gui/apps/desktop/` owns the macOS, Windows, and Linux packages. Follow the desktop
   packaging docs for versions, signing, validated downloads, and updates.
   Keep upstream license notices and compatible native protocols.
+- Build signed Apple Silicon release candidates with `dist:mac:release` at the
+  approved version and full source SHA. Keep candidate artifacts private until
+  ordinary Gatekeeper, isolated install, and the release workflow checks in the
+  [desktop packaging guide](gui/apps/desktop/README.md#build-an-apple-silicon-release-candidate) pass.
 - For App CI, use the Node version in `gui/.nvmrc`, the pnpm version in
   `gui/package.json`, and the Bun version in the App workflow.
 - Ship portable agent workflows as Agent Skills and callable tool interfaces
