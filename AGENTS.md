@@ -94,7 +94,9 @@ safe action; report non-deploying changes according to their actual scope.
    checks needed for the affected behavior. Keep docs, release instructions,
    and the changelog aligned, without marking unverified work as shipped.
 3. **Verify before merge.** Run builds and focused regression tests on the
-   actual change. Test UI flows in Ego on relevant viewports; check timing,
+   actual change. Every engineering loop must include actual browser
+   verification. Use Ego on relevant viewports for affected UI flows; for
+   backend-only changes, run a relevant browser smoke test. Check timing,
    permissions, and failure paths where applicable. Record the exact tested
    PR head, checks run, and anything skipped or blocked. Read all review
    summaries and inline comments; fix and retest valid findings. Explain
@@ -106,9 +108,10 @@ safe action; report non-deploying changes according to their actual scope.
 4. **Merge, deploy, and verify.** Merge only when required reviews, checks,
    and approvals pass. Follow the existing automatic main deployment for web
    changes. Verify both the served revision and the changed behavior at the
-   real entry point; a passing CI job, merge, or staged result is not proof of
-   production. Record PR, exact head and merge SHA, workflow run, live URL,
-   served SHA, and observed results. Name the failing step and next action if
+   real entry point in a browser; a passing CI job, merge, or staged result
+   is not proof of production. Record PR, exact head and merge SHA, workflow
+   run, live URL, served SHA, and concrete browser assertions. If browser
+   access is blocked, report that blocker and do not claim completion. Name the failing step and next action if
    blocked. Follow the rollback procedure if live checks fail.
 5. **Verify downloads separately.** Track Linux, macOS, Windows, and the
    Android APK individually for the approved version. Test the Linux installer
