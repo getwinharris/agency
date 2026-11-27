@@ -310,6 +310,7 @@ img { display: block; max-width: 100%; height: auto; }
 .demo-play {
   min-block-size: 2.75rem;
   min-inline-size: min(100%, 8.25rem);
+  max-inline-size: 100%;
   padding: .4rem .6rem;
   flex: none;
   cursor: pointer;
