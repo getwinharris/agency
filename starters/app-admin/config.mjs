@@ -75,7 +75,12 @@ export async function loadConfig(env = process.env) {
   if (Boolean(env.APP_GOOGLE_CLIENT_ID) !== Boolean(env.APP_GOOGLE_CLIENT_SECRET)) {
     throw new Error("Set both Google credential variables or omit both.");
   }
-  if (!env.APP_RESEND_API_KEY || !env.APP_EMAIL_FROM) throw new Error("Set APP_RESEND_API_KEY and APP_EMAIL_FROM.");
+  if (Boolean(env.APP_RESEND_API_KEY) !== Boolean(env.APP_EMAIL_FROM)) {
+    throw new Error("Set both email delivery variables or omit both.");
+  }
+  if (env.APP_OWNER_PASSWORD_FILE && !path.isAbsolute(env.APP_OWNER_PASSWORD_FILE)) {
+    throw new Error("APP_OWNER_PASSWORD_FILE must be an absolute path.");
+  }
   const port = Number(env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT.");
   const forms = JSON.parse(await readFile(new URL("forms.json", import.meta.url), "utf8"));
@@ -83,6 +88,7 @@ export async function loadConfig(env = process.env) {
     appId: env.APP_ID,
     appName: env.APP_NAME,
     ownerEmail,
+    ownerPasswordFile: env.APP_OWNER_PASSWORD_FILE,
     origin: origin.origin,
     host: origin.host,
     bindAddress,

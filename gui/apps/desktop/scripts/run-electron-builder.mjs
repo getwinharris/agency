@@ -52,6 +52,7 @@ const requiredSigningEnvironmentKeys = [
 ];
 
 const printConfigFlag = "--print-config";
+const macReleaseFlag = "--mac-release";
 // Same as BB_CLOUDROOM_STAMP=1, for package scripts that run in cmd.exe.
 const stampFlag = "--stamp";
 
@@ -353,8 +354,9 @@ async function main() {
   const args = process.argv.slice(2);
   const printConfig = args.includes(printConfigFlag);
   const adHoc = args.includes("--ad-hoc");
+  const macRelease = args.includes(macReleaseFlag);
   const electronBuilderArgs = args.filter(
-    (arg) => arg !== printConfigFlag && arg !== "--ad-hoc" && arg !== stampFlag,
+    (arg) => arg !== printConfigFlag && arg !== "--ad-hoc" && arg !== stampFlag && arg !== macReleaseFlag,
   );
   const macTarget = electronBuilderArgs.includes("--mac");
   const windows = !electronBuilderArgs.includes("--win")
@@ -373,6 +375,26 @@ async function main() {
     windows,
     macTarget,
   );
+
+  if (macRelease) {
+    const sourceCommit = process.env.BB_DESKTOP_COMMIT;
+    const outputDirectory = process.env.BAPX_MAC_RELEASE_OUTPUT;
+    const releaseArgs = ["--mac", "--arm64", "--publish", "never"];
+    const hasReleaseArgs = electronBuilderArgs.length === releaseArgs.length &&
+      releaseArgs.every((arg, i) => electronBuilderArgs[i] === arg);
+    if (!hasReleaseArgs || adHoc || !desktopVersion || config.appId !== "in.bapx.agents" ||
+        !signingPlan.notarizationEnabled || notarizeLater(process.env)) {
+      throw new Error("A macOS release candidate requires a stamped stable build and full signing and notarization inputs.");
+    }
+    if (!/^[a-f0-9]{40}$/u.test(sourceCommit ?? "") || !envValueIsSet(outputDirectory)) {
+      throw new Error("Run dist:mac:release with the approved version and full source commit.");
+    }
+    config.forceCodeSigning = true;
+    config.mac.extendInfo = { ...config.mac.extendInfo, BapXSourceCommit: sourceCommit };
+    config.directories.output = outputDirectory;
+    // The updater uses the ZIP. Stapling the DMG changes its bytes after the builder writes update info.
+    config.dmg.writeUpdateInfo = false;
+  }
 
   if (printConfig) {
     console.log(JSON.stringify(config, null, 2));

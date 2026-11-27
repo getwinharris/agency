@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createApp } from "./app.mjs";
+import { openStore } from "./store.mjs";
 
 const ownerEmail = "owner@example.test";
 const emailCustomer = "customer@example.test";
@@ -256,4 +257,189 @@ test("sample app verifies signup methods, handles enquiries and preserves record
     assert.match(page, /google-customer@example\.test/);
   }
   assert.deepEqual(errors, []);
+});
+
+const ownerPassword = "a disposable owner passphrase";
+const customerPassword = "a disposable customer passphrase";
+
+async function passwordFixture(t, sendEmail = null) {
+  const directory = await mkdtemp(join(tmpdir(), "bapx-app-password-"));
+  const ownerPasswordFile = join(directory, "owner-password");
+  await writeFile(ownerPasswordFile, `${ownerPassword}\n`, { mode: 0o600 });
+  const servers = new Set();
+  const errors = [];
+  async function stop(server) {
+    if (!server.listening) return;
+    const closed = once(server, "close");
+    server.close();
+    server.closeAllConnections();
+    await closed;
+  }
+  t.after(async () => {
+    await Promise.all([...servers].map(stop));
+    await rm(directory, { recursive: true, force: true });
+    assert.deepEqual(errors, []);
+  });
+  async function start({ forms = formsV1, port = 0, appId = "password-sample" } = {}) {
+    const dataDir = join(directory, appId);
+    const config = { appId, appName: "Disposable password sample", dataDir, forms, ownerEmail, ownerPasswordFile };
+    const server = await createApp({ config, sendEmail, reportError: (error) => errors.push(error) });
+    servers.add(server);
+    server.listen(port, "127.0.0.1");
+    await once(server, "listening");
+    config.host = `127.0.0.1:${server.address().port}`;
+    config.origin = `http://${config.host}`;
+    return { server, origin: config.origin, port: server.address().port, appId, dataDir,
+      state: async () => JSON.parse(await readFile(join(dataDir, "state.json"), "utf8")) };
+  }
+  return { start, stop, ownerPasswordFile };
+}
+
+test("password accounts work without providers and preserve app roles and enquiries through rollback", { timeout: 20_000 }, async (t) => {
+  const fixture = await passwordFixture(t);
+  const first = await fixture.start();
+  const other = await fixture.start({ appId: "second-app" });
+  const owner = browser(first.origin);
+  const customer = browser(first.origin);
+  const anonymous = browser(first.origin);
+  const page = expectStatus(await anonymous.get("/"), 200).body;
+  assert.match(page, /action="\/auth\/password\/signin"/);
+  assert.doesNotMatch(page, /Send sign-in link|Continue with Google/);
+  expectStatus(await anonymous.post("/auth/password/signup", { email: ownerEmail, password: customerPassword }), 409);
+  expectStatus(await anonymous.post("/auth/password/signup", { email: emailCustomer, password: "short" }), 400);
+  expectStatus(await anonymous.post("/auth/password/signup", { email: emailCustomer, password: customerPassword },
+    { Origin: "https://other.example.test" }), 403);
+  expectStatus(await customer.post("/auth/password/signup", { email: emailCustomer, password: customerPassword }), 303);
+  expectStatus(await anonymous.post("/auth/password/signup", { email: emailCustomer, password: ownerPassword }), 409);
+
+  const credentialError = expectStatus(await anonymous.post("/auth/password/signin", { email: emailCustomer, password: ownerPassword }), 401);
+  assert.equal(credentialError.body, expectStatus(await anonymous.post("/auth/password/signin", {
+    email: "unknown@example.test", password: ownerPassword,
+  }), 401).body);
+  const signedUp = expectStatus(await customer.get("/"), 200).body;
+  expectStatus(await customer.post("/auth/signout", { _csrf: getInput(signedUp, "_csrf") }), 303);
+  expectStatus(await customer.post("/auth/password/signin", { email: emailCustomer, password: customerPassword }), 303);
+  expectStatus(await customer.get("/admin"), 403);
+  expectStatus(await owner.post("/auth/password/signin", { email: ownerEmail, password: ownerPassword }), 303);
+  expectStatus(await browser(other.origin).get("/admin", { headers: { Cookie: owner.cookieHeader() } }), 401);
+
+  const originalForm = expectStatus(await customer.get("/"), 200).body;
+  expectStatus(await customer.post("/forms/enquiry", { _csrf: getInput(originalForm, "_csrf"),
+    _revision: getInput(originalForm, "_revision"), message: "Original enquiry from a password account" }), 303);
+  const state = await first.state();
+  const [enquiry] = state.submissions;
+  const ownerAccount = state.passwordRegistrations.find((user) => user.role === "owner");
+  const customerAccount = state.passwordRegistrations.find((user) => user.role === "customer");
+  assert.deepEqual(state.users, []);
+  assert.deepEqual(state.signIns.map(({ method }) => method), ["password", "password"]);
+  assert.equal(enquiry.userId, customerAccount.id);
+  assert.notEqual(ownerAccount.passwordHash.salt, customerAccount.passwordHash.salt);
+  for (const account of [ownerAccount, customerAccount]) {
+    assert.equal(account.passwordHash.algorithm, "scrypt-v1");
+    assert.match(account.passwordHash.salt, /^[\da-f]{32}$/);
+    assert.match(account.passwordHash.key, /^[\da-f]{64}$/);
+    assert.equal(account.verifiedAt, null);
+  }
+  assert.ok(!JSON.stringify(state).includes(customerPassword) && !JSON.stringify(state).includes(ownerPassword));
+
+  const enquiryUrl = `/admin?submission=${enquiry.id}`;
+  const adminPage = expectStatus(await owner.get(enquiryUrl), 200).body;
+  assert.match(adminPage, /Unverified/);
+  assert.doesNotMatch(adminPage, new RegExp(ownerAccount.passwordHash.key));
+  const ownerCsrf = getInput(adminPage, "_csrf");
+  expectStatus(await owner.post(`/admin/roles/${customerAccount.id}`, { _csrf: ownerCsrf, role: "staff" }), 403);
+  expectStatus(await customer.post(`/admin/submissions/${enquiry.id}`, { _csrf: getInput(originalForm, "_csrf"),
+    assignee: ownerAccount.id, status: "closed" }), 403);
+  expectStatus(await owner.post(`/admin/submissions/${enquiry.id}`, { _csrf: ownerCsrf,
+    assignee: ownerAccount.id, status: "in_progress", note: "Assigned by the app owner" }), 303);
+  const durable = await first.state();
+
+  await rm(fixture.ownerPasswordFile);
+  await fixture.stop(first.server);
+  const edited = await fixture.start({ forms: formsV2, port: first.port });
+  assert.match(expectStatus(await customer.get("/"), 200).body, /Revised brief/);
+  assert.match(expectStatus(await owner.get(enquiryUrl), 200).body, /Original enquiry from a password account/);
+  await fixture.stop(edited.server);
+  const rollback = await fixture.start({ port: first.port });
+  assert.match(expectStatus(await owner.get(enquiryUrl), 200).body, /Assigned by the app owner/);
+  assert.deepEqual(await rollback.state(), durable);
+});
+
+test("email verification preserves the password identity and prevents account pre-claim", { timeout: 20_000 }, async (t) => {
+  const { mailbox, sendEmail } = providerFixture();
+  const fixture = await passwordFixture(t, sendEmail);
+  const site = await fixture.start();
+  const customer = browser(site.origin);
+  const anonymous = browser(site.origin);
+  const owner = browser(site.origin);
+  expectStatus(await customer.post("/auth/password/signup", { email: emailCustomer, password: customerPassword }), 303);
+  const before = (await site.state()).passwordRegistrations.find((user) => user.email === emailCustomer);
+  const customerPage = expectStatus(await customer.get("/"), 200).body;
+  expectStatus(await customer.post("/auth/email", { email: emailCustomer, _csrf: getInput(customerPage, "_csrf") }), 200);
+  const link = mailbox.get(emailCustomer);
+  expectStatus(await anonymous.get(link), 401);
+  const verify = expectStatus(await customer.get(link), 200);
+  const token = getInput(verify.body, "token");
+  expectStatus(await customer.post("/auth/email/verify", { token }), 303);
+  expectStatus(await customer.post("/auth/email/verify", { token }), 401);
+  const confirmed = (await site.state()).users.find((user) => user.email === emailCustomer);
+  assert.equal(confirmed.id, before.id);
+  assert.deepEqual(confirmed.passwordHash, before.passwordHash);
+  assert.ok(confirmed.verifiedAt);
+
+  expectStatus(await owner.post("/auth/password/signin", { email: ownerEmail, password: ownerPassword }), 303);
+  const adminPage = expectStatus(await owner.get("/admin"), 200).body;
+  expectStatus(await owner.post(`/admin/roles/${confirmed.id}`, { _csrf: getInput(adminPage, "_csrf"), role: "staff" }), 303);
+  expectStatus(await customer.get("/admin"), 200);
+  const staffHome = expectStatus(await customer.get("/"), 200).body;
+  expectStatus(await customer.post("/auth/signout", { _csrf: getInput(staffHome, "_csrf") }), 303);
+  expectStatus(await customer.post("/auth/password/signin", { email: emailCustomer, password: customerPassword }), 303);
+  expectStatus(await customer.get("/admin"), 200);
+
+  const claimedEmail = "mailbox-owner@example.test";
+  const preclaimed = browser(site.origin);
+  expectStatus(await preclaimed.post("/auth/password/signup", { email: claimedEmail, password: customerPassword }), 303);
+  const unauthenticatedId = (await site.state()).passwordRegistrations.find((user) => user.email === claimedEmail).id;
+  await signUpByEmail(anonymous, mailbox, claimedEmail);
+  const mailboxOwner = (await site.state()).users.find((user) => user.email === claimedEmail);
+  assert.notEqual(mailboxOwner.id, unauthenticatedId);
+  assert.equal(mailboxOwner.passwordHash, undefined);
+  assert.doesNotMatch(expectStatus(await preclaimed.get("/"), 200).body, /Submit enquiry/);
+  expectStatus(await preclaimed.post("/auth/password/signin", { email: claimedEmail, password: customerPassword }), 401);
+});
+
+test("upgrading after a pre-password rollback preserves both owner sessions and the provisioned identity", async (t) => {
+  const fixture = await passwordFixture(t);
+  const initial = await fixture.start();
+  const owner = browser(initial.origin);
+  expectStatus(await owner.post("/auth/password/signin", { email: ownerEmail, password: ownerPassword }), 303);
+  const before = await initial.state();
+  const [provisioned] = before.passwordRegistrations;
+  await fixture.stop(initial.server);
+  await rm(fixture.ownerPasswordFile);
+
+  const store = await openStore(initial);
+  const legacyId = "legacy-owner";
+  const legacyToken = "A".repeat(43);
+  const now = new Date().toISOString();
+  await store.update((state) => {
+    state.users.push({ id: legacyId, email: ownerEmail, role: "owner", signupMethod: "email", subject: ownerEmail, verifiedAt: now });
+    state.sessions.push({ userId: legacyId, key: createHash("sha256").update(legacyToken).digest("base64url"),
+      expiresAt: Date.now() + 60_000, csrf: "legacy-csrf" });
+    state.signIns.push({ userId: legacyId, method: "email", occurredAt: now });
+    state.submissions.push({ id: "legacy-enquiry", formId: "enquiry", formTitle: "Project enquiry", fields: [], createdAt: now,
+      userId: legacyId, lead: { assigneeId: legacyId, status: "in_progress", notes: [] } });
+  });
+
+  const restored = await fixture.start({ port: initial.port });
+  expectStatus(await owner.get("/admin"), 200);
+  expectStatus(await browser(restored.origin).get("/admin", { headers: { Cookie: `bapx-app-session=${legacyToken}` } }), 200);
+  expectStatus(await owner.post("/auth/password/signin", { email: ownerEmail, password: ownerPassword }), 303);
+  const after = await restored.state();
+  assert.deepEqual(after.users, [{ ...provisioned, verifiedAt: now }]);
+  assert.deepEqual(after.passwordRegistrations, []);
+  assert.ok(after.sessions.every((session) => session.userId === provisioned.id));
+  assert.ok(after.signIns.every((entry) => entry.userId === provisioned.id));
+  assert.equal(after.submissions[0].userId, provisioned.id);
+  assert.equal(after.submissions[0].lead.assigneeId, provisioned.id);
 });

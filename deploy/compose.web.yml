@@ -29,6 +29,36 @@ services:
       traefik.http.routers.agency-web.middlewares: agency-public
       traefik.http.routers.agency-web.rule: >-
         Host(`bapx.in`) || Host(`www.bapx.in`) || Host(`docs.bapx.in`) || Host(`mediahub.bapx.in`)
+      traefik.http.routers.agency-account.entrypoints: websecure
+      traefik.http.routers.agency-account.tls: "true"
+      traefik.http.routers.agency-account.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-account.service: agency-web
+      traefik.http.routers.agency-account.priority: "510"
+      traefik.http.routers.agency-account.rule: >-
+        Host(`bapx.in`) && PathPrefix(`/api/auth/`)
+      traefik.http.routers.agency-account-admin.entrypoints: websecure
+      traefik.http.routers.agency-account-admin.tls: "true"
+      traefik.http.routers.agency-account-admin.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-account-admin.service: agency-web
+      traefik.http.routers.agency-account-admin.priority: "510"
+      traefik.http.routers.agency-account-admin.rule: >-
+        Host(`bapx.in`) && PathPrefix(`/api/admin/`)
+      traefik.http.routers.agency-account-login.entrypoints: websecure
+      traefik.http.routers.agency-account-login.tls: "true"
+      traefik.http.routers.agency-account-login.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-account-login.service: agency-web
+      traefik.http.routers.agency-account-login.priority: "520"
+      traefik.http.routers.agency-account-login.rule: >-
+        Host(`bapx.in`) && Path(`/api/auth/sign-in`) && Method(`POST`)
+      traefik.http.routers.agency-account-login.middlewares: agency-admin-rate
+      traefik.http.routers.agency-account-signup.entrypoints: websecure
+      traefik.http.routers.agency-account-signup.tls: "true"
+      traefik.http.routers.agency-account-signup.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-account-signup.service: agency-web
+      traefik.http.routers.agency-account-signup.priority: "520"
+      traefik.http.routers.agency-account-signup.rule: >-
+        Host(`bapx.in`) && Path(`/api/auth/signup`) && Method(`POST`)
+      traefik.http.routers.agency-account-signup.middlewares: agency-admin-rate
       traefik.http.routers.agency-admin.entrypoints: websecure
       traefik.http.routers.agency-admin.tls: "true"
       traefik.http.routers.agency-admin.tls.certresolver: letsencrypt

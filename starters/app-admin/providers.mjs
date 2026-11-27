@@ -26,6 +26,7 @@ export function googleProvider(config) {
 }
 
 export function mailProvider(config) {
+  if (!config.mailKey || !config.mailFrom) return null;
   return async ({ email, link }) => {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",

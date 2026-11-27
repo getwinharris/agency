@@ -1,6 +1,8 @@
 // Only `git` (the app's Git panel) and `fs` (its files) build on Windows; everything else needs Unix.
 #[cfg(unix)]
 pub mod api;
+#[cfg(target_os = "linux")]
+pub mod business_sandbox;
 #[cfg(unix)]
 pub mod computer_use;
 #[cfg(unix)]

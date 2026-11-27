@@ -26,6 +26,7 @@
     "desktop:build:win": "pnpm run build --stamp && node scripts/run-electron-builder.mjs --win --x64 --publish never --stamp",
     "dev": "pnpm run prepare-runtime && pnpm run build && node --conditions=source --import tsx scripts/run-electron-dev.mjs",
     "dist": "pnpm run prepare-runtime && pnpm run desktop:build",
+    "dist:mac:release": "node scripts/build-macos-release.mjs",
     "dist:linux": "pnpm run prepare-runtime && pnpm run desktop:build:linux",
     "dist:win": "pnpm run prepare-runtime && pnpm run desktop:build:win",
     "package": "pnpm run prepare-runtime && pnpm run build --stamp && node scripts/run-electron-builder.mjs --stamp --mac --dir --arm64",

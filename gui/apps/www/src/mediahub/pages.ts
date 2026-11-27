@@ -1,5 +1,6 @@
 import { mediahubClients, type MediaHubClient } from "./portfolio.ts";
-import { faviconLinks, wordmark } from "../brand.ts";
+import { brandLockup, brandStylesheet, faviconLinks } from "../brand.ts";
+import { signInUrl } from "../auth/pages.ts";
 
 const mediaHubUrl = "https://mediahub.bapx.in";
 const businessEmail = "bapxmediahub@gmail.com";
@@ -23,12 +24,10 @@ function escapeHtml(value: string): string {
 
 function navigation(isHome: boolean): string {
   const home = isHome ? "" : "/";
-  const links = `<a href="${home}#work">Work</a><a href="${home}#services">Services</a><a href="${home}#approach">Approach</a>`;
+  const links = `<a href="${home}#work">Work</a><a href="${home}#services">Services</a><a href="${home}#approach">Approach</a><a href="${signInUrl}">Sign in</a>`;
   return `<header class="site-header">
     <nav class="container navigation" aria-label="Primary navigation">
-      <a class="lockup" href="/" aria-label="bapX MediaHub home">
-        <img src="${wordmark}" width="114" height="38" alt=""><strong>MediaHub</strong>
-      </a>
+      ${brandLockup("lockup", 114, "MediaHub")}
       <div class="desktop-links">${links}</div>
       <a class="button button-primary nav-cta" href="${home}#brief">Start a project</a>
       <details class="mobile-links">
@@ -48,6 +47,7 @@ function documentPage(title: string, summary: string, path: string, content: str
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(summary)}">
+  ${brandStylesheet}
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
   <meta property="og:type" content="website">

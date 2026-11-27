@@ -1,4 +1,5 @@
 const byId = (id) => document.getElementById(id);
+const unifiedAdmin = byId("admin-workspace").hasAttribute("data-account-admin");
 const statuses = {
   new: "New",
   contacted: "Contacted",
@@ -27,8 +28,8 @@ function notice(id, message, error = false) {
   element.classList.toggle("error", error);
 }
 
-async function request(path, data) {
-  const opts = { cache: "no-store", credentials: "same-origin" };
+async function request(path, data, scope = "admin") {
+  const opts = { cache: "no-store", credentials: "same-origin", redirect: "error" };
   if (data !== undefined) {
     opts.method = "POST";
     opts.headers = { "Content-Type": "application/json" };
@@ -36,7 +37,7 @@ async function request(path, data) {
   }
   let response;
   try {
-    response = await fetch(`/api/admin/${path}`, opts);
+    response = await fetch(`/api/${scope}/${path}`, opts);
   } catch {
     throw new Error("Could not reach Admin. Try again.");
   }
@@ -45,6 +46,10 @@ async function request(path, data) {
     if (response.status === 401 && operator) {
       showLogin("Your session expired. Sign in again.");
     }
+    if (response.status === 403 && operator && unifiedAdmin && path !== "sign-out") {
+      clearWorkspace();
+      dispatchEvent(new Event("bapx:admin-access-denied"));
+    }
     const error = new Error(payload?.message || "Admin is temporarily unavailable.");
     error.status = response.status;
     throw error;
@@ -52,7 +57,7 @@ async function request(path, data) {
   return payload;
 }
 
-function showLogin(message = "") {
+function clearWorkspace() {
   operator = null;
   sessionVersion++;
   records = null;
@@ -63,6 +68,7 @@ function showLogin(message = "") {
   copyConflict = false;
   byId("inbox").hidden = true;
   byId("copy").hidden = true;
+  byId("invitations").hidden = true;
   byId("side-menu").hidden = true;
   byId("operator-bar").hidden = true;
   byId("operator-name").textContent = "";
@@ -76,9 +82,24 @@ function showLogin(message = "") {
   byId("detail-reference").textContent = "";
   byId("detail-brief").textContent = "";
   byId("publish-copy").reset();
-  byId("password").value = "";
+  if (!unifiedAdmin) {
+    byId("login").hidden = true;
+    byId("password").value = "";
+  }
+  byId("invite-form").reset();
+  byId("invite-link").value = "";
+  byId("invite-result").hidden = true;
+  notice("invite-notice", "");
   notice("copy-notice", "");
   renderCopy();
+}
+
+function showLogin(message = "") {
+  clearWorkspace();
+  if (unifiedAdmin) {
+    location.replace("/sign-in/");
+    return;
+  }
   byId("login").hidden = false;
   notice("login-notice", message, Boolean(message));
 }
@@ -87,8 +108,9 @@ function showWorkspace(username) {
   operator = username;
   sessionVersion++;
   byId("initial-status").hidden = true;
-  byId("login").hidden = true;
+  if (!unifiedAdmin) byId("login").hidden = true;
   byId("side-menu").hidden = false;
+  byId("nav-invitations").hidden = !unifiedAdmin;
   byId("operator-bar").hidden = false;
   byId("operator-name").textContent = username;
   notice("detail-notice", "");
@@ -98,9 +120,8 @@ function showWorkspace(username) {
 function openView(next) {
   view = next;
   if (!operator) return;
-  byId("inbox").hidden = view !== "inbox";
-  byId("copy").hidden = view !== "copy";
-  for (const name of ["inbox", "copy"]) {
+  for (const name of ["inbox", "copy", "invitations"]) {
+    byId(name).hidden = view !== name;
     const button = byId(`nav-${name}`);
     if (view === name) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -109,7 +130,7 @@ function openView(next) {
     renderInbox();
     renderDetail();
     if (!records) void loadInbox();
-  } else if (!currentCopy) {
+  } else if (view === "copy" && !currentCopy) {
     void loadCopy();
   }
 }
@@ -330,6 +351,9 @@ async function loadCopy() {
 
 byId("nav-inbox").addEventListener("click", () => openView("inbox"));
 byId("nav-copy").addEventListener("click", () => openView("copy"));
+byId("nav-invitations").addEventListener("click", () => {
+  if (unifiedAdmin) openView("invitations");
+});
 byId("reload-inbox").addEventListener("click", loadInbox);
 byId("reload-copy").addEventListener("click", loadCopy);
 byId("search").addEventListener("input", renderInbox);
@@ -351,7 +375,7 @@ byId("reset-copy").addEventListener("click", () => {
   byId("headline").focus();
 });
 
-byId("login-form").addEventListener("submit", async (event) => {
+byId("login-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = byId("submit-login");
   button.disabled = true;
@@ -377,14 +401,53 @@ byId("sign-out").addEventListener("click", async (event) => {
   const message = byId("global-notice");
   message.hidden = true;
   try {
-    await request("logout", {});
+    if (unifiedAdmin) await request("sign-out", {}, "auth");
+    else await request("logout", {});
     showLogin();
-    byId("username").focus();
+    if (!unifiedAdmin) byId("username").focus();
   } catch (error) {
     message.hidden = false;
     notice("global-notice", error.message, true);
   } finally {
     button.disabled = false;
+  }
+});
+
+byId("invite-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!unifiedAdmin || !operator) return;
+  const version = sessionVersion;
+  const button = byId("create-invite");
+  const output = byId("invite-link");
+  output.value = "";
+  byId("invite-result").hidden = true;
+  button.disabled = true;
+  notice("invite-notice", "");
+  try {
+    const result = await request("invitations", { email: byId("invite-email").value.trim() }, "auth");
+    if (version !== sessionVersion) return;
+    if (!/^[a-f0-9]{64}$/.test(result?.invite)) throw new Error("The invitation response was invalid.");
+    const url = new URL("/signup/", "https://bapx.in");
+    url.hash = `invite=${result.invite}`;
+    output.value = url.href;
+    byId("invite-result").hidden = false;
+    notice("invite-notice", "Invitation created.");
+  } catch (error) {
+    if (version === sessionVersion) notice("invite-notice", error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+byId("copy-invite").addEventListener("click", async () => {
+  const output = byId("invite-link");
+  if (!unifiedAdmin || !operator || !output.value) return;
+  try {
+    await navigator.clipboard.writeText(output.value);
+    notice("invite-notice", "Signup link copied.");
+  } catch {
+    output.select();
+    notice("invite-notice", "Select and copy the signup link.");
   }
 });
 
@@ -456,6 +519,16 @@ byId("publish-copy").addEventListener("submit", async (event) => {
   }
 });
 
-request("session")
-  .then(({ username }) => showWorkspace(username))
-  .catch((error) => showLogin(error.message === "Sign in to continue." ? "" : error.message));
+if (unifiedAdmin) {
+  addEventListener("bapx:open-admin", (event) => {
+    const identifier = event.detail;
+    if (operator !== identifier) {
+      if (operator) clearWorkspace();
+      showWorkspace(identifier);
+    }
+  });
+} else {
+  request("session")
+    .then(({ username }) => showWorkspace(username))
+    .catch((error) => showLogin(error.message === "Sign in to continue." ? "" : error.message));
+}

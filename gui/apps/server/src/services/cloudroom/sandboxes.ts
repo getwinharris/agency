@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { access, chmod, constants, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, chmod, constants, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
 import type { HostDaemonContributedEnvEntry } from "@cloudroom/host-daemon-contract";
@@ -143,7 +143,9 @@ export type CloudCapacity = "paid" | "priority";
 /** The account's Cloud Credits in the rolling 30 days (ADR 0307), for the sidebar card; null credits while metering is stale. */
 /** Plan credits used this credit period, when they refill (ADR 20261108-142517; null from older websites), and credits
  *  left in live packs (ADR 0317): 0 from older websites. */
-export type PlanUsage = { plan: string; credits: number | null; creditsLimit: number; resetsAt: string | null; extraCredits: number; extraCreditsTotal: number };
+export type PlanUsage = { plan: string; credits: number | null; creditsLimit: number; resetsAt: string | null; extraCredits: number; extraCreditsTotal: number;
+  /** Free's new Cloud threads left this month and in the rolling hour, null when uncapped or from older websites (scans fit in them, #2645). */
+  threadsLeft?: number | null; threadsHourLeft?: number | null };
 /** A thread family burning credits fast, shown under its top thread in the sidebar (docs/scopes/credit-burn.md): credits
  *  in the last hour, and how many subagents used most of them (0: the thread itself did). */
 export type CreditBurn = { credits: number; subagents: number };
@@ -182,6 +184,7 @@ const CONFIG_TAR_BUDGET = CONFIG_TAR_LIMIT - 1024 * 1024;
 const CONFIG_TAR_TIMEOUT_MS = 60_000;
 // Mac-built dependency and cache folders: useless on Linux, and tens of thousands of files that made tar time out (#214).
 const CONFIG_SKIP_DIRS = new Set([".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".next", ".turbo"]);
+const configSkipped = (name: string, isDir: boolean) => [".git", "node_modules", ".DS_Store"].includes(name) || (isDir && CONFIG_SKIP_DIRS.has(name));
 const codexAuthPath = () => join(process.env.CODEX_HOME || join(homedir(), ".codex"), "auth.json");
 export const hasMacCodexLogin = () => access(codexAuthPath()).then(() => true, () => false);
 /** Zero-process check for a local `gh` login on github.com; returns the handle when present in hosts.yml, never tokens. */
@@ -740,7 +743,7 @@ export async function macSkills(): Promise<MacSkill[]> {
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-type ConfigPathFiles = { files: string[]; bytes: number; skipped: number };
+type ConfigPathFiles = { files: string[]; bytes: number; skipped: number; leftOut: string[] };
 
 class ConfigTarError extends CloudroomError {
   constructor(message: string, readonly transient: boolean) { super(message); }
@@ -764,6 +767,7 @@ async function configFiles(home: string, paths: string[]): Promise<ConfigPathFil
   const files: string[] = [];
   let bytes = 0;
   let skipped = 0;
+  const leftOut: string[] = [];
   for (const path of paths) {
     const root = await realpath(join(home, path)).catch(() => null);
     if (!root) { skipped += 1; continue; }
@@ -775,6 +779,12 @@ async function configFiles(home: string, paths: string[]): Promise<ConfigPathFil
       const info = await stat(full).catch(() => null);
       if (!info) { skipped += 1; return; }
       if (!info.isFile() && !info.isDirectory()) return;
+      // A link such as `env -> .venv` resolves into a skipped folder, so it stays out like the folder; Settings names both (#214).
+      const real = relative(root, target).split(sep);
+      if (entry !== path && (configSkipped(basename(entry), info.isDirectory()) || real.some((part, i) => configSkipped(part, i < real.length - 1 || info.isDirectory())))) {
+        leftOut.push(basename(entry));
+        return;
+      }
       const tarPath = entry.split(sep).join("/");
       if (info.isFile()) {
         if (!fitsUstarPath(tarPath) || !await access(full, constants.R_OK).then(() => true, () => false)) { skipped += 1; return; }
@@ -782,7 +792,6 @@ async function configFiles(home: string, paths: string[]): Promise<ConfigPathFil
         bytes += 512 + Math.ceil(info.size / 512) * 512;
         return;
       }
-      if (entry !== path && CONFIG_SKIP_DIRS.has(basename(entry))) return;
       const names = await readdir(full).catch(() => null);
       if (!names) { skipped += 1; return; }
       if (fitsUstarPath(tarPath)) {
@@ -791,13 +800,13 @@ async function configFiles(home: string, paths: string[]): Promise<ConfigPathFil
       }
       ancestors.add(target);
       for (const name of names) {
-        if (![".git", "node_modules", ".DS_Store"].includes(name)) await visit(join(entry, name));
+        if (![".git", ".DS_Store"].includes(name)) await visit(join(entry, name));
       }
       ancestors.delete(target);
     };
     await visit(path);
   }
-  return { files, bytes, skipped };
+  return { files, bytes, skipped, leftOut };
 }
 
 type ExecFileError = Error & {
@@ -968,7 +977,7 @@ export class SandboxDirectory {
   /** Gets the token the website refused as signed out, so the app signs out too and asks to sign in again. */
   onSignedOut: (token: string) => void = () => {};
   /** `woke` runs after each wake, so the Mac helper lists the new sandbox now instead of at its next minute check. */
-  constructor(readonly account: () => Promise<SandboxAccount | null>, private readonly woke: (thread: string) => void = () => {}) {}
+  constructor(readonly account: () => Promise<SandboxAccount | null>, private readonly woke: (thread: string) => void = () => {}, private readonly copiedFile = "") {}
 
   /** Aborted by each reset (#1940): requests sent before an account switch or sign-out never fill the next one's state. */
   private session = new AbortController();
@@ -1055,6 +1064,27 @@ export class SandboxDirectory {
     return z.object({ sent: z.boolean() }).parse(await this.call({}, "usage-request"));
   }
 
+  /** The member's 40% lifetime affiliate link and earnings summary from Dub Partners. */
+  async referrals(action: "get" | "create") {
+    const value = await this.call({ action }, "referrals");
+    return z.object({
+      available: z.boolean().default(true),
+      joined: z.boolean(),
+      link: z.string().nullable(),
+      monthlyCents: z.number().default(0),
+      totalEarnedCents: z.number().default(0),
+      pendingCents: z.number().default(0),
+      payingCount: z.number().default(0),
+      signupsCount: z.number().default(0),
+      recent: z.array(z.object({
+        id: z.string(),
+        kind: z.enum(["sale", "lead"]),
+        earningsCents: z.number(),
+        status: z.string(),
+        createdAt: z.string(),
+      })).default([]),
+    }).parse(value);
+  }
   popups(body: Record<string, string>): Promise<unknown> {
     return this.call(body, "popups");
   }
@@ -1250,14 +1280,19 @@ export class SandboxDirectory {
     }
     let pending = this.wakes.get(thread);
     if (!pending) {
+      let fresh = false;
       this.wakeStarts.set(thread, Date.now());
       // The Mac's harness versions: the sandbox upgrades to them before its agent starts (ADR 0133).
       pending = macHarnessVersions().then(harnesses => {
         this.wakeHarnesses.set(thread, harnesses);
         const hints = this.firstWake.get(thread), from = this.keySource(thread);
+        fresh = hints !== undefined;
         return this.call({ action: "wake", ...place, ...hints, ...(from ? { from } : {}), ...(parent ? { parent } : {}), harnesses, ...(this.backoff.has(thread) && !exit ? { trigger: "retry" } : trigger ? { trigger } : {}) });
       }).then(value => this.remember(viewSchema.parse(value))).then(view => {
         this.firstWake.delete(thread);
+        // A new thread used one of Free's threads this month: count it now, not at the next usage check (#2645).
+        const usage = this.usage?.value, less = (left?: number | null) => typeof left === "number" ? Math.max(0, left - 1) : left;
+        if (fresh && this.usage && usage) this.usage = { ...this.usage, value: { ...usage, threadsLeft: less(usage.threadsLeft), threadsHourLeft: less(usage.threadsHourLeft) } };
         this.woke(view.thread);
         this.backoff.delete(thread);
         this.capped.delete(thread);
@@ -1280,7 +1315,10 @@ export class SandboxDirectory {
         const delay = quick ? 2_000 : moving ? 5_000 : Math.min(Math.max(previous?.delay ?? 0, 2_500) * 2, restoring ? 15_000 : wait ? 60_000 : 300_000);
         // Out of Cloud Credits: wait until the minute mode check sees credits again (checkMode clears it), not every 5 minutes.
         const held = error instanceof CloudroomError && error.code === USAGE_LIMIT;
-        this.backoff.set(thread, { until: held ? Infinity : Date.now() + delay, delay, tries, refusal: error instanceof CloudroomError && (error.status !== null || wait) ? error : null });
+        // Free's monthly thread cap lifts only at its reset, an upgrade, or bought credits (liftFreeCap): wait for those,
+        // not every 5 minutes for weeks (David, 2026-11-26).
+        const capped = error instanceof CloudroomError && error.code === AGENT_LIMIT ? this.freeCapResetAt() : null;
+        this.backoff.set(thread, { until: held ? Infinity : capped ?? Date.now() + delay, delay, tries, refusal: error instanceof CloudroomError && (error.status !== null || wait) ? error : null });
         throw error;
       }).finally(() => this.wakes.delete(thread));
       this.wakes.set(thread, pending);
@@ -1386,6 +1424,19 @@ export class SandboxDirectory {
   private usage: { value: PlanUsage | null; next: number } | null = null;
   private usageRefresh: Promise<void> | null = null;
   private lastForcedUsageAt = 0;
+  /** When Free's monthly thread cap resets: with its credits (ADR 20261124-160120). An hour from now when not known yet. */
+  private freeCapResetAt(): number {
+    const reset = Date.parse(this.usage?.value?.resetsAt ?? "");
+    return Number.isFinite(reset) && reset > Date.now() ? reset : Date.now() + 3_600_000;
+  }
+  /** Free's Cloud is used up, so the new-thread screen warns before a send: its credits, or its monthly thread cap, which
+   *  this app learns from a refused start. `resetsAt`: when both come back. Null for paid plans and while Cloud is open. */
+  cloudLimit(): { kind: "credits" | "threads"; resetsAt: string | null } | null {
+    if (this.plan !== "free") return null;
+    const resetsAt = this.usage?.value?.resetsAt ?? null;
+    if (this.limit?.on) return { kind: "credits", resetsAt };
+    return this.capped.size > 0 && !(Date.parse(resetsAt ?? "") <= Date.now()) ? { kind: "threads", resetsAt } : null;
+  }
   /** Forgets Free's monthly thread cap (`cloud_agent_limit`, ADR 20261124-160120): refusals, waits, and capped threads. */
   private liftFreeCap(): void {
     if (this.refused?.code === AGENT_LIMIT) this.refused = null;
@@ -1397,7 +1448,7 @@ export class SandboxDirectory {
     this.usageRefresh = this.call({ action: "usage" }).then((value) => {
       // A website without credits (say, rolled back) shows no card rather than old units.
       const parsed = z.object({ plan: z.string(), credits: z.number().nullable(), credits_limit: z.number(), resets_at: z.string().nullable().catch(null),
-        extra_credits: z.number().catch(0), extra_credits_total: z.number().catch(0) }).safeParse(value);
+        extra_credits: z.number().catch(0), extra_credits_total: z.number().catch(0), threads_left: z.number().nullable().catch(null), threads_hour_left: z.number().nullable().catch(null) }).safeParse(value);
       const recheck = z.object({ recheck_seconds: z.number().default(600) }).parse(value).recheck_seconds;
       // The website returns awake families above its low mark, and marks the hot ones. A line, once shown, stays
       // until its family drops below that mark, so it never blinks on and off. Older websites send none; `null` means
@@ -1408,7 +1459,7 @@ export class SandboxDirectory {
       if (parsed.success && parsed.data.plan === "free" && parsed.data.extra_credits > 0) this.liftFreeCap();
       this.usage = {
         value: parsed.success ? { plan: parsed.data.plan, credits: parsed.data.credits, creditsLimit: parsed.data.credits_limit, resetsAt: parsed.data.resets_at,
-          extraCredits: parsed.data.extra_credits, extraCreditsTotal: parsed.data.extra_credits_total } : null,
+          extraCredits: parsed.data.extra_credits, extraCreditsTotal: parsed.data.extra_credits_total, threadsLeft: parsed.data.threads_left, threadsHourLeft: parsed.data.threads_hour_left } : null,
         next: Date.now() + Math.max(recheck, 60) * 1000,
       };
     }, () => { this.usage = { value: this.usage?.value ?? null, next: Date.now() + RECHECK_MS }; }).finally(() => { this.usageRefresh = null; });
@@ -1510,6 +1561,7 @@ export class SandboxDirectory {
     this.configAt = 0;
     this.configDigest = "";
     this.configIssue = null;
+    this.configLeftOut = [];
     // The next sign-in asks again whether the website lists threads, instead of keeping an old "no" for an hour.
     this.threadsSupport = null;
     this.threadsFailed = 0;
@@ -1713,6 +1765,13 @@ export class SandboxDirectory {
   /** Shared projects live on the website (docs/scopes/shared-projects.md); the Shared projects plugin's requests pass through. */
   async projectShares(body: Record<string, unknown>): Promise<unknown> {
     return this.call(body, "project-shares");
+  }
+
+  /** What the Director learned lives on the website (docs/scopes/director.md#learning); the Director plugin's requests pass through. */
+  async director(body: Record<string, unknown>): Promise<unknown> {
+    // Short, like Snippets: a slow website never holds up a ping or the settings.
+    const bound = await this.bind();
+    return this.call(body, "director", { ...bound, signal: AbortSignal.any([bound.signal, AbortSignal.timeout(8_000)]) });
   }
 
   /** GPU sessions live on the website (docs/scopes/gpus.md): `room-cli gpu` steps, and the cards and answers of GpuApprovals. */
@@ -2048,6 +2107,19 @@ export class SandboxDirectory {
   private configRun: Promise<unknown> = Promise.resolve();
   /** Why the last skills upload failed, until one succeeds. */
   configIssue: string | null = null;
+  /** Dependency and cache folders the last good upload left out, as `skill/folder`. */
+  configLeftOut: string[] = [];
+  /** When this computer last copied skills and instructions to the signed-in account. Saved, so after a restart Settings
+   *  still shows how old the cloud's copy is while uploads keep failing (#214). */
+  async configCopiedAt(): Promise<number | null> {
+    if (!this.copiedFile) return null;
+    const [account, saved] = await Promise.all([
+      this.account().catch(() => null),
+      // A missing or broken file means no known copy, never a failed skills list.
+      readFile(this.copiedFile, "utf8").then(text => z.object({ userId: z.string(), at: z.number() }).parse(JSON.parse(text))).catch(() => null),
+    ]);
+    return saved && saved.userId === account?.userId ? saved.at : null;
+  }
   /** Uploads this Mac's skills and instructions when they change, then pushes them to awake sandboxes. At most once a minute,
    *  unless the user just changed which skills the cloud gets. `inCloud` picks the skills by name. */
   copyMacConfig(inCloud: (name: string) => boolean, force = false): Promise<void> {
@@ -2158,10 +2230,12 @@ export class SandboxDirectory {
       throw new CloudroomError(`Your skills are too large to copy to cloud sandboxes (${(body.length / 1024 / 1024).toFixed(1)} MB compressed, ${Math.round(CONFIG_LIMIT / 1024 / 1024)} MB limit).`);
     }
     const issue = summarizeConfigIssue({ fallbackReason, oversized: picked.oversized, unreadable: picked.unreadable, copiedAny: true });
+    const leftOut = fallbackReason ? [] : [...new Set(picked.keptSkills.flatMap(entry => entry.leftOut.map(name => `${entry.name}/${name}`)))];
     const prevIssue = this.configIssue;
     const digest = contentDigest(tar);
     if (digest === this.configDigest) {
       this.configIssue = issue;
+      this.configLeftOut = leftOut;
       if (issue && issue !== prevIssue) throw new CloudroomError(issue);
       return;
     }
@@ -2170,6 +2244,13 @@ export class SandboxDirectory {
     if (!response.ok) throw new CloudroomError(`Your skills could not be copied to cloud sandboxes (HTTP ${response.status}).`);
     this.configDigest = digest;
     this.configIssue = issue;
+    this.configLeftOut = leftOut;
+    const account = await this.account().catch(() => null);
+    if (account && this.copiedFile) {
+      // Written aside and renamed, so a crash mid-write never leaves a cut-off file.
+      const file = this.copiedFile, temp = `${file}.${randomUUID()}.tmp`;
+      await writeFile(temp, JSON.stringify({ userId: account.userId, at: Date.now() }), { mode: 0o600 }).then(() => rename(temp, file)).catch(() => rm(temp, { force: true }).catch(() => {}));
+    }
     // Awake sandboxes get the change now; sleeping ones apply it when they wake.
     await this.call({ action: "push" }, "config").catch((error: unknown) => {
       throw new CloudroomError(`Your skills were saved, but awake sandboxes could not get them yet: ${error instanceof Error ? error.message : String(error)}`);

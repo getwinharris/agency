@@ -1,4 +1,4 @@
-use super::{Site, admin_store, host};
+use super::{APEX, APEX_ORIGIN, Site, accounts, admin_store, host};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, State, rejection::JsonRejection},
@@ -25,7 +25,7 @@ use std::{
 };
 
 pub(super) const HOST: &str = "admin.bapx.in";
-pub(super) const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+pub(super) const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const ORIGIN: &str = "https://admin.bapx.in";
 const COOKIE: &str = "__Host-bapx-admin";
 const COOKIE_ATTRIBUTES: &str = "Path=/; Secure; HttpOnly; SameSite=Strict";
@@ -67,7 +67,7 @@ impl Admin {
         Self::new(username, password.trim_end_matches(['\r', '\n'])).map(Some)
     }
 
-    fn new(username: String, password: &str) -> io::Result<Self> {
+    pub(super) fn new(username: String, password: &str) -> io::Result<Self> {
         if username.is_empty()
             || username.len() > 64
             || !username
@@ -96,7 +96,11 @@ impl Admin {
         })
     }
 
-    fn verify(&self, username: &str, password: &str) -> bool {
+    pub(super) fn operator_username(&self) -> &str {
+        &self.username
+    }
+
+    pub(super) fn verify(&self, username: &str, password: &str) -> bool {
         if username.contains('\0') || password.contains('\0') {
             return false;
         }
@@ -211,6 +215,7 @@ struct Failure(StatusCode, &'static str);
 
 const MISSING: Failure = Failure(StatusCode::NOT_FOUND, "Not found.");
 const SIGN_IN: Failure = Failure(StatusCode::UNAUTHORIZED, "Sign in to continue.");
+const FORBIDDEN: Failure = Failure(StatusCode::FORBIDDEN, "Operator access is required.");
 const INVALID_LOGIN: Failure = Failure(
     StatusCode::UNAUTHORIZED,
     "The username or password is incorrect.",
@@ -232,30 +237,52 @@ impl IntoResponse for Failure {
 }
 
 fn configured<'a>(site: &'a Site, headers: &HeaderMap) -> Result<&'a Admin, Failure> {
-    if host(headers).as_deref() != Some(HOST) {
-        return Err(MISSING);
+    match host(headers).as_deref() {
+        Some(HOST) => {}
+        Some(APEX) if site.accounts.is_some() => {}
+        _ => return Err(MISSING),
     }
     site.admin.as_ref().ok_or(MISSING)
 }
 
+fn legacy_admin<'a>(site: &'a Site, headers: &HeaderMap) -> Result<&'a Admin, Failure> {
+    if host(headers).as_deref() != Some(HOST) {
+        return Err(MISSING);
+    }
+    configured(site, headers)
+}
+
 fn mutation(headers: &HeaderMap) -> Result<(), Failure> {
+    let origin = if host(headers).as_deref() == Some(APEX) {
+        APEX_ORIGIN
+    } else {
+        ORIGIN
+    };
     if headers
         .get(header::ORIGIN)
-        .is_some_and(|origin| origin == ORIGIN)
+        .is_some_and(|value| value == origin)
         && headers.get_all(header::ORIGIN).iter().count() == 1
     {
         Ok(())
     } else {
         Err(Failure(
             StatusCode::FORBIDDEN,
-            "Submit this request from admin.bapx.in.",
+            "Submit this request from the signed-in Admin page.",
         ))
     }
 }
 
 fn authenticated<'a>(site: &'a Site, headers: &HeaderMap) -> Result<&'a Admin, Failure> {
     let admin = configured(site, headers)?;
-    admin.authenticate(headers)?;
+    if host(headers).as_deref() == Some(APEX) {
+        match accounts::admin_access(site, headers) {
+            Some(true) => {}
+            Some(false) => return Err(FORBIDDEN),
+            None => return Err(SIGN_IN),
+        }
+    } else {
+        admin.authenticate(headers)?;
+    }
     Ok(admin)
 }
 
@@ -283,7 +310,7 @@ async fn login(
     headers: HeaderMap,
     body: Result<Json<Login>, JsonRejection>,
 ) -> Result<Response, Failure> {
-    let admin = configured(&site, &headers)?;
+    let admin = legacy_admin(&site, &headers)?;
     mutation(&headers)?;
     let payload = json_body(body)?;
     if !admin.verify(&payload.username, &payload.password) {
@@ -302,7 +329,7 @@ async fn login(
 }
 
 async fn logout(State(site): State<Arc<Site>>, headers: HeaderMap) -> Result<Response, Failure> {
-    let admin = configured(&site, &headers)?;
+    let admin = legacy_admin(&site, &headers)?;
     mutation(&headers)?;
     if let Some(token) = session_cookie(&headers) {
         admin
