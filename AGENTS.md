@@ -41,13 +41,15 @@ first-party bapX sites.
 - `deploy/` owns the public web image and VPS deployment instructions.
   Web deployments use the verified image from `main`.
 
-## Customer deployments
+## First-party runtime and customer deployments
 
-- Use the existing Rust bapX Core for the customer hosting runtime and its
-  supported deployment path. Do not package, publish, or deploy a Node.js
-  runtime bundle for customer projects.
-- Existing Node.js tooling may still build frontend assets and run tests.
-  Keep it out of the customer runtime bundle.
+- Run the first-party bapX product and its services on the existing Rust bapX
+  Core and release path. Do not bundle, publish, or deploy Node.js as a runtime
+  for bapX itself. Existing Node.js frontend build and test tooling may stay.
+- Customers may build and test Node.js bundles for their own apps and deploy
+  them independently. A supported deployment-only capability may publish
+  those apps separately; that does not make Node.js part of the bapX runtime.
+  Mark a deployment target unverified until its real publish path is tested.
 
 ## Public and private surfaces
 
@@ -62,19 +64,35 @@ first-party bapX sites.
 - Public web runs separately from the native coding Core. Verify that the
   public router exposes no agent execution endpoints.
 
-## Change and delivery workflow
+## Agent change and delivery workflow
 
-1. Trace the owning source, route, build output, and runtime in the map.
-   Search the existing implementation with `rg` before adding a new owner.
-2. Keep associated docs, deployment instructions, and the changelog current.
-   Record which checks ran and any remaining release gaps.
-3. Validate UI changes in a real browser. Use Ego for viewport, navigation,
-   motion, and form checks. Verify live host ownership after deployment.
-4. For GitHub delivery requested by the user, use the relevant issue and
-   branch, validate before committing, and put the checks and exact revision
-   in the pull request. Deploy the merged revision when requested.
-5. Ship versioned desktop downloads only after platform, signing, update,
-   and install verification for the user-approved version.
+1. **Recover context.** Read the relevant instructions, issue or existing PR,
+   and latest main and PR revisions. Trace the owning source, route, build
+   output, and runtime in the map. Search with `rg` before adding a new owner.
+   Preserve other worktrees and customer data; resume the existing branch
+   instead of duplicating work.
+2. **Implement a scoped change.** Reuse the owning component and existing
+   deployment path. Define the user-visible acceptance criteria and record the
+   checks needed for the affected behavior. Keep docs, release instructions,
+   and the changelog aligned, without marking unverified work as shipped.
+3. **Verify before merge.** Run builds and focused regression tests on the
+   actual change. Test UI flows in Ego on relevant viewports; check timing,
+   permissions, and failure paths where applicable. Record the exact tested
+   PR head, checks run, and anything skipped or blocked. Read all review
+   summaries and inline comments; fix and retest valid findings. Explain
+   inapplicable findings and get reviewer agreement or explicit maintainer
+   approval before resolving them. Recheck required CI and QA on the final
+   head, carrying forward unchanged evidence only where it still applies.
+4. **Merge, deploy, and verify.** Merge only when required reviews, checks,
+   and approvals pass. Follow the existing automatic main deployment for web
+   changes. Verify both the served revision and the changed behavior at the
+   real entry point; a passing CI job, merge, or staged result is not proof of
+   production. Record PR, exact head and merge SHA, workflow run, live URL,
+   served SHA, and observed results. Name the failing step and next action if
+   blocked. Follow the rollback procedure if live checks fail.
+5. **Verify downloads separately.** Ship versioned desktop downloads only
+   after platform, signing, update, and install checks for the approved
+   version. Do not treat a successful build as a public download or install.
 
 ## Web release verification
 
@@ -88,5 +106,3 @@ first-party bapX sites.
   product and the full `main` SHA for web deployments. Keep pending work and
   availability gaps marked in the notes.
 - If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete when the live revision and smoke checks pass.
-- Before merging any PR, read all review summaries and inline comments, including automated reviews. Fix every valid finding and test the fix. For a suggestion that doesn’t apply, explain why in the review thread and get reviewer agreement or explicit maintainer approval before resolving it.
-- Push the fixes, reply in each thread with the fix and verification evidence, and recheck the latest PR commit. Merge only after required reviews are complete, actionable threads are resolved, and required CI passes on that exact commit. Then follow the automatic `main` deployment and live verification steps.
