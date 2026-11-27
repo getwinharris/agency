@@ -6,6 +6,15 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 18:11 IST
+
+Published the [Apple Silicon release candidate guide](https://docs.bapx.in/desktop-packaging/#build-an-apple-silicon-release-candidate) for building and verifying a signed candidate. It documents the supported CLI integrations and the separate Local Mac and approved Enterprise VM checks. The Mac beta download remains pending signing, notarization, and installed-app acceptance. [PR #90](https://github.com/getwinharris/agency/pull/90)
+
+- Desktop source version `0.1.0`
+- Served SHA `fc664c5f91eb4cecf61009fac9b5d32aa955b157`
+- Image `sha256:299f084d0a9ff613a64f791880c07c5b1f501c3e714c90d35bfdeedb3b5bd349`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45996216471), attempt 1
+
 ### 27 November 2026, 17:10 IST
 
 Moved first-party web deployment to GitHub Actions. The [Public web workflow](https://github.com/getwinharris/agency/actions/workflows/web.yml) verifies the source revision and deploys the shared Rust image to Hostinger. Retired VPS polling after checking all five hostnames and the browser acceptance flows. [PR #92](https://github.com/getwinharris/agency/pull/92)
