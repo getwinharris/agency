@@ -63,9 +63,19 @@ jobs:
             --env BAPX_ADMIN_PASSWORD_FILE=/run/secrets/bapx-admin-password \
             --mount "type=bind,src=$admin_password,dst=/run/secrets/bapx-admin-password,readonly" agency-web:check
           trap 'docker logs agency-web; docker stop agency-web' EXIT
-          curl --retry 10 --retry-connrefused --fail --silent http://127.0.0.1:8080/healthz |
-            jq -e --arg sha "$GITHUB_SHA" '.ready == true and .service == "bapx-web" and .revision == $sha'
-          curl --fail --silent -H 'Host: bapx.in' http://127.0.0.1:8080/ | grep -F '<h1 id="headline">'
+          for host in bapx.in www.bapx.in docs.bapx.in mediahub.bapx.in admin.bapx.in; do
+            curl --retry 10 --retry-connrefused --fail --silent --show-error \
+              -H "Host: $host" http://127.0.0.1:8080/healthz |
+              jq -e --arg sha "$GITHUB_SHA" '.ready == true and .service == "bapx-web" and .revision == $sha'
+          done
+          for host in bapx.in www.bapx.in; do
+            curl --fail --silent --show-error -H "Host: $host" http://127.0.0.1:8080/ \
+              --output "$RUNNER_TEMP/$host-home.html"
+            grep -Fq '<h1 id="headline">' "$RUNNER_TEMP/$host-home.html" || {
+              printf 'Expected landing heading is missing for %s.\n' "$host" >&2
+              exit 1
+            }
+          done
           curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
           grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"
           grep -F '<a href="/release-notes/">release changelog</a>' "$RUNNER_TEMP/docs-home.html"
