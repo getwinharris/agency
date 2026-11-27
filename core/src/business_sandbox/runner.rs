@@ -1,7 +1,7 @@
 use super::{Settings, hash, hex};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::Serialize;
-use std::{io, process::Stdio, time::Duration};
+use std::{future::Future, io, process::Stdio, time::Duration};
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::Command,
@@ -15,6 +15,7 @@ const WORKSPACE: &str = "/home/node";
 
 pub(super) enum Error {
     Backend,
+    Revoked,
     Timeout,
 }
 
@@ -96,6 +97,7 @@ pub(super) async fn execute(
     business: &str,
     project: &str,
     argv: &[String],
+    revoked: impl Future<Output = ()>,
 ) -> Result<Output, Error> {
     let volume = volume_name(&settings.installation, business, project);
     let labels = labels(settings, business, project);
@@ -167,7 +169,11 @@ pub(super) async fn execute(
         ])
         .args(argv);
     if control(&mut create).await {
-        let output = start(settings, &name).await;
+        let output = tokio::select! {
+            biased;
+            _ = revoked => Err(Error::Revoked),
+            result = start(settings, &name) => result,
+        };
         if !control(docker(settings).args(["container", "rm", "--force", &name])).await {
             eprintln!("sandbox worker could not remove container {name}");
             return Err(Error::Backend);

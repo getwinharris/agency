@@ -19,11 +19,13 @@ use std::{
     os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
-use tokio::{net::TcpListener, sync::Semaphore};
+use tokio::{net::TcpListener, sync::Semaphore, time::sleep};
 
 const MAX_POLICY: usize = 128 * 1024;
 const MAX_REQUEST: usize = 16 * 1024;
+const GRANT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -59,6 +61,11 @@ struct Service {
     policy_file: PathBuf,
     settings: Settings,
     jobs: Arc<Semaphore>,
+}
+
+struct Grant {
+    account: String,
+    token_hash: String,
 }
 
 #[derive(Deserialize)]
@@ -166,30 +173,50 @@ impl Policy {
         headers: &HeaderMap,
         business: &str,
         project: &str,
-    ) -> Result<&str, StatusCode> {
+    ) -> Result<Grant, StatusCode> {
         let token = headers
             .get(header::AUTHORIZATION)
             .and_then(|header| header.to_str().ok())
             .and_then(|header| header.strip_prefix("Bearer "))
             .filter(|token| is_digest(token))
             .ok_or(StatusCode::UNAUTHORIZED)?;
-        let hashed = hash(token.as_bytes());
+        let token_hash = hash(token.as_bytes());
         let account = self
             .accounts
             .iter()
-            .find(|(_, expected)| crate::api::same_token(&hashed, expected))
+            .find(|(_, expected)| crate::api::same_token(&token_hash, expected))
             .map(|(account, _)| account)
             .ok_or(StatusCode::UNAUTHORIZED)?;
-        let business = self.businesses.get(business).ok_or(StatusCode::NOT_FOUND)?;
-        if !business.members.contains(account)
-            || !business
-                .projects
-                .get(project)
-                .is_some_and(|project| project.members.contains(account))
-        {
+        if !self.allows(account, business, project) {
             return Err(StatusCode::NOT_FOUND);
         }
-        Ok(account)
+        Ok(Grant {
+            account: account.clone(),
+            token_hash,
+        })
+    }
+
+    fn allows(&self, account: &str, business: &str, project: &str) -> bool {
+        self.businesses.get(business).is_some_and(|business| {
+            business.members.contains(account)
+                && business
+                    .projects
+                    .get(project)
+                    .is_some_and(|project| project.members.contains(account))
+        })
+    }
+}
+
+impl Service {
+    fn grant_is_current(&self, grant: &Grant, business: &str, project: &str) -> bool {
+        Policy::read(&self.policy_file).is_ok_and(|policy| {
+            policy.settings == self.settings
+                && policy
+                    .accounts
+                    .get(&grant.account)
+                    .is_some_and(|expected| crate::api::same_token(&grant.token_hash, expected))
+                && policy.allows(&grant.account, business, project)
+        })
     }
 }
 
@@ -230,8 +257,8 @@ async fn run_job(
         Ok(policy) if policy.settings == service.settings => policy,
         _ => return failure(StatusCode::SERVICE_UNAVAILABLE),
     };
-    let account = match policy.authorize(&headers, &business, &project) {
-        Ok(account) => account,
+    let grant = match policy.authorize(&headers, &business, &project) {
+        Ok(grant) => grant,
         Err(status) => return failure(status),
     };
     if !job.valid() {
@@ -240,14 +267,28 @@ async fn run_job(
     let Ok(permit) = Arc::clone(&service.jobs).try_acquire_owned() else {
         return failure(StatusCode::TOO_MANY_REQUESTS);
     };
-    eprintln!("sandbox job accepted for account {account}, business {business}, project {project}");
+    eprintln!(
+        "sandbox job accepted for account {}, business {business}, project {project}",
+        grant.account
+    );
     // Finish a bounded job and remove its container even when the HTTP caller disconnects.
     let task = tokio::spawn(async move {
         let _permit = permit;
-        runner::execute(&service.settings, &business, &project, &job.argv).await
+        let revoked = async {
+            while service.grant_is_current(&grant, &business, &project) {
+                sleep(GRANT_CHECK_INTERVAL).await;
+            }
+        };
+        let output =
+            runner::execute(&service.settings, &business, &project, &job.argv, revoked).await?;
+        if !service.grant_is_current(&grant, &business, &project) {
+            return Err(runner::Error::Revoked);
+        }
+        Ok(output)
     });
     match task.await {
         Ok(Ok(output)) => ([(header::CACHE_CONTROL, "no-store")], Json(output)).into_response(),
+        Ok(Err(runner::Error::Revoked)) => failure(StatusCode::NOT_FOUND),
         Ok(Err(runner::Error::Timeout)) => failure(StatusCode::GATEWAY_TIMEOUT),
         _ => failure(StatusCode::SERVICE_UNAVAILABLE),
     }

@@ -39,8 +39,8 @@ Send a bearer token and a JSON object containing `argv` to
 `POST /v1/businesses/{business}/projects/{project}/run` on worker loopback.
 The server resolves the account before selecting a volume. It requires a
 grant at both levels and returns the same 404 for an unknown or inaccessible
-project. Replace the file atomically to apply account or grant changes to
-new requests. Restart the service to change worker settings.
+project. Replace the file atomically to apply account or grant changes.
+Restart the service to change worker settings.
 
 ## Storage and execution
 
@@ -61,17 +61,24 @@ new requests. Restart the service to change worker settings.
   after 45 seconds of execution. The controller removes the container and
   preserves the volume. Forced controller shutdown can leave containers
   identifiable by their installation label.
+- The controller checks the credential and both grants before starting a job,
+  once per second during execution, and before returning output.
+  Removing a grant, rotating the credential, or making the policy unreadable
+  cancels a job whose next check observes the change. The controller removes
+  its container, discards its output, and returns the same 404 used for an
+  inaccessible project. Files the job already wrote remain in the volume.
 
 ## Verification and scope
 
 Run `cargo build --locked`, make the test image available on a disposable
 Docker worker, and run `python3 tests/business_sandbox_e2e.py --disposable`
 from `core/`. The fixture checks concurrent writes by two accounts, denied
-access to unrelated projects, revocation on new requests, durable files after
-restart, and fresh scratch. It removes resources for its installation label.
+access to unrelated projects, active-job cleanup after revocation, durable
+files after restart, and fresh scratch. It removes resources for its
+installation label.
 
 Hosted onboarding and membership management, per-user provider credentials,
-native agent sessions and their terminal and browser interfaces, active-job
-revocation, project disk quotas, and customer app publication need production
+native agent sessions and their terminal and browser interfaces, project disk
+quotas, and customer app publication need production
 integration and verification. Use a dedicated worker with storage limits
 before accepting customer workloads. This pilot is only exposed on loopback.

@@ -12,6 +12,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from tempfile import TemporaryDirectory
+from time import monotonic, sleep
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -42,6 +43,20 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 assert.equal(fs.existsSync('/tmp/scratch.txt'), false);
 process.stdout.write(fs.readFileSync('project.txt', 'utf8'));
+"""
+
+WRITE_DURING_JOB = """
+const fs = require('node:fs');
+fs.writeFileSync('active.txt', 'started');
+process.stdout.write('job output');
+setTimeout(() => fs.writeFileSync('late.txt', 'finished'), 30_000);
+"""
+
+READ_JOB_PROGRESS = """
+const fs = require('node:fs');
+if (fs.existsSync('active.txt')) {
+  process.stdout.write(fs.readFileSync('active.txt', 'utf8'));
+}
 """
 
 
@@ -171,8 +186,40 @@ def verify(binary, image, socket):
                 assert run(origin, alice, "alpha", "notes", argv) == absent
                 policy["businesses"]["alpha"]["members"] = ["alice"]
                 write_policy(path, policy)
+                with ThreadPoolExecutor(max_workers=1) as workers:
+                    active = workers.submit(
+                        run, origin, alice, "alpha", "notes", ["node", "-e", WRITE_DURING_JOB]
+                    )
+                    deadline = monotonic() + 12
+                    while True:
+                        status, output = run(
+                            origin, alice, "alpha", "notes", ["node", "-e", READ_JOB_PROGRESS]
+                        )
+                        assert status == 200 and output["exit_code"] == 0, (status, output)
+                        if output["stdout"] == "started":
+                            break
+                        assert monotonic() < deadline, "authorized job did not start"
+                        sleep(0.1)
+                    assert not active.done(), "job finished before revocation"
+                    policy["businesses"]["alpha"]["projects"]["notes"]["members"] = []
+                    write_policy(path, policy)
+                    assert active.result(timeout=15) == absent
+                    assert not docker("container", "ls", "-aq", "--filter", label, socket=socket)
+                    assert run(origin, alice, "alpha", "notes", argv) == absent
+                    successful_job(
+                        run(origin, bob, "beta", "notes", ["node", "-e", READ_PROJECT]), "beta"
+                    )
+                    policy["businesses"]["alpha"]["projects"]["notes"]["members"] = ["alice"]
+                    write_policy(path, policy)
             with serve(binary, path) as origin:
                 successful_job(run(origin, alice, "alpha", "notes", ["node", "-e", READ_PROJECT]), "alpha")
+                job_files = [
+                    "node", "-e",
+                    "const fs = require('node:fs');"
+                    "require('node:assert/strict').equal(fs.existsSync('late.txt'), false);"
+                    "process.stdout.write(fs.readFileSync('active.txt', 'utf8'));",
+                ]
+                successful_job(run(origin, alice, "alpha", "notes", job_files), "started")
                 successful_job(run(origin, bob, "beta", "notes", ["node", "-e", READ_PROJECT]), "beta")
                 limited = ["node", "-e", "process.stdout.write('x'.repeat(128 * 1024))"]
                 status, output = run(origin, alice, "alpha", "notes", limited)
