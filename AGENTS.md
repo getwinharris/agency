@@ -81,8 +81,10 @@ first-party bapX sites.
    PR head, checks run, and anything skipped or blocked. Read all review
    summaries and inline comments; fix and retest valid findings. Explain
    inapplicable findings and get reviewer agreement or explicit maintainer
-   approval before resolving them. Recheck required CI and QA on the final
-   head, carrying forward unchanged evidence only where it still applies.
+   approval before resolving them. Reply in each actionable review thread
+   with the fix commit and specific retest evidence, or the agreed reason for
+   not changing it. Recheck required CI and QA on the final head, carrying
+   forward unchanged evidence only where it still applies.
 4. **Merge, deploy, and verify.** Merge only when required reviews, checks,
    and approvals pass. Follow the existing automatic main deployment for web
    changes. Verify both the served revision and the changed behavior at the
@@ -90,9 +92,13 @@ first-party bapX sites.
    production. Record PR, exact head and merge SHA, workflow run, live URL,
    served SHA, and observed results. Name the failing step and next action if
    blocked. Follow the rollback procedure if live checks fail.
-5. **Verify downloads separately.** Ship versioned desktop downloads only
-   after platform, signing, update, and install checks for the approved
-   version. Do not treat a successful build as a public download or install.
+5. **Verify downloads separately.** Track Linux, macOS, Windows, and the
+   Android APK individually for the approved version. Test the Linux installer
+   on the VPS first, from the actual download, and verify install and launch.
+   Linux success does not verify another platform. Before announcing any
+   platform, verify its public download, checksum, applicable signing and
+   update checks, and install and launch on that platform. Mark missing or
+   unverified packages explicitly. A successful build is not a public release.
 
 ## Web release verification
 
