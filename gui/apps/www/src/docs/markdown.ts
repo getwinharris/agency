@@ -9,7 +9,36 @@ export function escapeHtml(value: string) {
   return markdown.utils.escapeHtml(value);
 }
 
-export function renderMarkdown(source: string, resolveLink: (href: string) => string) {
+function renderReleaseTimeline(tokens: ReturnType<typeof markdown.parse>) {
+  const render = (start = 0, end = tokens.length) =>
+    markdown.renderer.render(tokens.slice(start, end), markdown.options, {});
+  const heading = tokens.findIndex((token) => token.attrGet("id") === "verified-web-deployments");
+  if (heading === -1) return render();
+
+  const nextSection = tokens.findIndex((token, index) => index > heading &&
+    token.level === 0 && token.type === "heading_open" && ["h1", "h2"].includes(token.tag));
+  const end = nextSection === -1 ? tokens.length : nextSection;
+  const entries: number[] = [];
+  for (let index = heading + 1; index < end; index++) {
+    const token = tokens[index];
+    if (token.level === 0 && token.type === "heading_open" && token.tag === "h3") {
+      entries.push(index);
+    }
+  }
+  if (entries.length === 0) return render();
+
+  const items = entries.map((start, index) => `<li class="release-entry">
+    ${render(start, start + 3)}
+    <div class="release-details">${render(start + 3, entries[index + 1] ?? end)}</div>
+  </li>`).join("\n");
+  return `${render(0, entries[0])}
+<ol class="release-timeline" role="list" reversed aria-labelledby="verified-web-deployments">
+${items}
+</ol>
+${render(end)}`;
+}
+
+export function renderMarkdown(source: string, resolveLink: (href: string) => string, timeline = false) {
   const tokens = markdown.parse(source, {});
   const headings: { id: string; title: string; level: number }[] = [];
   const ids = new Set(["main"]);
@@ -39,7 +68,8 @@ export function renderMarkdown(source: string, resolveLink: (href: string) => st
     }
   }
 
-  return { html: markdown.renderer.render(tokens, markdown.options, {}), headings };
+  const html = timeline ? renderReleaseTimeline(tokens) : markdown.renderer.render(tokens, markdown.options, {});
+  return { html, headings };
 }
 
 markdown.renderer.rules.docs_table_open = (tokens, index) =>

@@ -77,7 +77,7 @@ export async function docsPages(repositoryRoot: string) {
   const articles = await Promise.all(guides.map(async ({ slug, label, source, section }) => {
     const contents = await readFile(resolve(repositoryRoot, source), "utf8");
     const { html, headings } = renderMarkdown(section ? excerpt(contents, section) : contents,
-      (link) => repositoryLink(link, source, routes, repository));
+      (link) => repositoryLink(link, source, routes, repository), slug === "release-notes");
     const sections = headings.filter(({ level }) => level === 2 || level === 3).map(({ id, title, level }) => (
       `<li${level === 3 ? ' class="docs-subsection"' : ""}><a href="#${id}">${escapeHtml(title)}</a></li>`
     )).join("");
@@ -91,7 +91,7 @@ export async function docsPages(repositoryRoot: string) {
       canonical: `${origin}/${slug}/`,
       surface: "Docs",
       body: layout(`${index}
-  <article class="docs-article${slug === "release-notes" ? " docs-timeline" : ""}">${html}</article>
+  <article class="docs-article">${html}</article>
   <p class="docs-source"><a href="${repository}/blob/main/${source}${sourceAnchor}">View Markdown on GitHub</a></p>`, slug),
     });
     return [`docs/${slug}/index.html`, markup];
