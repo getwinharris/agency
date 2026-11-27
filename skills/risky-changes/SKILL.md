@@ -16,12 +16,18 @@ Use for changes where being wrong is expensive or customer-visible:
 - Billing, pricing, caps, or quotas
 - Defaults, thresholds, or provider request parameters
 - Unverified assumptions about external data or user behavior
+- New release routes, runtime dependencies, or persistent storage
 
 If unsure whether a change qualifies, apply this process.
 
 ## 1. Identify assumptions
 
 List the assumptions the change depends on. Mark which have evidence and which are still unverified.
+
+Before adding a sample to a release workflow, establish who owns its runtime,
+whether it has a public route, and which product policy applies. For a CI
+fixture, use disposable storage and credentials and an isolated network.
+Exercise cleanup after success, failure, and partial setup.
 
 ## 2. Research before implementing
 

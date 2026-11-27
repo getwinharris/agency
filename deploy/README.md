@@ -156,6 +156,10 @@ after replacement, and rollback with the same private data volume.
 Set `BAPX_PILOT_KEEP=1` to retain the staging proxy at VPS loopback port
 8443. The script prints the temporary CA and the hostname to resolve to
 127.0.0.1. This uses neither production DNS nor first-party proxy configuration.
+Default runs and failed staging runs remove their disposable volumes, owner
+password, and TLS private key. A successful loopback staging run retains those
+resources for browser QA. Use the names printed by the verifier to remove its
+containers, networks, volumes, and temporary directory when QA is complete.
 
 ## Test the isolated customer app sample
 

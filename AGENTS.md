@@ -77,6 +77,9 @@ blocker and the safe fallback used.
   a Node.js runtime for bapX. Identify existing Node-based build and test
   tooling explicitly and track its removal separately; do not claim it is
   gone or break the current build by removing it without a tested replacement.
+- Keep bapX-owned Node.js runtime samples in isolated local tests or PR CI.
+  Public first-party demos run on Rust Core. Keep fixture images, credentials,
+  named volumes, and routes out of the production release.
 - Customers may build and test Node.js bundles for their own apps and deploy
   them independently. A supported deployment-only capability may publish
   those apps separately; that does not make Node.js part of the bapX runtime.

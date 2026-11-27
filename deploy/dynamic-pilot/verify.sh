@@ -23,9 +23,10 @@ data="$project-data"
 fixture="$project-fixture"
 edge="$project-proxy"
 app=
+volumes=()
 
 cleanup() {
-    local status=$?
+    local status=$? cleanup_failed=0 volume
     if (( status == 0 && keep == 1 )); then return; fi
     if (( status )); then
         if [[ -n "$app" ]]; then docker logs "$app" >&2 || true; fi
@@ -35,6 +36,16 @@ cleanup() {
     docker rm -f "$edge" >/dev/null 2>&1 || true
     docker network rm "$network" >/dev/null 2>&1 || true
     if (( keep == 1 )); then docker network rm "$ingress" >/dev/null 2>&1 || true; fi
+    for volume in ${volumes[@]+"${volumes[@]}"}; do
+        docker volume rm "$volume" >/dev/null || cleanup_failed=1
+    done
+    rm -f -- "$work/owner-password" "$work/tls/key.pem" || cleanup_failed=1
+    if (( cleanup_failed )); then
+        echo 'Could not remove all isolated fixture volumes or credentials.' >&2
+        exit 1
+    fi
+    echo 'Removed isolated fixture volumes and credentials.'
+    return "$status"
 }
 trap cleanup EXIT
 
@@ -62,7 +73,9 @@ chmod 0755 "$work/tls"
 chmod 0444 "$work/tls/"{cert,key}.pem
 docker network create --internal "$network" >/dev/null
 docker volume create "$data" >/dev/null
+volumes+=("$data")
 docker volume create "$fixture" >/dev/null
+volumes+=("$fixture")
 docker run --rm --network none --mount "type=volume,source=$fixture,target=/fixture-data" \
     "$node_image" sh -ec 'chown 1000:1000 /fixture-data && chmod 0700 /fixture-data'
 
