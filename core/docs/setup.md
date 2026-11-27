@@ -206,22 +206,29 @@ isolated runtime identity. Keep its operator token in the private service
 configuration. The public web Core does not run the native API.
 
 A managed Core opts in with `BAPX_CORE_DEVICE_ACCESS_FILE`, the canonical path
-to a trusted, private registry. The registry is version 1 and binds one Core
-ID, workspace ID and bapX member UUID in the `binding.core_id`,
-`binding.workspace_id` and `binding.account_id` fields. Set
-`CLOUDROOM_INSTANCE` to the approved Core ID. Its `grants` map uses
-lowercase SHA-256 digests of the complete `bapx-device-v1.` credential as keys.
-Each grant has `issued_at` and `expires_at` in Unix seconds. Replace the registry atomically and keep the
-readable file out of the source checkout. Its parent must be writable only by
-its owner. The Core holds the binding from startup, so changing the binding in
-the registry invalidates the current grants until the approved Core is started
-with the new configuration.
+to a private registry. Use a protected Linux Core with its own workload UID,
+delegated cgroups, and an agent account without sudo. Use a fresh state directory
+for each assigned member. Before first start, provision the registered workspace
+and write `device-owner.json` in that state directory using the same JSON object
+as the registry's `binding`. The Core checks it on every start. Keep it fixed
+for the life of the state directory, including restarts and volume restores.
 
-Device credentials cover session start, prompts, requests and event history
-on that dedicated Core. They have no operator, provider-credential, sync,
-terminal or preview access. Expiry and grant removal also end open device
-event streams. This Core change provides the private credential check. The
-hosted device issuer and production workspace acceptance are tracked under
+The version 1 registry binds one Core ID, registered workspace ID, and bapX
+member UUID in `binding.core_id`, `binding.workspace_id`, and
+`binding.account_id`. Set `CLOUDROOM_INSTANCE` to the approved Core ID. The
+`grants` map uses lowercase SHA-256 digests of the complete
+`bapx-device-v1.` credential. Each grant has `issued_at` and `expires_at` in Unix
+seconds. Replace the ledger atomically. Keep both files outside the source
+checkout, owned by the Core service user with mode 0600. Protect every ancestor
+against workload writes and symlinks. Treat the private Core, volume, and
+harness account as dedicated to this member.
+
+Device credentials cover new sessions, prompts, requests and event history in
+the bound workspace. The Core filters session lists and lookups by workspace.
+Provider credentials, operator settings, the Core dashboard, file transfer,
+terminals, fork and cross-workspace continuation require another authorization
+path. Expiry and grant removal end active event streams. The hosted issuer
+and deployment acceptance are tracked under
 [#85](https://github.com/getwinharris/agency/issues/85).
 
 ## Upgrade

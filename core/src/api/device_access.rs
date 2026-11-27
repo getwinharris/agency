@@ -9,7 +9,7 @@ use std::{
     fs::{self, OpenOptions},
     future::Future,
     io::{self, Read},
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -19,6 +19,7 @@ use std::{
 use tokio::sync::Semaphore;
 use tokio_stream::Stream;
 
+const STATE_BINDING_FILE: &str = "device-owner.json";
 const TOKEN_PREFIX: &str = "bapx-device-v1.";
 const MAX_POLICY_BYTES: u64 = 64 * 1024;
 const MAX_GRANTS: usize = 128;
@@ -51,6 +52,7 @@ struct Registry {
 pub(crate) struct DeviceAccess {
     path: PathBuf,
     binding: Binding,
+    owner: FileTrust,
     reads: Arc<Semaphore>,
 }
 
@@ -64,36 +66,33 @@ impl DeviceAccess {
         let Some(path) = env::var_os("BAPX_CORE_DEVICE_ACCESS_FILE") else {
             return Ok(None);
         };
-        if !cfg!(target_os = "linux")
-            || !config.listen.ip().is_loopback()
-            || config.storage.is_none()
-            || config.api_url.is_some()
-        {
-            return Err(invalid(
-                "Device access needs a protected Linux Core with private loopback ingress and local history",
-            ));
-        }
-        let access = Self::open(PathBuf::from(path))?;
-        if config.instance.as_deref() != Some(access.binding.core_id.as_str()) {
-            return Err(invalid(
-                "Device registry does not belong to this Core instance",
-            ));
-        }
+        let owner = FileTrust::for_core(config)?;
+        let access = Self::open(PathBuf::from(path), owner)?;
+        access.verify_state_binding(&config.state_dir, config.instance.as_deref())?;
         Ok(Some(access))
     }
 
-    fn open(path: PathBuf) -> io::Result<Arc<Self>> {
-        if !path.is_absolute() || path.canonicalize()? != path {
-            return Err(invalid(
-                "Device registry must use a canonical absolute path",
-            ));
-        }
-        let binding = read_registry(&path)?.binding;
+    fn open(path: PathBuf, owner: FileTrust) -> io::Result<Arc<Self>> {
+        let binding = read_registry(&path, owner)?.binding;
         Ok(Arc::new(Self {
             path,
             binding,
+            owner,
             reads: Arc::new(Semaphore::new(8)),
         }))
+    }
+
+    fn verify_state_binding(&self, state_dir: &Path, instance: Option<&str>) -> io::Result<()> {
+        let bytes = self
+            .owner
+            .read_private(&state_dir.join(STATE_BINDING_FILE))?;
+        let sealed_owner: Binding = serde_json::from_slice(&bytes)?;
+        if instance != Some(self.binding.core_id.as_str()) || sealed_owner != self.binding {
+            return Err(invalid(
+                "Device registry does not match this Core's saved owner",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) async fn authenticate(self: &Arc<Self>, token: &str) -> Option<DeviceLease> {
@@ -115,6 +114,10 @@ impl DeviceAccess {
 }
 
 impl DeviceLease {
+    pub(super) fn workspace(&self) -> &str {
+        &self.access.binding.workspace_id
+    }
+
     async fn valid(&self) -> bool {
         let Ok(permit) = Arc::clone(&self.access.reads).try_acquire_owned() else {
             return false;
@@ -123,7 +126,7 @@ impl DeviceLease {
         let digest = self.digest.clone();
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            let Ok(registry) = read_registry(&access.path) else {
+            let Ok(registry) = read_registry(&access.path, access.owner) else {
                 return false;
             };
             let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
@@ -179,7 +182,6 @@ pub(super) fn allows(method: &Method, route: &str) -> bool {
             "/v1/health"
                 | "/v1/ready"
                 | "/v1/capabilities"
-                | "/v1/dashboard"
                 | "/v1/sessions"
                 | "/v1/sessions/{id}"
                 | "/v1/sessions/{id}/requests/{request}"
@@ -198,38 +200,106 @@ pub(super) fn allows(method: &Method, route: &str) -> bool {
     }
 }
 
-fn read_registry(path: &Path) -> io::Result<Registry> {
-    let directory =
-        fs::symlink_metadata(path.parent().ok_or(invalid("Missing registry directory"))?)?;
-    if !directory.is_dir() || directory.permissions().mode() & 0o022 != 0 {
-        return Err(invalid(
-            "Device registry directory must not be writable by others",
-        ));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true);
+#[derive(Clone, Copy)]
+struct FileTrust {
+    service_uid: u32,
+    agent_uid: u32,
+}
+
+impl FileTrust {
     #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    fn for_core(config: &crate::config::Config) -> io::Result<Self> {
+        let policy = config
+            .storage
+            .as_ref()
+            .ok_or(invalid("Device access requires protected storage"))?;
+        // SAFETY: geteuid has no arguments or mutable state.
+        let service_uid = unsafe { libc::geteuid() };
+        if !config.listen.ip().is_loopback()
+            || config.api_url.is_some()
+            || policy.agent_sudo
+            || policy.container()
+            || service_uid == policy.agent_uid
+        {
+            return Err(invalid(
+                "Device access requires protected Linux loopback, local history and a separate workload UID without sudo",
+            ));
+        }
+        Ok(Self {
+            service_uid,
+            agent_uid: policy.agent_uid,
+        })
     }
-    let file = options.open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file()
-        || metadata.permissions().mode() & 0o137 != 0
-        || metadata.len() > MAX_POLICY_BYTES
-    {
-        return Err(invalid("Device registry must be a bounded private file"));
+
+    #[cfg(not(target_os = "linux"))]
+    fn for_core(_config: &crate::config::Config) -> io::Result<Self> {
+        Err(invalid("Device access requires Linux"))
     }
-    let mut bytes = Vec::new();
-    file.take(MAX_POLICY_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_POLICY_BYTES {
-        return Err(invalid("Device registry exceeds its size limit"));
+
+    fn trusted_owner(self, uid: u32) -> bool {
+        uid != self.agent_uid && (uid == 0 || uid == self.service_uid)
     }
+
+    fn read_private(self, path: &Path) -> io::Result<Vec<u8>> {
+        if !path.is_absolute() || path.canonicalize()? != path {
+            return Err(invalid(
+                "Device access files require a canonical absolute path",
+            ));
+        }
+        let directory = path
+            .parent()
+            .ok_or(invalid("Missing device access directory"))?;
+        for part in directory.ancestors() {
+            let metadata = fs::symlink_metadata(part)?;
+            if !metadata.is_dir()
+                || !self.trusted_owner(metadata.uid())
+                || metadata.mode() & 0o022 != 0
+            {
+                return Err(invalid(
+                    "Device access requires protected ancestor directories",
+                ));
+            }
+        }
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || !self.trusted_owner(metadata.uid())
+            || metadata.mode() & 0o177 != 0
+            || metadata.len() > MAX_POLICY_BYTES
+        {
+            return Err(invalid(
+                "Device access policy must be a bounded owner-only file",
+            ));
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_POLICY_BYTES + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_POLICY_BYTES {
+            return Err(invalid("Device access policy exceeds its size limit"));
+        }
+        Ok(bytes)
+    }
+}
+
+fn read_registry(path: &Path, owner: FileTrust) -> io::Result<Registry> {
+    let bytes = owner.read_private(path)?;
     let registry: Registry = serde_json::from_slice(&bytes)?;
     if registry.version != 1
-        || !route_id(&registry.binding.core_id)
+        || registry.binding.core_id.is_empty()
+        || registry.binding.core_id.len() > 63
+        || !registry
+            .binding
+            .core_id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         || !route_id(&registry.binding.workspace_id)
+        || matches!(registry.binding.workspace_id.as_str(), "root" | "legacy")
         || !member_id(&registry.binding.account_id)
         || registry.grants.len() > MAX_GRANTS
         || registry.grants.iter().any(|(digest, grant)| {
@@ -279,6 +349,6 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "device_access_tests.rs"]
 mod tests;

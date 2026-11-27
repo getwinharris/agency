@@ -3,9 +3,9 @@ use crate::{
     session::{self, Manager},
 };
 use axum::{
-    Json, Router,
+    Extension, Json, RequestExt, Router,
     body::{Body, Bytes},
-    extract::{DefaultBodyLimit, MatchedPath, Path, Query, Request, State},
+    extract::{DefaultBodyLimit, MatchedPath, Path, Query, RawPathParams, Request, State},
     http::{HeaderMap, StatusCode, Version, header},
     middleware::{self, Next},
     response::{
@@ -28,6 +28,7 @@ mod device_access;
 pub(crate) use device_access::DeviceAccess;
 
 struct ApiAuthorization {
+    manager: Arc<Manager>,
     token: String,
     devices: Option<Arc<DeviceAccess>>,
 }
@@ -125,7 +126,11 @@ pub(crate) fn router_with_devices(
         // Text arrives twice (`text` and `content`), so a full message needs room (ADR 0269).
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(middleware::from_fn_with_state(
-            Arc::new(ApiAuthorization { token, devices }),
+            Arc::new(ApiAuthorization {
+                manager: Arc::clone(&manager),
+                token,
+                devices,
+            }),
             authenticate,
         ))
         .layer(middleware::from_fn_with_state(
@@ -519,7 +524,7 @@ async fn observe(
 
 async fn authenticate(
     State(auth): State<Arc<ApiAuthorization>>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     // Some sandbox proxies replace Authorization with their own login, so the token may also arrive in X-Cloudroom-Token.
@@ -546,12 +551,10 @@ async fn authenticate(
     let mut response = if operator {
         next.run(request).await
     } else if let Some(device) = device {
-        let allowed = !request.headers().contains_key(header::UPGRADE)
-            && request
-                .extensions()
-                .get::<MatchedPath>()
-                .is_some_and(|route| device_access::allows(request.method(), route.as_str()));
-        if allowed {
+        if device_route_allowed(&auth.manager, &device, &mut request).await {
+            request
+                .extensions_mut()
+                .insert(DeviceWorkspace(device.workspace().into()));
             let response = next.run(request).await;
             if response
                 .headers()
@@ -582,6 +585,38 @@ async fn authenticate(
         .headers_mut()
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     response
+}
+
+#[derive(Clone)]
+struct DeviceWorkspace(String);
+
+async fn device_route_allowed(
+    manager: &Manager,
+    device: &device_access::DeviceLease,
+    request: &mut Request,
+) -> bool {
+    let Some(route) = request.extensions().get::<MatchedPath>() else {
+        return false;
+    };
+    if request.headers().contains_key(header::UPGRADE)
+        || !device_access::allows(request.method(), route.as_str())
+    {
+        return false;
+    }
+    if !route.as_str().starts_with("/v1/sessions/{id}") {
+        return true;
+    }
+    let Ok(params) = request.extract_parts::<RawPathParams>().await else {
+        return false;
+    };
+    let Some((_, id)) = params.iter().find(|(key, _)| *key == "id") else {
+        return false;
+    };
+    manager.session(id).await.is_ok_and(|session| {
+        session
+            .workspace
+            .is_some_and(|workspace| workspace.id == device.workspace())
+    })
 }
 
 /// Compares every byte, so response timing does not reveal how much of the token matched.
@@ -875,8 +910,14 @@ async fn dashboard(State(manager): State<Arc<Manager>>) -> Json<Value> {
     Json(manager.dashboard())
 }
 
-async fn list_sessions(State(manager): State<Arc<Manager>>) -> Json<Value> {
-    Json(manager.list_sessions())
+async fn list_sessions(
+    State(manager): State<Arc<Manager>>,
+    device: Option<Extension<DeviceWorkspace>>,
+) -> Json<Value> {
+    Json(match device {
+        Some(Extension(workspace)) => manager.list_workspace_sessions(Some(&workspace.0)),
+        None => manager.list_sessions(),
+    })
 }
 
 async fn ready(State(manager): State<Arc<Manager>>) -> impl IntoResponse {
@@ -1051,11 +1092,44 @@ async fn health(State(manager): State<Arc<Manager>>) -> Json<Value> {
 async fn start(
     State(manager): State<Arc<Manager>>,
     headers: HeaderMap,
-    Json(body): Json<Start>,
+    device: Option<Extension<DeviceWorkspace>>,
+    Json(mut body): Json<Start>,
 ) -> Result<impl IntoResponse> {
     key(&body.request_id)?;
-    manager.mac.expect();
-    manager.mac.note_using(&headers);
+    if let Some(Extension(workspace)) = device {
+        if body.workspace.as_ref().is_some_and(|id| id != &workspace.0)
+            || body.continue_from.is_some()
+            || body.fork.is_some()
+            || body.parent_session.is_some()
+            || body.parent_thread.is_some()
+            || manager
+                .workspaces
+                .get(&workspace.0)
+                .ok()
+                .flatten()
+                .is_none_or(|entry| entry.parent.is_some())
+        {
+            return Err(session::Error::Conflict(
+                "device may only start a new session in its provisioned workspace",
+            ));
+        }
+        let id = format!("cr_{}", body.request_id);
+        if let Ok(existing) = manager.session(&id).await
+            && existing
+                .workspace
+                .as_ref()
+                .is_none_or(|entry| entry.id != workspace.0)
+        {
+            return Err(session::Error::Conflict(
+                "session start request is unavailable in this workspace",
+            ));
+        }
+        body.workspace = Some(workspace.0);
+        body.workspace_name = None;
+    } else {
+        manager.mac.expect();
+        manager.mac.note_using(&headers);
+    }
     if body.provider.as_ref().is_some_and(|p| {
         p.is_empty()
             || p.chars()

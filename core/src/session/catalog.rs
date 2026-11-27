@@ -48,8 +48,23 @@ impl Manager {
     /// The latest 1,000 sessions, newest activity first. Prompts, receipts and records stay
     /// behind the per-session endpoints.
     pub fn list_sessions(&self) -> Value {
+        self.list_workspace_sessions(None)
+    }
+
+    pub(crate) fn list_workspace_sessions(&self, workspace: Option<&str>) -> Value {
         let local = self.local.lock().unwrap();
-        let mut sessions: Vec<_> = local.sessions.values().collect();
+        let mut sessions: Vec<_> = local
+            .sessions
+            .values()
+            .filter(|session| {
+                workspace.is_none_or(|id| {
+                    session
+                        .workspace
+                        .as_ref()
+                        .is_some_and(|entry| entry.id == id)
+                })
+            })
+            .collect();
         sessions.sort_unstable_by_key(|s| std::cmp::Reverse(s.last_sequence));
         let summaries: Vec<_> = sessions
             .iter()
