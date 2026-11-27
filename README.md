@@ -11,6 +11,12 @@ website, documentation, MediaHub, and its operator workspace.
 The [bapX release notes](gui/docs/release-notes.md) record verified web
 deployments and desktop download availability.
 
+The [architecture map](map.mmd) traces the checked-in sources, public routes,
+private runtime, and deployment boundaries. Regenerate it with
+`bash scripts/generate-map.sh` from a Git checkout with Docker Compose and
+`jq`. CI runs `bash scripts/generate-map.sh --check` to catch drift. Search the
+map for a host or component and follow its source pointer to confirm behavior.
+
 ## Upstream Cloudroom
 
 The following upstream overview describes the architecture and Cloudroom's
