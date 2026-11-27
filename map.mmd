@@ -79,6 +79,14 @@ flowchart TD
     skills -->|"Native discovery"| harnesses
   end
 
+  subgraph sandbox["Opt-in business workspace pilot · core/docs/business-sandbox.md"]
+    sandboxPolicy["Private worker policy · account, business and project grants"]
+    sandboxRunner["Loopback business sandbox · core/src/business_sandbox/"]
+    sandboxVolume["Project-scoped durable volume and per-job scratch"]
+    sandboxPolicy -->|"Authorizes and revokes jobs"| sandboxRunner
+    sandboxRunner -->|"Run on a disposable Linux worker"| sandboxVolume
+  end
+
   subgraph customers["Customer workspace and publishing"]
     projects["Private projects · users/account/business/projects/project/"]
     dist["Approved project dist/ snapshot"]
@@ -99,4 +107,5 @@ flowchart TD
   rollout -->|"Replace only agency-web, verify routes, restore healthy release on failure"| webRuntime
   readiness -->|"Host TLS smoke checks"| receipt
   rust --> coreApi
+  rust --> sandboxRunner
   siteData -->|"Read-only mount"| staticPilot

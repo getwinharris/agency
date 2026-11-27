@@ -156,7 +156,8 @@ require_source "$workflow" 'branches: [main]' 'needs: [app, core]' 'needs: web' 
 require_source deploy/web.Dockerfile 'RUN corepack pnpm build:web' \
     '/build/gui/apps/www/dist /srv/bapx-web' 'ENTRYPOINT ["/usr/local/bin/bapx-core", "serve-web"]'
 require_source core/src/main.rs 'return cloudroom::web::serve().await;' \
-    'cloudroom::serve(cloudroom::config::Config::from_env()?).await'
+    'cloudroom::serve(cloudroom::config::Config::from_env()?).await' \
+    'return cloudroom::business_sandbox::serve(policy.as_ref()).await;'
 require_source "$driver" 'gh run download' 'check_public "$sha"' 'restore_pending'
 
 contains_host() {
@@ -260,6 +261,14 @@ MAP
     skills -->|"Native discovery"| harnesses
   end
 
+  subgraph sandbox["Opt-in business workspace pilot · core/docs/business-sandbox.md"]
+    sandboxPolicy["Private worker policy · account, business and project grants"]
+    sandboxRunner["Loopback business sandbox · core/src/business_sandbox/"]
+    sandboxVolume["Project-scoped durable volume and per-job scratch"]
+    sandboxPolicy -->|"Authorizes and revokes jobs"| sandboxRunner
+    sandboxRunner -->|"Run on a disposable Linux worker"| sandboxVolume
+  end
+
   subgraph customers["Customer workspace and publishing"]
     projects["Private projects · users/account/business/projects/project/"]
     dist["Approved project dist/ snapshot"]
@@ -280,6 +289,7 @@ MAP
   rollout -->|"Replace only agency-web, verify routes, restore healthy release on failure"| webRuntime
   readiness -->|"Host TLS smoke checks"| receipt
   rust --> coreApi
+  rust --> sandboxRunner
   siteData -->|"Read-only mount"| staticPilot
 MAP
 }

@@ -108,6 +108,13 @@ async fn run(args: Vec<String>, executable: &str) -> Result<(), Box<dyn std::err
         }
         return cloudroom::web::serve().await;
     }
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("serve-business-sandbox") {
+        let [_, policy] = args.as_slice() else {
+            return Err(format!("Usage: {executable} serve-business-sandbox POLICY.json").into());
+        };
+        return cloudroom::business_sandbox::serve(policy.as_ref()).await;
+    }
     if args.first().map(String::as_str) == Some("helper") {
         if let Err(error) = cloudroom::helper::cli(&args[1..]).await {
             eprintln!("{error}");
