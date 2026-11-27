@@ -279,10 +279,10 @@
     ],
     "bundled_skills": [
       "skills/adr-verbatim/SKILL.md",
-      "skills/browser-harness/SKILL.md",
       "skills/create-loop/SKILL.md",
       "skills/decisions/SKILL.md",
       "skills/deepapi/SKILL.md",
+      "skills/ego-browser/SKILL.md",
       "skills/file-tree/SKILL.md",
       "skills/malware-scan/SKILL.md",
       "skills/risky-changes/SKILL.md",

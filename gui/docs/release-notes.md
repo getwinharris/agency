@@ -161,6 +161,7 @@ Launched the Agency [landing page](https://bapx.in/) and [Docs](https://docs.bap
 
 ## Pending
 
+- **Ego browser skill.** The app skill catalog prefers the @ego integration for browser work. Packaged availability awaits platform release checks.
 - **bapX CLI.** The primary command is `bapx-cli`, with `room-cli` compatibility. The checkout CLI includes `repo skills list`, `read`, and `edit`. Packaged availability awaits platform release checks. [CLI branding #43](https://github.com/getwinharris/agency/issues/43)
 - **Managed workspace access.** The shared bapX account is the entry point for the planned hosted workflow. Authorized workspace grants, automatic desktop enrollment, and running and reconnecting to a real task still require production verification. [Workspace access #46](https://github.com/getwinharris/agency/issues/46) · [Hosted pairing #85](https://github.com/getwinharris/agency/issues/85)
 - **Desktop downloads and updates.** Apple Silicon, Windows x64, and Linux x64 have source packaging instructions and native CI build artifacts. Public downloads await platform release verification, signing where applicable, and publication in Agency Releases. [Package verification PR #64](https://github.com/getwinharris/agency/pull/64) · [Agency Releases](https://github.com/getwinharris/agency/releases)

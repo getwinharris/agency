@@ -639,6 +639,12 @@ For callable MCP tools, register the tool server separately through the native
 client's MCP commands. Codex, OpenCode, and Hermes each provide `mcp add` and
 `mcp list` for managing their own server connections.
 
+#### Ego browser in Agency
+
+For real-browser work, use the bundled `ego-browser` skill and the @ego
+integration on an authorized host. The skill guides browser usage and
+verification. Confirm availability with `ego-browser --help` on that host.
+
 ## Multi-machine
 
 Settings → Machines offers Manual machine setup (the built-in `manual` provider)

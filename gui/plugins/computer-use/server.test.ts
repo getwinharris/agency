@@ -189,7 +189,7 @@ it("tells the agent which browser route works when the driver wants an existing-
   });
   await computerUsePlugin(fake.bb);
   const result = await fake.harness.runCli(["call", "get_browser_state", "{}"], { threadId: "thr_1" });
-  expect(JSON.parse(result.stdout ?? "")).toEqual({ ...refusal, hint: expect.stringContaining("browser-harness") });
+  expect(JSON.parse(result.stdout ?? "")).toEqual({ ...refusal, hint: expect.stringContaining("ego-browser") });
 });
 
 // #2450: a set XAUTHORITY stops the driver finding the cookie itself, so pass only one that works.

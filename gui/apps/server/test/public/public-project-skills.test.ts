@@ -1138,10 +1138,10 @@ describe("public project skills route", () => {
         },
         ...[
           "adr-verbatim",
-          "browser-harness",
           "create-loop",
           "decisions",
           "deepapi",
+          "ego-browser",
           "file-tree",
           "malware-scan",
           "risky-changes",

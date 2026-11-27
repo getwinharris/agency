@@ -47,9 +47,14 @@ jobs:
           apps/server/test/app/host-artifact.test.ts
           apps/server/test/app/install-machine-script.test.ts
           apps/server/test/services/plugins/plugin-cli.test.ts
+          apps/server/test/skills/shipped-skills-quality.test.ts
+          apps/server/test/public/public-project-skills.test.ts
+          apps/server/test/threads/thread-runtime-config.test.ts
           apps/app/src/components/tools/detail-page-recipes.test.tsx
           packages/plugin-sdk/src/internal/command-guard.test.ts
           packages/scripts/test/run-cli.test.ts
+      - name: Computer Use browser guidance checks
+        run: pnpm --filter bb-plugin-computer-use run test server.test.ts
       - name: App starter tests
         working-directory: starters/app-admin
         run: |
