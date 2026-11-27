@@ -66,6 +66,15 @@ first-party bapX sites.
 
 ## Agent change and delivery workflow
 
+Carry an ordinary first-party change through the applicable steps below in one
+continuous run, without waiting for another prompt between implementation,
+testing, review, merge, and automatic deployment. Do not bypass approvals or
+required checks. For a web change, confirm the served SHA and exercise the
+changed behavior in a real browser before calling it shipped. An open PR,
+green CI, or a completed agent turn is not completion. If a gate cannot be
+cleared, leave a concise handoff with the exact blocker, evidence, and next
+safe action; report non-deploying changes according to their actual scope.
+
 1. **Recover context.** Read the relevant instructions, issue or existing PR,
    and latest main and PR revisions. Trace the owning source, route, build
    output, and runtime in the map. Search with `rg` before adding a new owner.
