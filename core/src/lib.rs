@@ -33,6 +33,8 @@ pub mod sync;
 pub mod web;
 #[cfg(unix)]
 pub mod workspace;
+#[cfg(target_os = "linux")]
+pub mod workspace_access;
 
 /// Bumped by `tools/release-core.py` on every release (ADR 0120).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

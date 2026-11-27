@@ -1,4 +1,4 @@
-use super::{APEX, APEX_ORIGIN, Site, admin_store, host};
+use super::{APEX, APEX_ORIGIN, OPERATOR_ID, Site, admin_store, host};
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, State, rejection::JsonRejection},
@@ -27,7 +27,6 @@ use tokio::sync::Semaphore;
 
 const COOKIE: &str = "__Host-bapx-session";
 const COOKIE_ATTRIBUTES: &str = "Path=/; Secure; HttpOnly; SameSite=Strict";
-const OPERATOR_ID: &str = "00000000-0000-4000-8000-000000000000";
 const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 const INVITE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const ATTEMPT_WINDOW: Duration = Duration::from_secs(60);

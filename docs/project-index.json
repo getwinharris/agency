@@ -149,7 +149,9 @@
       "core/src/site_release_tests.rs",
       "core/src/sync/mod.rs",
       "core/src/web.rs",
-      "core/src/workspace/mod.rs"
+      "core/src/workspace/mod.rs",
+      "core/src/workspace_access.rs",
+      "core/src/workspace_access_tests.rs"
     ],
     "web_runtime_sources": [
       "core/src/web/accounts.rs",

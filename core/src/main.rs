@@ -92,6 +92,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().map(String::as_str) == Some("publish-site") {
         return Ok(cloudroom::site_release::cli(&args[1..])?);
     }
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("check-workspace-access") {
+        let [_, policy] = args.as_slice() else {
+            return Err(format!("Usage: {executable} check-workspace-access POLICY.json").into());
+        };
+        return Ok(cloudroom::workspace_access::check_policy(policy.as_ref())?);
+    }
     // Everything else runs on the async runtime; the short commands above, which the app runs often, skip its start.
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
