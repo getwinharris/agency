@@ -144,3 +144,68 @@ sudo bash deploy/publish-site.sh ACCOUNT BUSINESS PROJECT
 The helper uses the verified web image from the deployment record. The native `cloudroom publish-site stage` command copies the approved build into an operator-private directory. Then `cloudroom publish-site release` runs once in the same image with a read-only snapshot and the writable `agency-web-sites` volume of the proxy's Compose project. The web service reads this separate volume at `/var/lib/bapx-sites`. The first release binds the label to the approved project. Run the same command for its next build.
 
 Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts, `/healthz`, and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the five first-party hosts for release revision checks. Preserve the site release volume on deployment and keep its backups private.
+
+## Verify isolated dynamic hosting
+
+Run `bash deploy/dynamic-pilot/verify.sh SOURCE_SHA` on a disposable Linux
+Docker host with OpenSSL. The verifier builds the exact candidate and the
+pinned email-link baseline from [#72](https://github.com/getwinharris/agency/pull/72).
+It verifies TLS, revision, sign-in, enquiry and role boundaries, persistence
+after replacement, and rollback with the same private data volume.
+
+Set `BAPX_PILOT_KEEP=1` to retain the staging proxy at VPS loopback port
+8443. The script prints the temporary CA and the hostname to resolve to
+127.0.0.1. This uses neither production DNS nor first-party proxy configuration.
+
+## Release the customer app sample
+
+The **Public web** workflow builds and tests the sample separately. On a
+successful `main` build it uploads `agency-app-sample-release`, containing
+the sample image digest, exact SHA and checksummed proxy and Compose files.
+Its result does not block the first-party deployment job. The sample job
+runs the exact-release gate fixture with
+`node --test deploy/app-sample/release.test.mjs` before building.
+
+After an exact `main` Public web push run completes successfully, **Deploy app
+sample** requests the sample rollout with that run's SHA, ID and attempt. The
+Hostinger worker requires the matching verified web receipt, the current
+`main` SHA on bapx.in, and one sample artifact from the completed run. A
+superseded SHA fails this gate. The worker checks the candidate image label,
+sample HTTPS revision and signed-out Admin status before promoting the bundle.
+On failure it restores the previous verified sample, or removes sample
+containers on first placement. It preserves the sample data volume.
+
+The named route is [dynamic-check.app.bapx.in](https://dynamic-check.app.bapx.in/).
+Only the edge proxy joins the ingress network. The app shares neither storage
+nor account credentials with the Rust web service. The static sandbox pilot
+keeps its own route and publishing path.
+
+Before first activation, provision a separate `bapx-sample-deploy` SSH user
+with only the forced command below and place its dedicated key, pinned VPS
+host keys, and host name in the `app-sample-production` Actions environment.
+Use the existing secret names `VPS_SSH_PRIVATE_KEY`, `VPS_SSH_KNOWN_HOSTS`
+and `VPS_SSH_HOST`.
+
+```text
+restrict,command="sudo -n /usr/local/libexec/bapx-agency-app-sample-ssh" ssh-ed25519 <sample-deploy-public-key>
+```
+
+Install the approved scripts and sudoers rule. Store the sample owner password
+in `/etc/bapx-agency/sample-owner-password`, with owner UID/GID 1000 and mode
+0400. Keep it separate from the bapX operator credential. Confirm the ingress
+network in `deploy/app-sample/compose.yml` and the route's TLS setup before
+approving the sample deployment.
+
+```sh
+sudo install -o root -g root -m 0755 deploy/app-sample/deploy-ssh.sh /usr/local/libexec/bapx-agency-app-sample-ssh
+sudo install -o root -g root -m 0755 deploy/app-sample/deploy.sh /usr/local/libexec/bapx-agency-app-sample-deploy
+sudo visudo -cf deploy/app-sample/deploy.sudoers
+sudo install -o root -g root -m 0440 deploy/app-sample/deploy.sudoers /etc/sudoers.d/bapx-sample-deploy
+```
+
+Verify `X-BapX-App-Revision` on sample `/healthz` and record the exact SHA,
+Public web run and attempt, sample deployment run, image digest and rollback
+bundle. After approval for synthetic sample data, exercise signup, enquiry,
+owner access and member Admin denial. Use `deploy/app-sample/probe.mjs seed`
+and `reopen` to check persistence across an approved restart. Keep their proof
+file private because it contains sample session credentials.

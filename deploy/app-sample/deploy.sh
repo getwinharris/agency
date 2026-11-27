@@ -8,11 +8,30 @@ state=/var/lib/bapx-agency-app-sample
 platform=/var/lib/bapx-agency-web-deploy/last-good.json
 image_pattern='^ghcr\.io/getwinharris/agency-app-sample@sha256:[a-f0-9]{64}$'
 revision_pattern='^[a-f0-9]{40}$'
-key_pattern='^[0-9]+-[0-9]+$'
+number_pattern='^[1-9][0-9]*$'
+key_pattern='^[1-9][0-9]*-[1-9][0-9]*$'
+
+if [[ $# -ne 3 || ! $1 =~ $revision_pattern ||
+      ! $2 =~ $number_pattern || ! $3 =~ $number_pattern ]]; then
+    echo 'Expected the exact Public web SHA, run ID, and attempt.' >&2
+    exit 2
+fi
+revision=$1
+run=$2
+attempt=$3
+key="$run-$attempt"
+owner_file=/etc/bapx-agency/sample-owner-password
+[[ -f $owner_file && ! -L $owner_file ]] || {
+    echo 'The sample owner credential file must be provisioned first.' >&2
+    exit 1
+}
 
 install -d -m 0700 "$state/releases"
 exec 9>"$state/deploy.lock"
-flock -n 9 || exit 0
+flock -n 9 || {
+    echo 'Another sample deployment holds the lock.' >&2
+    exit 1
+}
 
 file_hash() {
     local hashed
@@ -78,7 +97,7 @@ wait_healthy() {
 }
 
 restore_pending() {
-    local candidate prior bundle
+    local candidate prior bundle remaining
     candidate=$(<"$state/pending")
     prior=$(<"$state/current")
     [[ $candidate =~ $key_pattern && ( -z $prior || $prior =~ $key_pattern ) ]] || return 1
@@ -95,7 +114,8 @@ restore_pending() {
         bundle="$state/releases/$candidate"
         validate_bundle "$bundle" "" || return 1
         compose "$bundle" "$bundled_image" down || return 1
-        [[ -z $(compose "$bundle" "$bundled_image" ps -q) ]] || return 1
+        remaining=$(compose "$bundle" "$bundled_image" ps --all --quiet) || return 1
+        [[ -z $remaining ]] || return 1
     fi
     printf '%s\n' "$candidate" > "$stage/rejected" &&
         mv -f -- "$stage/rejected" "$state/rejected" &&
@@ -109,7 +129,7 @@ finish() {
     local status=$?
     trap - EXIT
     if $active && ! restore_pending; then
-        echo 'Node sample rollback is pending. The next web timer run will retry it.' >&2
+        echo 'Node sample rollback is pending. The next sample deployment will retry it.' >&2
         status=1
     fi
     rm -rf -- "$stage"
@@ -121,14 +141,17 @@ trap 'exit 130' INT
 [[ -f $state/current ]] || touch "$state/current"
 if [[ -f $state/pending ]]; then restore_pending; fi
 
-[[ -f $platform ]] || exit 0
-receipt=$(<"$platform")
-revision=$(jq -er '.sha' <<< "$receipt")
-run=$(jq -er '.run' <<< "$receipt")
-attempt=$(jq -er '.attempt' <<< "$receipt")
-[[ $revision =~ $revision_pattern && $run =~ ^[0-9]+$ && $attempt =~ ^[0-9]+$ ]] || exit 1
-key="$run-$attempt"
-[[ ! -f $state/rejected || $(<"$state/rejected") != "$key" ]] || exit 0
+if ! receipt=$(cat -- "$platform") ||
+    ! jq -e --arg sha "$revision" --arg run "$run" --arg attempt "$attempt" '
+        .sha == $sha and (.run | tostring) == $run and (.attempt | tostring) == $attempt
+    ' <<< "$receipt" >/dev/null; then
+    echo 'The requested Public web release does not match the verified Hostinger receipt.' >&2
+    exit 1
+fi
+if [[ -f $state/rejected && $(<"$state/rejected") == "$key" ]]; then
+    echo 'This sample release attempt was rejected. Verify a new Public web attempt before retrying.' >&2
+    exit 1
+fi
 
 gate_passes() {
     local main platform_revision
@@ -140,7 +163,21 @@ gate_passes() {
         <<< "$platform_revision" >/dev/null
 }
 
-gate_passes || exit 0
+gate_passes || {
+    echo 'The requested web SHA must be current main and serving before sample rollout.' >&2
+    exit 1
+}
+run_matches() {
+    gh api "repos/$repo/actions/runs/$run" |
+        jq -e --arg repo "$repo" --arg sha "$revision" --arg attempt "$attempt" '
+            .path == ".github/workflows/web.yml" and .name == "Public web" and .event == "push" and
+            .head_branch == "main" and .head_repository.full_name == $repo and .head_sha == $sha and
+            (.run_attempt | tostring) == $attempt and .status == "completed" and .conclusion == "success"' >/dev/null
+}
+run_matches || {
+    echo 'The exact Public web run attempt must have completed successfully.' >&2
+    exit 1
+}
 bundle="$state/releases/$key"
 if [[ $(<"$state/current") == "$key" ]]; then
     validate_bundle "$bundle" "$revision"
@@ -151,16 +188,11 @@ if [[ $(<"$state/current") == "$key" ]]; then
     exit 0
 fi
 
-run_matches() {
-    gh api "repos/$repo/actions/runs/$run" |
-        jq -e --arg repo "$repo" --arg sha "$revision" --arg attempt "$attempt" '
-            .name == "Public web" and (.event == "push" or .event == "workflow_dispatch") and
-            .head_branch == "main" and .head_repository.full_name == $repo and .head_sha == $sha and
-            (.run_attempt | tostring) == $attempt and .status == "completed" and .conclusion == "success"' >/dev/null
-}
-run_matches || exit 0
 artifact_count=$(gh api "repos/$repo/actions/runs/$run/artifacts?name=agency-app-sample-release" --jq .total_count)
-[[ $artifact_count == 1 ]] || exit 0
+[[ $artifact_count == 1 ]] || {
+    echo 'Expected one app sample artifact from the exact Public web run.' >&2
+    exit 1
+}
 if [[ ! -d $bundle ]]; then
     gh run download "$run" --repo "$repo" --name agency-app-sample-release --dir "$stage/download"
     validate_bundle "$stage/download" "$revision"
@@ -180,7 +212,10 @@ if ! docker pull "$image"; then
 fi
 compose "$bundle" "$image" pull edge
 [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image") == "$revision" ]]
-run_matches && gate_passes || exit 0
+if ! run_matches || ! gate_passes; then
+    echo 'The verified Public web release changed while preparing the sample.' >&2
+    exit 1
+fi
 
 printf '%s\n' "$key" > "$stage/next"
 mv -f -- "$stage/next" "$state/pending"

@@ -19,7 +19,7 @@ compose() {
 cleanup() {
     local result=$?
     if (( result != 0 )); then compose logs --no-color >&2 || true; fi
-    compose down >/dev/null 2>&1 || true
+    compose down --volumes >/dev/null 2>&1 || true
     docker network rm "$BAPX_SAMPLE_INGRESS" >/dev/null 2>&1 || true
     rm -f -- "$scratch/owner-password" "$scratch/proof.json"
     if [[ -d $scratch/bundle ]]; then

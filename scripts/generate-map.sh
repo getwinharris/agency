@@ -243,6 +243,10 @@ jq -e '
 
 require_source "$workflow" 'branches: [main]' 'needs: [app, core]' 'needs: web' \
     'name: agency-web-release' 'docker push' 'StrictHostKeyChecking=yes'
+require_source "$workflow" 'name: agency-app-sample-release' 'deploy/app-sample/test.sh'
+require_source .github/workflows/app-sample-release.yml 'workflows: [Public web]' \
+    'deploy-sample $SHA $RUN_ID $ATTEMPT'
+require_source deploy/app-sample/deploy.sh 'run_matches' 'gate_passes' 'restore_pending'
 require_source "$dockerfile" 'RUN corepack pnpm build:web' \
     '/build/gui/apps/www/dist /srv/bapx-web' 'ENTRYPOINT ["/usr/local/bin/bapx-core", "serve-web"]'
 require_source core/src/main.rs 'return cloudroom::web::serve().await;' \
@@ -376,8 +380,14 @@ MAP
     siteData["Separate named volume · immutable site revisions"]
     starter["Opt-in standalone app and site-local /admin · starters/app-admin/"]
     appData["Private per-project accounts, credentials and form records"]
+    dynamicPilot["Disposable TLS and rollback checks · deploy/dynamic-pilot/"]
+    sampleBundle["Separate sample image and bundle · Public web sample job"]
+    sampleRelease["Completed Public web → Deploy app sample · deploy/app-sample/"]
+    sampleHost["Exact-host TLS and isolated storage · dynamic-check.app.bapx.in"]
     projects --> dist --> publish -->|"Write completed revisions"| siteData
     projects --> starter --> appData
+    starter --> dynamicPilot
+    starter --> sampleBundle --> sampleRelease --> sampleHost
   end
 
   workspace --> webSource
@@ -388,6 +398,7 @@ MAP
   image --> webChecks
   rollout -->|"Replace only agency-web, verify routes, restore healthy release on failure"| webRuntime
   readiness -->|"Host TLS smoke checks"| receipt
+  receipt -->|"Exact SHA, run and attempt"| sampleRelease
   rust --> coreApi
   rust --> sandboxRunner
   siteData -->|"Read-only mount"| staticPilot

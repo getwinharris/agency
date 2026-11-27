@@ -1,0 +1,2 @@
+Defaults!/usr/local/libexec/bapx-agency-app-sample-ssh env_keep += "SSH_ORIGINAL_COMMAND"
+bapx-sample-deploy ALL=(root) NOPASSWD: /usr/local/libexec/bapx-agency-app-sample-ssh ""
