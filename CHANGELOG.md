@@ -9,6 +9,7 @@
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
 - Compare draft and published MediaHub copy before publishing in Admin.
 - Release the Core journal lock when the writer exits, even if a starting child still holds the descriptor.
+- Add an opt-in business sandbox pilot with account and project grants, read-only Linux images, and project-scoped writable volumes.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.
 - Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.
 - Add bapX Agents landing and documentation on the Cloudroom fork.

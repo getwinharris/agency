@@ -532,7 +532,7 @@ async fn authenticate(State(token): State<Arc<String>>, request: Request, next: 
 }
 
 /// Compares every byte, so response timing does not reveal how much of the token matched.
-fn same_token(supplied: &str, expected: &str) -> bool {
+pub(crate) fn same_token(supplied: &str, expected: &str) -> bool {
     let (supplied, expected) = (supplied.as_bytes(), expected.as_bytes());
     let difference = supplied
         .iter()

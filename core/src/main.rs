@@ -88,6 +88,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(unix)]
 async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("serve-business-sandbox") {
+        let [_, policy] = args.as_slice() else {
+            return Err("Usage: cloudroom serve-business-sandbox POLICY.json".into());
+        };
+        return cloudroom::business_sandbox::serve(policy.as_ref()).await;
+    }
     if args.first().map(String::as_str) == Some("serve-web") {
         if args.len() != 1 {
             return Err("Usage: cloudroom serve-web".into());

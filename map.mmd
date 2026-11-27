@@ -7,6 +7,7 @@ flowchart TD
   sharedSkills["skills/: portable Agent Skills with native discovery checks"]
   core["core: private native agent service"]
   webMode["cloudroom serve-web: Rust first-party web server"]
+  businessSandbox["cloudroom serve-business-sandbox: loopback business workspace pilot"]
   deploy["deploy: verified main image and Traefik routes"]
 
   root --> contracts
@@ -29,6 +30,8 @@ flowchart TD
   mediahub --> privateData
 
   desktop --> core
+  core --> businessSandbox
+  businessSandbox --> sandboxVolumes["Disposable worker: shared Linux image, project volumes, per-job scratch"]
   root --> users["users/: separate user-owned projects"]
   users --> publish["cloudroom publish-site: operator-approved dist snapshot"]
   publish --> siteReleases["Site release volume: read-only in web service"]
