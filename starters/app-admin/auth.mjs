@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { emailAddress } from "./config.mjs";
+import { hashPassword, matchesPassword, normalizePassword, passwordThrottle } from "./passwords.mjs";
 import { renderPage } from "./views.mjs";
 
 const challengeLifetime = 10 * 60_000;
@@ -7,6 +9,39 @@ const sessionLifetime = 14 * 24 * 60 * 60_000;
 const tokenFormat = /^[A-Za-z0-9_-]{43}$/;
 const makeToken = () => randomBytes(32).toString("base64url");
 const digest = (value) => createHash("sha256").update(value).digest("base64url");
+
+export function appAccounts(state) {
+  // A mailbox proven by another account takes precedence without inheriting an unverified password.
+  const confirmed = new Set(state.users.map((user) => user.email));
+  return [...state.users, ...(state.passwordRegistrations ?? []).filter((user) => !confirmed.has(user.email))];
+}
+
+function passwordRegistration(email, passwordHash, role = "customer") {
+  return { id: randomUUID(), email, role, signupMethod: "email", subject: email, passwordHash, verifiedAt: null };
+}
+
+export async function initializeOwnerPassword(config, store) {
+  if (!config.ownerPasswordFile) return;
+  const findOwner = (state) => appAccounts(state).find((user) => user.role === "owner");
+  const owner = findOwner(await store.read());
+  if (owner && owner.email !== config.ownerEmail) throw new Error("The configured owner differs from the existing app owner.");
+  if (owner?.passwordHash) return;
+  const password = normalizePassword((await readFile(config.ownerPasswordFile, "utf8")).replace(/\r?\n$/, ""));
+  if (!password) throw new Error("The owner password file must contain a password of 15 to 128 characters.");
+  const passwordHash = await hashPassword(password);
+  await store.update((state) => {
+    const current = findOwner(state);
+    if (current) {
+      if (current.email !== config.ownerEmail) throw new Error("The configured owner differs from the existing app owner.");
+      current.passwordHash ??= passwordHash;
+      return;
+    }
+    if (appAccounts(state).some((user) => user.email === config.ownerEmail)) {
+      throw new Error("The configured owner address is already used by another app account.");
+    }
+    (state.passwordRegistrations ??= []).push(passwordRegistration(config.ownerEmail, passwordHash, "owner"));
+  });
+}
 
 function cookieName(config, kind) {
   return `${config.origin.startsWith("https:") ? "__Host-" : ""}bapx-app-${kind}`;
@@ -30,29 +65,32 @@ export function sessionFor(config, request, state) {
   if (!token) return null;
   const key = digest(token);
   const record = state.sessions.find((session) => session.key === key && session.expiresAt > Date.now());
-  const user = record && state.users.find((item) => item.id === record.userId);
+  const user = record && appAccounts(state).find((item) => item.id === record.userId);
   if (!user) return null;
-  return { key, userId: user.id, role: user.role, email: user.email, csrf: record.csrf };
+  return { key, userId: user.id, role: user.role, email: user.email, csrf: record.csrf, emailVerified: Boolean(user.verifiedAt) };
 }
 
-function startSession(config, state, { email, method, subject }) {
+function issueSession(config, state, user, method) {
   const now = Date.now();
-  let user = state.users.find((item) => item.signupMethod === method && item.subject === subject);
-  if (user) {
+  if (method) {
     state.signIns.push({ userId: user.id, method, occurredAt: new Date(now).toISOString() });
-  } else {
-    // A second provider does not silently take ownership of an existing account.
-    if (state.users.some((item) => item.email === email)) return null;
-    if (method === "google" && email === config.ownerEmail) return null;
-    const role = method === "email" && email === config.ownerEmail &&
-      !state.users.some((item) => item.role === "owner") ? "owner" : "customer";
-    user = { id: randomUUID(), email, role, signupMethod: method, subject, verifiedAt: new Date(now).toISOString() };
-    state.users.push(user);
   }
   const token = makeToken();
   state.sessions = state.sessions.filter((session) => session.expiresAt > now);
   state.sessions.push({ key: digest(token), userId: user.id, csrf: makeToken(), expiresAt: now + sessionLifetime });
   return authCookie(config, "session", token, sessionLifetime);
+}
+
+function startVerifiedSession(config, state, { email, method, subject }) {
+  const user = state.users.find((item) => item.signupMethod === method && item.subject === subject);
+  if (user) return issueSession(config, state, user, method);
+  if (state.users.some((item) => item.email === email)) return null;
+  const owner = appAccounts(state).find((item) => item.role === "owner");
+  if ((owner && owner.email === email) || (method === "google" && email === config.ownerEmail)) return null;
+  const role = !owner && method === "email" && email === config.ownerEmail ? "owner" : "customer";
+  const verified = { id: randomUUID(), email, role, signupMethod: method, subject, verifiedAt: new Date().toISOString() };
+  state.users.push(verified);
+  return issueSession(config, state, verified);
 }
 
 function takeChallenge(state, kind, key, browser) {
@@ -74,6 +112,32 @@ function reserveChallenge(state, entry) {
 }
 
 export function authHandlers({ config, store, sendEmail, google }) {
+  const throttle = passwordThrottle();
+
+  async function passwordAuth(input, signup) {
+    const email = emailAddress(input.get("email"));
+    const password = normalizePassword(input.get("password"));
+    if (!email || !password) return { invalid: true };
+    return throttle.run(email, async () => {
+      if (signup) {
+        const passwordHash = await hashPassword(password);
+        return store.update((state) => {
+          if (email === config.ownerEmail || appAccounts(state).some((user) => user.email === email)) return {};
+          const user = passwordRegistration(email, passwordHash);
+          (state.passwordRegistrations ??= []).push(user);
+          return { cookie: issueSession(config, state, user) };
+        });
+      }
+      const user = appAccounts(await store.read()).find((item) => item.email === email);
+      if (!await matchesPassword(password, user?.passwordHash)) return {};
+      return store.update((state) => {
+        const active = appAccounts(state).find((item) => item.id === user.id);
+        if (!active || active.passwordHash?.key !== user.passwordHash.key) return {};
+        return { cookie: issueSession(config, state, active, "password") };
+      });
+    });
+  }
+
   async function beginEmail(request, input) {
     const email = emailAddress(input.get("email"));
     if (!email) return null;
@@ -81,10 +145,17 @@ export function authHandlers({ config, store, sendEmail, google }) {
     const browserToken = readCookie(config, request, "email") ?? makeToken();
     const key = digest(token);
     const now = Date.now();
-    const reserved = await store.update((state) => reserveChallenge(state, {
-      kind: "email", key, email, browser: digest(browserToken), createdAt: now,
-      expiresAt: now + challengeLifetime, delivery: { status: "pending" },
-    }));
+    const reserved = await store.update((state) => {
+      const session = sessionFor(config, request, state);
+      const verification = session && !session.emailVerified && session.email === email && input.get("_csrf") === session.csrf;
+      if (!verification && session) return false;
+      return reserveChallenge(state, {
+        kind: verification ? "email-password-verification" : "email", key, email,
+        browser: digest(browserToken), createdAt: now,
+        expiresAt: now + challengeLifetime, delivery: { status: "pending" },
+        ...(verification ? { verificationSession: session.key } : {}),
+      });
+    });
     if (reserved) {
       let delivery;
       try {
@@ -114,9 +185,23 @@ export function authHandlers({ config, store, sendEmail, google }) {
     const browser = readCookie(config, request, "email");
     if (!tokenFormat.test(token) || !browser) return null;
     return store.update((state) => {
-      const entry = takeChallenge(state, "email", digest(token), digest(browser));
+      const key = digest(token);
+      const browserKey = digest(browser);
+      const entry = takeChallenge(state, "email-password-verification", key, browserKey) ??
+        takeChallenge(state, "email", key, browserKey);
       if (!entry || entry.delivery.status === "failed") return null;
-      return startSession(config, state, { email: entry.email, method: "email", subject: entry.email });
+      if (entry.verificationSession) {
+        const session = sessionFor(config, request, state);
+        if (!session || session.key !== entry.verificationSession || session.emailVerified) return null;
+        const index = state.passwordRegistrations?.findIndex((user) => user.id === session.userId && user.email === entry.email) ?? -1;
+        if (index < 0) return null;
+        const [user] = state.passwordRegistrations.splice(index, 1);
+        user.verifiedAt = new Date().toISOString();
+        state.users.push(user);
+        return { verified: true };
+      }
+      const cookie = startVerifiedSession(config, state, { email: entry.email, method: "email", subject: entry.email });
+      return cookie ? { cookie } : null;
     });
   }
 
@@ -151,7 +236,7 @@ export function authHandlers({ config, store, sendEmail, google }) {
     }
     const email = emailAddress(identity?.email);
     if (!email || !identity.subject) return null;
-    return store.update((state) => startSession(config, state, { email, method: "google", subject: identity.subject }));
+    return store.update((state) => startVerifiedSession(config, state, { email, method: "google", subject: identity.subject }));
   }
 
   async function signout(session) {
@@ -161,5 +246,5 @@ export function authHandlers({ config, store, sendEmail, google }) {
     return authCookie(config, "session", "", 0);
   }
 
-  return { beginEmail, emailPage, verifyEmail, beginGoogle, verifyGoogle, signout };
+  return { passwordAuth, beginEmail, emailPage, verifyEmail, beginGoogle, verifyGoogle, signout };
 }

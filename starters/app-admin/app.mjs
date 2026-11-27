@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { authHandlers, sessionFor } from "./auth.mjs";
+import { appAccounts, authHandlers, initializeOwnerPassword, sessionFor } from "./auth.mjs";
 import { emailAddress, validateForms } from "./config.mjs";
 import { openStore } from "./store.mjs";
 import { escapeHtml, renderAdmin, renderHome, renderPage } from "./views.mjs";
@@ -104,11 +104,14 @@ function exportSubmissions(response, submissions, users) {
     .end(`${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`);
 }
 
-export async function createApp({ config, sendEmail, google = null, reportError = console.error }) {
+export async function createApp({ config, sendEmail = null, google = null, reportError = console.error }) {
   const store = await openStore({ dataDir: config.dataDir, appId: config.appId });
+  await initializeOwnerPassword(config, store);
   const forms = validateForms(config.forms).map((form) => ({ ...form,
     revision: createHash("sha256").update(JSON.stringify(form)).digest("hex") }));
   const auth = authHandlers({ config, store, sendEmail, google });
+  const home = (options) => renderHome({ appName: config.appName, emailEnabled: Boolean(sendEmail),
+    googleEnabled: Boolean(google), ...options });
 
   async function get(request, response, url) {
     const route = url.pathname;
@@ -131,19 +134,20 @@ export async function createApp({ config, sendEmail, google = null, reportError 
     }
     if (route !== "/" && route !== "/admin") throw new RequestError(404, "This page could not be found.");
     const state = await store.read();
-    const message = query.has("saved") ? "Changes saved." : query.has("submitted") ? "Enquiry submitted." : "";
+    const message = query.has("saved") ? "Changes saved." : query.has("submitted") ? "Enquiry submitted." :
+      query.has("email-verified") ? "Email address verified." : "";
     if (route === "/") {
       const session = sessionFor(config, request, state);
       const form = forms.find((entry) => entry.id === query.get("form")) ?? forms[0];
-      return html(response, renderHome({ appName: config.appName, session, form, message, googleEnabled: Boolean(google) }));
+      return html(response, home({ session, form, message, signup: query.has("signup") }));
     }
     const session = sessionFor(config, request, state);
-    if (!session) return html(response, renderHome({ appName: config.appName, session, form: null,
-      message: "Sign in to open Admin.", googleEnabled: Boolean(google) }), 401);
+    if (!session) return html(response, home({ message: "Sign in to open Admin." }), 401);
     if (!appStaff(session)) throw new RequestError(403, "This account cannot open Admin.");
     const filters = filtersOf(query);
     const submissions = filteredSubmissions(state.submissions, filters);
-    const users = session.role === "owner" ? state.users : state.users.filter(appStaff);
+    const accounts = appAccounts(state);
+    const users = session.role === "owner" ? accounts : accounts.filter(appStaff);
     if (query.get("export") === "csv") return exportSubmissions(response, submissions, users);
     const selected = state.submissions.find((item) => item.id === query.get("submission"));
     const inventory = new Map(forms.map((form) => [form.id, form]));
@@ -158,17 +162,33 @@ export async function createApp({ config, sendEmail, google = null, reportError 
     const route = url.pathname;
     if (request.headers.origin !== config.origin) throw new RequestError(403, "Submit from this site.");
     const input = await formBody(request);
+    if (route === "/auth/password/signup" || route === "/auth/password/signin") {
+      const signup = route.endsWith("/signup");
+      const result = await auth.passwordAuth(input, signup);
+      if (result.cookie) return redirect(response, "/", result.cookie);
+      if (result.limited) {
+        response.setHeader("Retry-After", "60");
+        return html(response, home({ signup, message: "Too many attempts. Try again shortly." }), 429);
+      }
+      if (signup && result.invalid) {
+        return html(response, home({ signup, message: "Enter a valid email address and a 15 to 128 character password." }), 400);
+      }
+      const message = signup ? "Could not create an account with those details. If you have an account, sign in." :
+        "The email address or password is incorrect.";
+      return html(response, home({ signup, message }), signup ? 409 : 401);
+    }
     if (route === "/auth/email") {
+      if (!sendEmail) throw new RequestError(503, "Email links are unavailable for this app.");
       const cookie = await auth.beginEmail(request, input);
       if (!cookie) throw new RequestError(400, "Enter a valid email address.");
       response.setHeader("Set-Cookie", cookie);
-      return html(response, renderHome({ appName: config.appName, session: null, form: null,
-        message: "Check your email for a confirmation link.", googleEnabled: Boolean(google) }));
+      const session = sessionFor(config, request, await store.read());
+      return html(response, home({ session, form: forms[0], message: "Check your email for a confirmation link." }));
     }
     if (route === "/auth/email/verify") {
-      const cookie = await auth.verifyEmail(request, input);
-      if (!cookie) throw new RequestError(401, "This link cannot be used. Request a new link or use your original sign-in method.");
-      return redirect(response, "/", cookie);
+      const result = await auth.verifyEmail(request, input);
+      if (!result) throw new RequestError(401, "This link cannot be used. Request a new link or use your original sign-in method.");
+      return redirect(response, result.verified ? "/?email-verified=1" : "/", result.cookie);
     }
     if (route === "/auth/signout") {
       const session = requireSession(config, request, await store.read(), input);
@@ -198,7 +218,7 @@ export async function createApp({ config, sendEmail, google = null, reportError 
         const session = requireSession(config, request, state, input, appStaff);
         const submission = state.submissions.find((item) => item.id === id);
         if (!submission) throw new RequestError(404, "This submission could not be found.");
-        if (assigneeId && !state.users.some((user) => user.id === assigneeId && appStaff(user))) {
+        if (assigneeId && !appAccounts(state).some((user) => user.id === assigneeId && appStaff(user))) {
           throw new RequestError(400, "Choose an active app staff member.");
         }
         submission.lead.status = status;
@@ -212,8 +232,9 @@ export async function createApp({ config, sendEmail, google = null, reportError 
       if (role !== "staff" && role !== "customer") throw new RequestError(400, "Choose an app role.");
       await store.update((state) => {
         requireSession(config, request, state, input, (session) => session.role === "owner");
-        const user = state.users.find((entry) => entry.id === parts[2]);
+        const user = appAccounts(state).find((entry) => entry.id === parts[2]);
         if (!user || user.role === "owner") throw new RequestError(404, "This role cannot be changed.");
+        if (role === "staff" && !user.verifiedAt) throw new RequestError(403, "Verify the app account’s email before assigning staff access.");
         user.role = role;
         if (role === "customer") {
           for (const submission of state.submissions) {
