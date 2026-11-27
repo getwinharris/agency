@@ -41,6 +41,14 @@ first-party bapX sites.
 - `deploy/` owns the public web image and VPS deployment instructions.
   Web deployments use the verified image from `main`.
 
+## Customer deployments
+
+- Use the existing Rust bapX Core for the customer hosting runtime and its
+  supported deployment path. Do not package, publish, or deploy a Node.js
+  runtime bundle for customer projects.
+- Existing Node.js tooling may still build frontend assets and run tests.
+  Keep it out of the customer runtime bundle.
+
 ## Public and private surfaces
 
 - `bapx.in` is the product landing and privacy policy.
