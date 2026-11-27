@@ -748,7 +748,11 @@ importers:
         specifier: npm:@typescript/typescript6@^6.0.2
         version: '@typescript/typescript6@6.0.2'
 
-  apps/www: {}
+  apps/www:
+    dependencies:
+      markdown-it:
+        specifier: 14.3.3
+        version: 14.3.3
 
   examples/plugins/agent-enrichment:
     dependencies:

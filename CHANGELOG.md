@@ -1,5 +1,7 @@
 # Changelog
 
+See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified web deployment timeline and current public availability.
+
 ## Unreleased
 
 - Add a responsive homepage menu with verified destinations and remove its GitHub link.
@@ -21,3 +23,4 @@
 - Use the bapX violet accent for primary buttons and keyboard navigation on the Agents, Docs, and Privacy pages.
 - Rebrand the macOS and Windows desktop package sources as bapX Agents v0.1.0 with an Agency update channel.
 - Update public contact and repository links.
+- Publish developer Markdown on Docs with local navigation and a verified release changelog.

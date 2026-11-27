@@ -74,7 +74,7 @@ function landingMenu() {
   </details>`;
 }
 
-function page({
+export function page({
   title, description, canonical, body, surface = "Agents", landing = false,
 }: {
   title: string;
@@ -97,7 +97,7 @@ function page({
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
   <link rel="stylesheet" href="/site.css?v=violet-accent">
-</head>
+${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="shell site-header${landing ? " landing-header" : ""}">
@@ -169,43 +169,6 @@ export function publicPages() {
 </main>
 <script src="/brand/session-demo.js?v=agency" defer></script>
 <script src="/brand/project-paths.js" defer></script>`,
-    }),
-    "docs/index.html": page({
-      title: "Documentation | bapX Agents",
-      description: "Build bapX Agents on macOS, Windows, or Linux and connect it to a private Linux Core.",
-      canonical: `${docs}/`,
-      surface: "Docs",
-      body: `<main id="main" class="shell document">
-  <h1>bapX Agents documentation</h1>
-  <p>bapX Agents is a fork of Cloudroom. The desktop app runs native coding agents and can connect to a private Linux Core.</p>
-  <section id="mac">
-    <h2>Build the Mac app</h2>
-    <p>Build from source on Apple Silicon with macOS 13 or later. The first signed bapX download will be announced in Agency releases.</p>
-    <div class="actions">
-      <a class="button button-primary" href="${source}/blob/main/gui/README.md">Build instructions <span class="arrow" aria-hidden="true"></span></a>
-      <a class="button button-secondary" href="${source}/releases">Agency releases <span class="arrow" aria-hidden="true"></span></a>
-    </div>
-  </section>
-  <section id="windows-linux">
-    <h2>Build for Windows or Linux</h2>
-    <p>Use the Windows x64 instructions to build a per-user installer, or the Linux x64 instructions to build an AppImage.</p>
-    <p class="document-links"><a href="${source}/blob/main/gui/apps/desktop/README.md#windows-nsis-x64">Windows installer build</a><a href="${source}/blob/main/gui/apps/desktop/README.md#linux-appimage-x64">Linux AppImage build</a></p>
-  </section>
-  <section id="private-core">
-    <h2>Run a private Core</h2>
-    <p>Build the Rust Core on a dedicated Ubuntu machine. Configure Codex with your own account and pair from the desktop app using the Core’s private HTTPS URL and token.</p>
-    <p class="document-links"><a href="${source}/blob/main/core/docs/setup.md#1-install-tools-and-build">Core setup</a><a href="${source}/blob/main/core/docs/setup.md#connect-the-desktop-app">Pair the app</a></p>
-  </section>
-  <section id="portable-skills">
-    <h2>Install project skills</h2>
-    <p>Install Agency’s file-tree skill in your project. Codex and OpenCode discover it there, and Hermes can load it through its profile.</p>
-    <p class="document-links"><a href="${source}/blob/main/gui/docs/configuration.md#install-an-agency-skill-in-native-agents">Install and verify the skill</a></p>
-  </section>
-  <section>
-    <h2>Source and licensing</h2>
-    <p class="document-links"><a href="${source}">Agency source</a><a href="${source}/blob/main/LICENSE">Apache 2.0 license</a><a href="${source}/blob/main/NOTICE">Third-party notices</a></p>
-  </section>
-</main>`,
     }),
     "privacy/index.html": page({
       title: "Privacy | bapX",

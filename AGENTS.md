@@ -26,6 +26,10 @@ first-party bapX sites.
 - `gui/apps/www/` owns the landing page, docs, MediaHub and Admin assets.
   Build with `pnpm build:web` from `gui/` using Node.js 24. The Rust
   `cloudroom serve-web` process serves the output and API.
+- `gui/apps/www/src/docs/` owns the Docs navigation, Markdown renderer, and
+  list of published Markdown sources. Edit guides at their source, preserve
+  public slugs and heading anchors, and ensure the web image and workflow
+  path filters cover the published sources.
 - `gui/apps/desktop/` owns the macOS, Windows, and Linux packages. Follow the desktop
   packaging docs for versions, signing, validated downloads, and updates.
   Keep upstream license notices and compatible native protocols.
@@ -70,6 +74,11 @@ first-party bapX sites.
 - Use the existing CI/CD workflow so every push to `main` that affects the live web release automatically builds and deploys to Hostinger after required checks pass. Include changes to shared code, build inputs, and deployment configuration that affect the web release.
 - Deploy the image built from the exact `main` commit, identified by its immutable digest. Record the deployed Git SHA and keep the previous healthy image available for rollback.
 - After deployment, verify the live revision matches the `main` commit and run HTTPS smoke checks for bapx.in, docs.bapx.in, mediahub.bapx.in, and admin.bapx.in. Check that Admin serves sign-in and requires authentication without changing production data.
+- Follow the [release recording steps](deploy/README.md#record-a-verified-release)
+  to update the [bapX release notes](gui/docs/release-notes.md) with verified
+  public changes and their evidence. Use the desktop package version for the
+  product and the full `main` SHA for web deployments. Keep pending work and
+  availability gaps marked in the notes.
 - If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete when the live revision and smoke checks pass.
 - Before merging any PR, read all review summaries and inline comments, including automated reviews. Fix every valid finding and test the fix. For a suggestion that doesn’t apply, explain why in the review thread and get reviewer agreement or explicit maintainer approval before resolving it.
 - Push the fixes, reply in each thread with the fix and verification evidence, and recheck the latest PR commit. Merge only after required reviews are complete, actionable threads are resolved, and required CI passes on that exact commit. Then follow the automatic `main` deployment and live verification steps.
