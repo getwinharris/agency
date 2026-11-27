@@ -87,8 +87,9 @@ safe action; report non-deploying changes according to their actual scope.
 1. **Recover context.** Read the relevant instructions, issue or existing PR,
    and latest main and PR revisions. Trace the owning source, route, build
    output, and runtime in the map. Search with `rg` before adding a new owner.
-   Preserve other worktrees and customer data; resume the existing branch
-   instead of duplicating work.
+   Recover the active goal, branch, exact SHA, latest verification evidence,
+   and outstanding blocker from the PR or handoff. Preserve other worktrees
+   and customer data; resume the existing branch rather than duplicating it.
 2. **Implement a scoped change.** Reuse the owning component and existing
    deployment path. Define the user-visible acceptance criteria and record the
    checks needed for the affected behavior. Keep docs, release instructions,
@@ -113,7 +114,11 @@ safe action; report non-deploying changes according to their actual scope.
    run, live URL, served SHA, and concrete browser assertions. If browser
    access is blocked, report that blocker and do not claim completion. Name the failing step and next action if
    blocked. Follow the rollback procedure if live checks fail.
-5. **Verify downloads separately.** Track Linux, macOS, Windows, and the
+5. **Leave a reproducible handoff.** Before pausing or stopping, record the
+   exact tested commit, repeatable test steps, concrete browser results, and
+   (if released) the served SHA and live links. Name the next action and who
+   owns it. Keep transient status in the PR or handoff, not in this file.
+6. **Verify downloads separately.** Track Linux, macOS, Windows, and the
    Android APK individually for the approved version. Test the Linux installer
    on the VPS first, from the actual download, and verify install and launch.
    Linux success does not verify another platform. Before announcing any
