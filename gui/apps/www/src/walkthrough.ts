@@ -25,11 +25,16 @@ const agentChoices: SampleAgent[] = [
 
 export const sampleWorktrees = [primaryAgent, agentChoices[0]];
 
+function agentIcon(id: string) {
+  const asset = id === "claude" ? "claude-code" : id;
+  return `<img class="demo-agent-icon" src="/brand/agents/${asset}.svg" width="18" height="18" alt="">`;
+}
+
 function worktreeCard({ id, agent, branch, task, unavailable }: SampleAgent, selectable = false, visible = true) {
   return `<li class="demo-branch demo-reveal${selectable ? " demo-agent-spotlight" : ""}"${selectable ? `
     id="demo-agent-${id}" data-demo-agent-card${unavailable ? " data-demo-agent-unavailable" : ""}` : ""}${visible ? "" : " hidden"}>
     <div class="demo-branch-heading">
-      <strong>${agent}</strong>
+      <strong class="demo-agent-identity">${agentIcon(id)}<span>${agent}</span></strong>
       <span class="demo-agent-state">${unavailable ? "Unavailable" : "Configured"}</span>
     </div>
     <code>${branch}</code>
@@ -42,7 +47,7 @@ function runPreview() {
     <p id="demo-agent-label">Choose an agent for the second worktree</p>
     <div class="demo-agent-choices" role="group" aria-labelledby="demo-agent-label">
       ${agentChoices.map(({ id, agent }, index) => `<button type="button" data-demo-agent
-        aria-pressed="${index === 0}" aria-controls="demo-agent-${id}">${agent}</button>`).join("")}
+        aria-pressed="${index === 0}" aria-controls="demo-agent-${id}">${agentIcon(id)}<span>${agent}</span></button>`).join("")}
     </div>
   </div>
   <ul class="demo-branches" aria-label="Sample worktrees" role="list">

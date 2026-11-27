@@ -95,6 +95,11 @@ jobs:
               }
             done
           done
+          for icon in codex claude-code cursor hermes opencode pi; do
+            curl --fail --silent --show-error -H 'Host: bapx.in' \
+              "http://127.0.0.1:8080/brand/agents/$icon.svg" --output "$RUNNER_TEMP/$icon.svg"
+            grep -Fq '<svg' "$RUNNER_TEMP/$icon.svg"
+          done
           curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
           grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"
           grep -F '<a href="/release-notes/">release changelog</a>' "$RUNNER_TEMP/docs-home.html"

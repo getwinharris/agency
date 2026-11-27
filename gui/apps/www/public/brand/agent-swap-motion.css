@@ -1,0 +1,73 @@
+.demo-branch-heading .demo-agent-identity,
+.demo-agent-choices button {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.demo-agent-icon {
+  flex: none;
+  inline-size: 18px;
+  block-size: 18px;
+  object-fit: contain;
+}
+
+.demo-agent-choices .demo-agent-icon {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-session-demo][data-playback] .demo-agent-spotlight:not([hidden]) {
+    position: relative;
+    animation: demo-agent-settle .42s cubic-bezier(.2, .7, .27, 1) both;
+  }
+
+  /* Draw the route into the new card while keeping its text fully visible. */
+  [data-session-demo][data-playback] .demo-agent-spotlight:not([hidden])::before {
+    position: absolute;
+    inset-block: .55rem;
+    inset-inline-start: -1px;
+    inline-size: 2px;
+    border-radius: 2px;
+    content: "";
+    pointer-events: none;
+    background: linear-gradient(to bottom, #f0dcff, #b88be3 65%, transparent);
+    transform-origin: top;
+    animation: demo-agent-trace .62s cubic-bezier(.18, .65, .35, 1) both;
+  }
+
+  [data-session-demo][data-playback] .demo-agent-spotlight::after {
+    content: none;
+  }
+
+  [data-session-demo][data-playback="paused"] .demo-agent-spotlight:not([hidden]),
+  [data-session-demo][data-playback="paused"] .demo-agent-spotlight:not([hidden])::before {
+    animation-play-state: paused;
+  }
+
+  @keyframes demo-agent-settle {
+    from { transform: translateY(.42rem); border-color: #c8a3ee; }
+    to { transform: translateY(0); border-color: #745b92; }
+  }
+
+  @keyframes demo-agent-trace {
+    0% { transform: scaleY(.18); opacity: 0; }
+    30% { opacity: 1; }
+    76% { transform: scaleY(1); opacity: .75; }
+    100% { transform: scaleY(1); opacity: 0; }
+  }
+}
+
+@media (forced-colors: active) {
+  .demo-agent-icon { display: none; }
+
+  [data-session-demo][data-playback] .demo-agent-spotlight:not([hidden]) {
+    animation: none;
+  }
+
+  [data-session-demo][data-playback] .demo-agent-spotlight:not([hidden])::before {
+    content: none;
+    animation: none;
+  }
+}

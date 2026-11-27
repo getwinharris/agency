@@ -102,7 +102,10 @@ export function page({
   <script src="/brand/landing-nav.js" defer></script>` : ""}
   <link rel="canonical" href="${canonical}">
   ${faviconLinks}
-  <link rel="stylesheet" href="/site.css?v=${landing ? "agent-worktree-demo" : "violet-accent"}">
+  <link rel="stylesheet" href="/site.css?v=${landing ? "agent-worktree-demo" : "violet-accent"}">${landing ? `
+  <link rel="stylesheet" href="/brand/hero-worktrees.css?v=agent-worktrees">
+  <link rel="stylesheet" href="/brand/agent-swap-motion.css?v=agent-worktrees">
+  <link rel="stylesheet" href="/brand/disclosures-motion.css?v=agent-worktrees">` : ""}
 ${surface === "Docs" ? '  <link rel="stylesheet" href="/docs.css">\n' : ""}</head>
 <body>
 <a class="skip" href="#main">Skip to content</a>

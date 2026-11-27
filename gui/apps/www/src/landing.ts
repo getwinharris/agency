@@ -1,8 +1,14 @@
 import { sampleWorktrees } from "./walkthrough.ts";
 
 export function landingHero(docs: string) {
-  const branches = sampleWorktrees.map(({ agent, branch }) => `
-          <li><strong>${agent}</strong><code>${branch}</code></li>`).join("");
+  const branches = sampleWorktrees.map(({ id, agent, branch }) => `
+          <li>
+            <div class="hero-worktree-agent">
+              <img src="/brand/agents/${id}.svg" width="20" height="20" alt="">
+              <strong>${agent}</strong>
+            </div>
+            <code>${branch}</code>
+          </li>`).join("");
   return `<section class="hero" aria-labelledby="headline">
     <div class="hero-content">
       <h1 id="headline">Run your coding agents on <em>bapX.</em></h1>
@@ -16,11 +22,17 @@ export function landingHero(docs: string) {
         <a href="${docs}/">Read Docs</a>
       </nav>
     </div>
-    <figure class="worktree-figure" aria-labelledby="worktree-figure-label">
+    <figure class="worktree-figure hero-worktrees" aria-labelledby="worktree-figure-label">
       <figcaption id="worktree-figure-label">Sample workflow</figcaption>
       <div class="worktree-diagram">
-        <div class="worktree-origin"><span>Git project</span><strong>Field Notes</strong></div>
-        <div class="worktree-core"><span class="worktree-core-icon" aria-hidden="true"></span><strong>Private Linux Core</strong></div>
+        <div class="worktree-origin">
+          <span class="hero-worktree-project-icon" aria-hidden="true"></span>
+          <div><span>Git project</span><strong>Field Notes</strong></div>
+        </div>
+        <div class="worktree-core">
+          <img class="hero-worktree-core-logo" src="/brand/bapx-logo-main.svg" width="66" height="22" alt="">
+          <strong>Private Linux Core</strong>
+        </div>
         <ul class="worktree-branches" aria-label="Separate Git worktrees">${branches}
         </ul>
       </div>
