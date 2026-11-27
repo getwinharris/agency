@@ -1,5 +1,6 @@
 import { Icon } from "@cloudroom/shared-ui/icon";
 import { useState } from "react";
+import { useCloudroomConnection } from "@/hooks/queries/cloudroom-queries";
 import { Switch } from "@cloudroom/shared-ui/switch";
 import { useSystemConfig } from "@/hooks/queries/system-queries";
 import { useUpdateGeneralSettings } from "@/hooks/mutations/settings-mutations";
@@ -12,12 +13,16 @@ import {
 import { Button } from "@cloudroom/shared-ui/button";
 import { Input } from "@cloudroom/shared-ui/input";
 import { sdk } from "@/lib/sdk";
+import { openUrlInExternalBrowser } from "@/lib/url-open-routing";
 import {
   SettingsBadge,
   SettingsSection,
 } from "@/components/ui/settings-section";
 import { invalidateSystemConfig } from "@/hooks/cache-owners/system-cache-effects";
 import { machineEnvironmentQueryKey } from "@/hooks/queries/query-keys";
+
+const PRIVATE_CORE_ENVIRONMENT_GUIDE =
+  "https://docs.bapx.in/private-core/#agent-environment-on-a-private-core";
 
 type DraftRow = Omit<MachineEnvironmentVariable, "value"> & {
   id: string;
@@ -28,6 +33,7 @@ type DraftRow = Omit<MachineEnvironmentVariable, "value"> & {
 export function MachineEnvironmentSettings() {
   const queryClient = useQueryClient();
   const settings = useSystemConfig().data?.generalSettings;
+  const privateCoreConfigured = useCloudroomConnection().data?.selfHosted === true;
   const updateSettings = useUpdateGeneralSettings();
   const query = useQuery({
     queryKey: machineEnvironmentQueryKey(),
@@ -46,6 +52,7 @@ export function MachineEnvironmentSettings() {
     <MachineEnvironmentSettingsContent
       environment={query.data ?? null}
       loadFailed={query.isError}
+      privateCoreConfigured={privateCoreConfigured}
       gitCredentialsEnabled={settings?.machineGitCredentialsEnabled ?? true}
       gitSwitchDisabled={!settings || updateSettings.isPending}
       onSave={save}
@@ -68,6 +75,7 @@ export function MachineEnvironmentSettings() {
 export function MachineEnvironmentSettingsContent({
   environment,
   loadFailed = false,
+  privateCoreConfigured = false,
   gitCredentialsEnabled,
   gitSwitchDisabled = false,
   onSave,
@@ -77,6 +85,7 @@ export function MachineEnvironmentSettingsContent({
 }: {
   environment: MachineEnvironmentList | null;
   loadFailed?: boolean;
+  privateCoreConfigured?: boolean;
   gitCredentialsEnabled: boolean;
   gitSwitchDisabled?: boolean;
   onSave: (rows: readonly DraftRow[]) => Promise<void>;
@@ -136,7 +145,28 @@ export function MachineEnvironmentSettingsContent({
   return (
     <SettingsSection
       title="Machine environment"
-      description="Configuration for machines provisioned by plugins."
+      description={
+        <>
+          Configuration for machines provisioned by plugins.
+          {privateCoreConfigured && (
+            <>
+              {" Set agent variables for your private Core on its server. "}
+              <a
+                href={PRIVATE_CORE_ENVIRONMENT_GUIDE}
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
+                onClick={(event) => {
+                  event.preventDefault();
+                  openUrlInExternalBrowser(PRIVATE_CORE_ENVIRONMENT_GUIDE);
+                }}
+              >
+                Private Core environment setup
+              </a>
+            </>
+          )}
+        </>
+      }
       bodyClassName="space-y-3 rounded-none border-0 bg-transparent p-0"
       action={
         <Button
