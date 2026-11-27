@@ -91,6 +91,12 @@ test("checkout CLI preserves generated outputs and rejects drift without writing
     expectFailure("check", /Public ingress, storage or pilot request isolation differs/);
     write(compose, ingress);
 
+    write(compose, ingress.replace(
+      /^ *traefik\.http\.middlewares\.agency-app-headers\.headers\.customrequestheaders\.Authorization: ""\n/m, "",
+    ));
+    expectFailure("check", /Public ingress, storage or pilot request isolation differs/);
+    write(compose, ingress);
+
     const dockerfile = inventory.release.image;
     const image = read(dockerfile);
     write(dockerfile, image.replace(/^COPY gui\/README\.md README\.md\n/m, ""));

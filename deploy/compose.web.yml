@@ -29,6 +29,13 @@ services:
       traefik.http.routers.agency-web.middlewares: agency-public
       traefik.http.routers.agency-web.rule: >-
         Host(`bapx.in`) || Host(`www.bapx.in`) || Host(`docs.bapx.in`) || Host(`mediahub.bapx.in`)
+      traefik.http.routers.agency-app.entrypoints: websecure
+      traefik.http.routers.agency-app.tls: "true"
+      traefik.http.routers.agency-app.tls.certresolver: letsencrypt
+      traefik.http.routers.agency-app.service: agency-web
+      traefik.http.routers.agency-app.priority: "500"
+      traefik.http.routers.agency-app.middlewares: agency-app-headers
+      traefik.http.routers.agency-app.rule: Host(`app.bapx.in`)
       traefik.http.routers.agency-account.entrypoints: websecure
       traefik.http.routers.agency-account.tls: "true"
       traefik.http.routers.agency-account.tls.certresolver: letsencrypt
@@ -89,6 +96,8 @@ services:
         Host(`mediahub.bapx.in`) && Path(`/api/mediahub/inquiries`) && Method(`POST`)
       traefik.http.routers.agency-mediahub-brief.middlewares: agency-mediahub-rate,agency-public
       traefik.http.middlewares.agency-public.headers.customrequestheaders.Cookie: ""
+      traefik.http.middlewares.agency-app-headers.headers.customrequestheaders.Cookie: ""
+      traefik.http.middlewares.agency-app-headers.headers.customrequestheaders.Authorization: ""
       traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Cookie: ""
       traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Authorization: ""
       traefik.http.middlewares.agency-mediahub-rate.ratelimit.average: "8"

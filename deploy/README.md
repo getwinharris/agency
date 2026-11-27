@@ -79,7 +79,14 @@ sudo systemctl daemon-reload
 
 Record that the old timer and service are absent from `systemctl list-unit-files` and the timer is absent from `systemctl list-timers --all`. Keep the release receipt, verified image, Compose snapshots, and data volumes in place. Changes to the installed scripts require review and installation from the approved revision. Use the next eligible `main` push to verify the automatic deployment path.
 
-The deployment checks the container by digest and tests `bapx.in`, `www.bapx.in`, `docs.bapx.in`, `mediahub.bapx.in`, and `admin.bapx.in` through the local TLS proxy before saving `/var/lib/bapx-agency-web-deploy/last-good.json`. Each host’s `/healthz` must report the release commit. Both landing hostnames must serve the page with its `headline` heading ID. Public web CI also checks the server-rendered walkthrough and FAQ on both homepages. The Admin session endpoint must require sign-in. The state file records the run, `main` SHA, deployed digest, Compose checksum, and previous image.
+The deployment checks the container by digest and tests `bapx.in`, `www.bapx.in`, `docs.bapx.in`, `mediahub.bapx.in`, `admin.bapx.in`, and `app.bapx.in` through the local TLS proxy before saving `/var/lib/bapx-agency-web-deploy/last-good.json`. Each host’s `/healthz` must report the release commit. Both landing hostnames must serve the page with its `headline` heading ID. Public web CI also checks the server-rendered walkthrough and FAQ on both homepages. The Admin session endpoint must require sign-in. The state file records the run, `main` SHA, deployed digest, Compose checksum, and previous image.
+
+App uses a dedicated HTTPS router on the shared service. Its root returns a
+temporary redirect to `https://bapx.in/account/`, and its health endpoint reports
+the same commit as the apex. Before the first App release, install the reviewed
+driver revision that checks that redirect and allows time for Traefik to issue
+the certificate. It checks App whenever the active Compose snapshot contains
+the App rule, so a rollback to an earlier five-host snapshot still verifies.
 
 Failed checks restore and verify the previously healthy image and its routing configuration. On the first placement, a failed deployment removes the new service. Retain the previous image locally and consult the VPS journal if rollback needs recovery. The web data volume persists across image replacement.
 
@@ -145,7 +152,7 @@ sudo bash deploy/publish-site.sh ACCOUNT BUSINESS PROJECT
 
 The helper uses the verified web image from the deployment record. The native `cloudroom publish-site stage` command copies the approved build into an operator-private directory. Then `cloudroom publish-site release` runs once in the same image with a read-only snapshot and the writable `agency-web-sites` volume of the proxy's Compose project. The web service reads this separate volume at `/var/lib/bapx-sites`. The first release binds the label to the approved project. Run the same command for its next build.
 
-Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts, `/healthz`, and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the five first-party hosts for release revision checks. Preserve the site release volume on deployment and keep its backups private.
+Check the certificate, index, and representative asset at [sandbox-check.app.bapx.in](https://sandbox-check.app.bapx.in/). Check that traversal attempts, `/healthz`, and `/api/admin/session` return 404 there and that the Admin host still requires authentication. Verify that a different hostname receives no project content. Use the configured first-party hosts for release revision checks. Preserve the site release volume on deployment and keep its backups private.
 
 ## Agency checkout script inventory
 

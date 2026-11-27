@@ -423,6 +423,7 @@ async fn published_host_serves_its_own_artifacts_and_never_enters_first_party_ro
     assert!(site.enable_published(&fixture.0.join("data")).is_err());
     assert!(site.enable_published(&fixture.0.join("site")).is_err());
     site.enable_published(&published).unwrap();
+    site.accounts = Some(accounts::Accounts::open(&fixture.0.join("data")).unwrap());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -474,9 +475,37 @@ async fn published_host_serves_its_own_artifacts_and_never_enters_first_party_ro
     );
     assert_eq!(opaque.bytes().await.unwrap(), "opaque asset");
 
+    for (method, path, target) in [
+        (Method::GET, "/?next=https://outside.invalid/", "/account/"),
+        (Method::HEAD, "/", "/account/"),
+        (Method::GET, "/account/", "/account/"),
+        (Method::GET, "/sign-in/", "/sign-in/"),
+        (Method::GET, "/signup/", "/signup/"),
+    ] {
+        let response = request(method, APP, path).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            format!("{APEX_ORIGIN}{target}")
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(response.headers().get(header::SET_COOKIE).is_none());
+    }
+    let app_health = request(Method::GET, APP, "/healthz").send().await.unwrap();
+    assert_eq!(app_health.status(), StatusCode::OK);
+    assert_eq!(
+        app_health.json::<Value>().await.unwrap()["service"],
+        "bapx-web"
+    );
+
     for (method, hostname, path) in [
         (Method::GET, "unknown.app.bapx.in", "/"),
-        (Method::GET, "app.bapx.in", "/"),
+        (Method::POST, APP, "/"),
+        (Method::GET, APP, "/api/auth/session"),
+        (Method::GET, APP, "/api/admin/session"),
+        (Method::GET, APP, "/v1/sessions"),
+        (Method::GET, APP, "/not-an-entry-page"),
+        (Method::GET, APP, "/brand/favicon.svg"),
         (Method::GET, PILOT, "/source.txt"),
         (Method::GET, PILOT, "/healthz"),
         (Method::GET, PILOT, "/%2e%2e/source.txt"),

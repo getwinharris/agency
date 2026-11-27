@@ -17,6 +17,13 @@
       "source": "deploy/compose.web.yml"
     },
     {
+      "host": "app.bapx.in",
+      "router": "agency-app",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
       "host": "bapx.in",
       "router": "agency-account",
       "method": null,
@@ -280,10 +287,10 @@
     ],
     "bundled_skills": [
       "skills/adr-verbatim/SKILL.md",
-      "skills/browser-harness/SKILL.md",
       "skills/create-loop/SKILL.md",
       "skills/decisions/SKILL.md",
       "skills/deepapi/SKILL.md",
+      "skills/ego-browser/SKILL.md",
       "skills/file-tree/SKILL.md",
       "skills/malware-scan/SKILL.md",
       "skills/risky-changes/SKILL.md",

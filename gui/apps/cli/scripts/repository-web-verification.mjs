@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 const usage = `Usage: bapx-cli repo verify web --revision <full Git SHA> (--live | --origin <loopback HTTP origin>)`;
 
 export const webHealthHosts = [
-  "admin.bapx.in", "bapx.in", "docs.bapx.in", "mediahub.bapx.in", "www.bapx.in",
+  "admin.bapx.in", "app.bapx.in", "bapx.in", "docs.bapx.in", "mediahub.bapx.in", "www.bapx.in",
 ];
 
 const landingMarkers = [
@@ -100,6 +100,16 @@ async function verifyWeb(origin, revision) {
   };
 
   for (const host of webHealthHosts) await health(origin, host, revision);
+  const appHost = "app.bapx.in";
+  const appPath = "/?next=https://example.invalid/";
+  const appRedirect = await get(origin, appHost, appPath);
+  requireStatus(appRedirect, appHost, appPath, 307);
+  if (appRedirect.headers.location !== "https://bapx.in/account/") {
+    throw new Error(`${appHost}${appPath}: expected redirect to the bapX account.`);
+  }
+  for (const path of ["/api/auth/session", "/api/admin/session", "/v1/sessions"]) {
+    await page(appHost, path, [], 404);
+  }
   for (const host of ["bapx.in", "www.bapx.in"]) await page(host, "/", landingMarkers);
   for (const icon of ["codex", "claude-code", "cursor", "hermes", "opencode", "pi"]) {
     await page("bapx.in", `/brand/agents/${icon}.svg`, ["<svg"]);

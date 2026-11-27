@@ -11,8 +11,12 @@ const launcher = fileURLToPath(new URL("../bin/bapx-cli", import.meta.url));
 const revision = "a".repeat(40);
 const homepage = '<h1 id="headline">bapX</h1><div id="how-it-works" data-demo-step data-demo-agent-picker data-demo-agent-unavailable id="bapx-agent-roster"></div><h2 id="faq">FAQ</h2>';
 const routes = new Map();
-for (const host of ["admin.bapx.in", "bapx.in", "docs.bapx.in", "mediahub.bapx.in", "www.bapx.in"]) {
+for (const host of ["admin.bapx.in", "app.bapx.in", "bapx.in", "docs.bapx.in", "mediahub.bapx.in", "www.bapx.in"]) {
   routes.set(`${host}/healthz`, [200, JSON.stringify({ ready: true, service: "bapx-web", revision })]);
+}
+routes.set("app.bapx.in/?next=https://example.invalid/", [307, "", { Location: "https://bapx.in/account/" }]);
+for (const path of ["/api/auth/session", "/api/admin/session", "/v1/sessions"]) {
+  routes.set(`app.bapx.in${path}`, [404, "Not found"]);
 }
 for (const host of ["bapx.in", "www.bapx.in"]) routes.set(`${host}/`, [200, homepage]);
 for (const icon of ["codex", "claude-code", "cursor", "hermes", "opencode", "pi"]) {
@@ -61,6 +65,8 @@ test("checkout CLI verifies a loopback image and fails on release drift", async 
 
   for (const [label, path, result, message] of [
     ["wrong revision", "www.bapx.in/healthz", [200, JSON.stringify({ ready: true, service: "bapx-web", revision: "b".repeat(40) })], /www\.bapx\.in\/healthz: expected ready bapx-web/],
+    ["escaping App redirect", "app.bapx.in/?next=https://example.invalid/", [307, "", { Location: "https://example.invalid/" }], /expected redirect to the bapX account/],
+    ["App exposes a native session route", "app.bapx.in/v1/sessions", [200, "Opened"], /expected HTTP 404, received 200/],
     ["incomplete landing", "bapx.in/", [200, '<h1 id="headline">bapX</h1>'], /missing id="how-it-works"/],
     ["anonymous Admin access", "bapx.in/api/admin/session", [200, "Opened"], /expected HTTP 401, received 200/],
     ["escaping favicon redirect", "bapx.in/favicon.svg", [308, "", { Location: "https://docs.bapx.in/brand/favicon.svg" }], /expected a permanent redirect/],

@@ -27,9 +27,9 @@ need, and explicitly update its `SKILL.md`:
 
 ```sh
 ./gui/apps/cli/bin/bapx-cli repo skills list
-./gui/apps/cli/bin/bapx-cli repo skills read browser-harness
-./gui/apps/cli/bin/bapx-cli repo skills edit browser-harness --stdin < revised-skill.md
-git diff -- skills/browser-harness/SKILL.md
+./gui/apps/cli/bin/bapx-cli repo skills read ego-browser
+./gui/apps/cli/bin/bapx-cli repo skills edit ego-browser --stdin < revised-skill.md
+git diff -- skills/ego-browser/SKILL.md
 ```
 
 Use `list --json` for scripts. On Windows or from `gui/`, the workspace command

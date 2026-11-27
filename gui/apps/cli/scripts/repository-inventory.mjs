@@ -121,6 +121,11 @@ function validateIngress(service) {
   if (service.read_only !== true || labels["traefik.enable"] !== "true"
       || service.ports?.length
       || !validateAccountIngress(labels)
+      || labels["traefik.http.routers.agency-app.rule"] !== "Host(`app.bapx.in`)"
+      || labels["traefik.http.routers.agency-app.tls.certresolver"] !== "letsencrypt"
+      || labels["traefik.http.routers.agency-app.middlewares"] !== "agency-app-headers"
+      || labels["traefik.http.middlewares.agency-app-headers.headers.customrequestheaders.Cookie"] !== ""
+      || labels["traefik.http.middlewares.agency-app-headers.headers.customrequestheaders.Authorization"] !== ""
       || !labels["traefik.http.routers.agency-sandbox-check.middlewares"]?.split(",").includes("agency-sandbox-headers")
       || labels["traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Cookie"] !== ""
       || labels["traefik.http.middlewares.agency-sandbox-headers.headers.customrequestheaders.Authorization"] !== ""
@@ -152,7 +157,7 @@ function rustPublicHosts() {
 
 function validateRoutes(routers) {
   const hosts = (name) => routers.find((router) => router.name === name)?.hosts ?? [];
-  const publicHosts = hosts("agency-web");
+  const publicHosts = sorted([...hosts("agency-web"), ...hosts("agency-app")]);
   const adminHosts = hosts("agency-admin");
   const pilotHosts = hosts("agency-sandbox-check");
   const firstParty = sorted([...publicHosts, ...adminHosts]);
@@ -167,9 +172,13 @@ function validateRoutes(routers) {
     sorted(routers.flatMap((router) => router.hosts)), sorted([...firstParty, ...pilotHosts]));
   requireMatch("Traefik first-party routes and Public web CI health checks",
     firstParty, sorted(webHealthHosts));
-  const vpsRoutes = /^\s*done <<'ROUTES'\n([\s\S]*?)^ROUTES$/m.exec(read(driver))?.[1] ?? "";
+  const smokeDriver = read(driver);
+  const vpsRoutes = /^\s*done <<'ROUTES'\n([\s\S]*?)^ROUTES$/m.exec(smokeDriver)?.[1] ?? "";
+  const vpsAppCheck = /^check_app\(\) \{\n([\s\S]*?)^}/m.exec(smokeDriver)?.[1] ?? "";
+  const vpsAppHosts = [...vpsAppCheck.matchAll(/ host=([a-z0-9.-]+) redirect$/gm)].map((result) => result[1]);
+  const vpsRouteHosts = vpsRoutes.trim().split("\n").map((route) => route.trim().split(/\s+/)[0]).filter(Boolean);
   requireMatch("Traefik first-party routes and Hostinger HTTPS smoke checks", firstParty,
-    sorted(vpsRoutes.trim().split("\n").map((route) => route.trim().split(/\s+/)[0]).filter(Boolean)));
+    sorted([...vpsRouteHosts, ...vpsAppHosts]));
   return { publicHosts, adminHosts };
 }
 
@@ -266,6 +275,7 @@ function renderMap(routers, { publicHosts, adminHosts }) {
     const qualifier = [method, path, pathPrefix].filter(Boolean).map((part) => ` ${part}`).join("");
     let target = "pilotRouter";
     if (name.startsWith("agency-account")) target = "accountRouter";
+    else if (name === "agency-app") target = "appRouter";
     else if (publicHosts.includes(host)) target = "webRouter";
     else if (adminHosts.includes(host)) target = "adminRouter";
     return `    ingress_${router}_${hostId}["${host}${qualifier} · ${name}"] --> ${target}`;
@@ -307,11 +317,12 @@ flowchart TD
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
     webRouter["Traefik TLS · first-party public routes"]
+    appRouter["Traefik TLS · exact App entry"]
     accountRouter["Traefik TLS · apex account and operator API"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
     webRuntime["bapx-core serve-web · core/src/web.rs"]
-    routing["Landing and privacy · Docs guides · MediaHub cases"]
+    routing["Landing and privacy · App account entry · Docs guides · MediaHub cases"]
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
     adminApi["Admin sign-in and authenticated API · core/src/web/admin.rs"]
@@ -320,6 +331,7 @@ flowchart TD
     webData["Private writable volume · accounts, briefs, notes and published copy"]
     adminSecret["Private read-only bind · Admin sign-in credential"]
     webRouter --> webRuntime
+    appRouter -->|"Strip Cookie and Authorization"| webRuntime
     accountRouter -->|"Forward host-only session"| webRuntime
     adminRouter --> webRuntime
     pilotRouter -->|"Strip Cookie and Authorization"| webRuntime

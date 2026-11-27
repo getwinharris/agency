@@ -35,11 +35,12 @@ flowchart TD
 
   subgraph public["Public web on Hostinger · deploy/compose.web.yml"]
     webRouter["Traefik TLS · first-party public routes"]
+    appRouter["Traefik TLS · exact App entry"]
     accountRouter["Traefik TLS · apex account and operator API"]
     adminRouter["Traefik TLS · operator routes"]
     pilotRouter["Traefik TLS · static pilot route"]
     webRuntime["bapx-core serve-web · core/src/web.rs"]
-    routing["Landing and privacy · Docs guides · MediaHub cases"]
+    routing["Landing and privacy · App account entry · Docs guides · MediaHub cases"]
     readiness["First-party /healthz · exact release SHA"]
     briefs["MediaHub brief intake · core/src/web/inquiry.rs"]
     adminApi["Admin sign-in and authenticated API · core/src/web/admin.rs"]
@@ -48,6 +49,7 @@ flowchart TD
     webData["Private writable volume · accounts, briefs, notes and published copy"]
     adminSecret["Private read-only bind · Admin sign-in credential"]
     webRouter --> webRuntime
+    appRouter -->|"Strip Cookie and Authorization"| webRuntime
     accountRouter -->|"Forward host-only session"| webRuntime
     adminRouter --> webRuntime
     pilotRouter -->|"Strip Cookie and Authorization"| webRuntime
@@ -68,6 +70,7 @@ flowchart TD
     ingress_agency_account_signup_bapx_dot_in["bapx.in POST /api/auth/signup · agency-account-signup"] --> accountRouter
     ingress_agency_admin_admin_dot_bapx_dot_in["admin.bapx.in · agency-admin"] --> adminRouter
     ingress_agency_admin_login_admin_dot_bapx_dot_in["admin.bapx.in POST /api/admin/login · agency-admin-login"] --> adminRouter
+    ingress_agency_app_app_dot_bapx_dot_in["app.bapx.in · agency-app"] --> appRouter
     ingress_agency_mediahub_brief_mediahub_dot_bapx_dot_in["mediahub.bapx.in POST /api/mediahub/inquiries · agency-mediahub-brief"] --> webRouter
     ingress_agency_sandbox_check_sandbox_dash_check_dot_app_dot_bapx_dot_in["sandbox-check.app.bapx.in · agency-sandbox-check"] --> pilotRouter
     ingress_agency_web_bapx_dot_in["bapx.in · agency-web"] --> webRouter
