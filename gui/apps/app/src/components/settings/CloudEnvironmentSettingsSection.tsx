@@ -464,6 +464,8 @@ function SkillsCard() {
   });
   const data = skills.data;
   const all = data?.skills ?? [];
+  // An older server's answer, still in the phone app's offline cache, has neither field.
+  const leftOut = data?.leftOut ?? [];
   const query = search.trim().toLowerCase();
   const shown = query ? all.filter((skill) => skill.name.includes(query) || skill.description.toLowerCase().includes(query)) : all;
   const set = (cloud: boolean) => {
@@ -549,6 +551,15 @@ function SkillsCard() {
           {change.error ? errorText(change.error) : `Skills could not be copied to the cloud: ${data?.issue}`}
         </p>
       )}
+      {/* When the cloud's copy is from, so a failing upload shows how stale Cloud threads' skills are (#214). */}
+      {data && (data.copiedAt != null || leftOut.length > 0) && (
+        <p className="border-t border-border px-4 py-2 text-xs text-subtle-foreground">
+          {data.copiedAt != null &&
+            `Last copied to the cloud: ${formatRelativeTime({ timestamp: data.copiedAt, now: skills.dataUpdatedAt })}. `}
+          {leftOut.length > 0 &&
+            `Left out dependency and cache folders: ${leftOut.slice(0, 5).join(", ")}${leftOut.length > 5 ? ` and ${leftOut.length - 5} more` : ""}.`}
+        </p>
+      )}
     </Card>
   );
 }
@@ -608,6 +619,8 @@ function McpCard({ inCloud, onSaved }: { inCloud: string[]; onSaved: (data: Clou
                 >
                   <Icon name={server.cloud ? "Check" : "Plus"} className="size-3" />
                   {server.name}
+                  {/* A cloud sign-in reaches only Claude Code: Codex shows the server as not logged in (#1773). */}
+                  {"signIn" in server && server.signIn ? <span className="font-sans text-2xs">· works in Claude Code only</span> : null}
                 </button>
               ),
             )}
