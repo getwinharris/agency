@@ -6,6 +6,15 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 19:59 IST
+
+The [Build from source guide](https://docs.bapx.in/build-from-source/) links to the Agency project index and architecture map. The two inventories now share a source scan, and CI checks both for drift. Independent browser QA verified the Docs links on desktop and mobile, the same release revision across all five first-party hosts, and the signed-out Admin response. [PR #101](https://github.com/getwinharris/agency/pull/101)
+
+- Desktop source version `0.1.0`
+- Served SHA `e68f5a3ba546aaaeee4a7690ccb0bf09aff68b96`
+- Image `sha256:de3489c1977e6c05a2b40a3a8a9a08200d9144ba1e001c519747127983411146`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/46009874575), attempt 1 · [Production verification](https://github.com/getwinharris/agency/pull/101#issuecomment-7220972390)
+
 ### 27 November 2026, 19:19 IST
 
 The [Linux x64 packaging guide](https://docs.bapx.in/desktop-packaging/#linux-appimage-x64) explains how to start bapX Agents when FUSE is unavailable. The launcher keeps the backend in extract mode so both the window and backend start. The branded CI AppImage passed clean-profile VPS launches with FUSE and in extract mode. The public Linux installer remains pending. [PR #91](https://github.com/getwinharris/agency/pull/91)
