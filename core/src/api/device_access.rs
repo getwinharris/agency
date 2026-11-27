@@ -73,7 +73,13 @@ impl DeviceAccess {
                 "Device access needs a protected Linux Core with private loopback ingress and local history",
             ));
         }
-        Self::open(PathBuf::from(path)).map(Some)
+        let access = Self::open(PathBuf::from(path))?;
+        if config.instance.as_deref() != Some(access.binding.core_id.as_str()) {
+            return Err(invalid(
+                "Device registry does not belong to this Core instance",
+            ));
+        }
+        Ok(Some(access))
     }
 
     fn open(path: PathBuf) -> io::Result<Arc<Self>> {

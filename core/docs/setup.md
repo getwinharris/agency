@@ -208,7 +208,8 @@ configuration. The public web Core does not run the native API.
 A managed Core opts in with `BAPX_CORE_DEVICE_ACCESS_FILE`, the canonical path
 to a trusted, private registry. The registry is version 1 and binds one Core
 ID, workspace ID and bapX member UUID in the `binding.core_id`,
-`binding.workspace_id` and `binding.account_id` fields. Its `grants` map uses
+`binding.workspace_id` and `binding.account_id` fields. Set
+`CLOUDROOM_INSTANCE` to the approved Core ID. Its `grants` map uses
 lowercase SHA-256 digests of the complete `bapx-device-v1.` credential as keys.
 Each grant has `issued_at` and `expires_at` in Unix seconds. Replace the registry atomically and keep the
 readable file out of the source checkout. Its parent must be writable only by
