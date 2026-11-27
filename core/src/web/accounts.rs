@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
-    fs::{self, DirBuilder, File},
+    fs::{DirBuilder, File},
     io::{self, Read},
     num::NonZeroU32,
     os::unix::fs::{DirBuilderExt, PermissionsExt},

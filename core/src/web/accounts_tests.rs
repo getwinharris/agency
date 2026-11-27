@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 struct Fixture(PathBuf);
 
