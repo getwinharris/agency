@@ -6,6 +6,15 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 07:08 IST
+
+Restored responsive navigation on the [bapX landing page](https://bapx.in/), with a compact menu on phones, and removed its GitHub navigation link. [PR #73](https://github.com/getwinharris/agency/pull/73)
+
+- Desktop source version `0.1.0`
+- Served SHA `e02e6fec7fee5aaa5d9f115fd3973f05646d72d9`
+- Image `sha256:8325cbc8983b46c220b42ede15848f2fea81966c3794fcc4a5b127046dacca1b`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45922550932), attempt 1
+
 ### 27 November 2026, 05:31 IST
 
 Published an [operator-approved static site](https://sandbox-check.app.bapx.in/) over HTTPS as a pilot. [PR #69](https://github.com/getwinharris/agency/pull/69)
@@ -56,4 +65,4 @@ Launched the Agency [landing page](https://bapx.in/) and [Docs](https://docs.bap
 - **Desktop downloads and updates.** Apple Silicon, Windows x64, and Linux x64 have source packaging instructions and native CI build artifacts. Public downloads await platform release verification, signing where applicable, and publication in Agency Releases. [Package verification PR #64](https://github.com/getwinharris/agency/pull/64) · [Agency Releases](https://github.com/getwinharris/agency/releases)
 - **Android and hosted agent runtimes.** The Android workspace and emulator QA remain under review. Hosted agent runtimes await public release verification. [Android PR #65](https://github.com/getwinharris/agency/pull/65) · [Private Core setup](../../core/docs/setup.md)
 - **Customer app hosting.** The app starter and its email/password flow have merged source changes. Mobile Admin, the isolated TLS listener, and dynamic hosting remain in development or review. Public dynamic hosting, self-service publishing, and custom domains await production verification. [App starter PR #68](https://github.com/getwinharris/agency/pull/68) · [Email/password PR #74](https://github.com/getwinharris/agency/pull/74) · [Mobile Admin PR #71](https://github.com/getwinharris/agency/pull/71) · [TLS listener PR #72](https://github.com/getwinharris/agency/pull/72) · [Dynamic hosting PR #75](https://github.com/getwinharris/agency/pull/75)
-- **Landing updates.** Link cleanup and the expanded Codex walkthrough await production verification. [PR #73](https://github.com/getwinharris/agency/pull/73) · [PR #76](https://github.com/getwinharris/agency/pull/76)
+- **Landing walkthrough.** The expanded Codex walkthrough awaits production verification. [PR #76](https://github.com/getwinharris/agency/pull/76)
