@@ -183,7 +183,7 @@ it("accepts an unchanged private Core binding reloaded during readiness, but rej
   const originalToken = "x".repeat(40);
   const rotatedToken = "y".repeat(40);
   const readyTokens: string[] = [];
-  let holdReady: { requested: (token: string) => void; release: () => void; wait: Promise<void> } | null = null;
+  let holdReady: { requested: (token: string) => void; wait: Promise<void> } | null = null;
   const core = createServer(async (req, res) => {
     const json = (body: unknown, status = 200) => {
       res.writeHead(status, { "Content-Type": "application/json" });
@@ -218,14 +218,17 @@ it("accepts an unchanged private Core binding reloaded during readiness, but rej
     let release!: () => void;
     const readiness = new Promise<string>((resolve) => { requested = resolve; });
     const wait = new Promise<void>((resolve) => { release = resolve; });
-    holdReady = { requested, release, wait };
+    holdReady = { requested, wait };
     const pending = status();
-    expect(await readiness).toBe(originalToken);
-    const replacement = `${bindingPath}.test-replacement`;
-    await writeFile(replacement, JSON.stringify({ url, token }), { mode: 0o600, flag: "wx" });
-    await rename(replacement, bindingPath);
-    holdReady = null;
-    release();
+    try {
+      expect(await readiness).toBe(originalToken);
+      const replacement = `${bindingPath}.test-replacement`;
+      await writeFile(replacement, JSON.stringify({ url, token }), { mode: 0o600, flag: "wx" });
+      await rename(replacement, bindingPath);
+    } finally {
+      holdReady = null;
+      release();
+    }
     return pending;
   };
   try {
@@ -238,7 +241,6 @@ it("accepts an unchanged private Core binding reloaded during readiness, but rej
     expect(await status()).toMatchObject({ ready: true, error: null });
     expect(readyTokens.at(-1)).toBe(rotatedToken);
   } finally {
-    holdReady?.release();
     service.stop();
     core.closeAllConnections();
     await new Promise<void>((resolve) => core.close(() => resolve()));
