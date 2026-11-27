@@ -342,7 +342,16 @@ img { display: block; max-width: 100%; height: auto; }
   background: #1e1728;
   font-size: .87rem;
 }
-.demo-events li > span { inline-size: .8rem; color: #dcd0ef; }
+.demo-events li > span { inline-size: .8rem; }
+.demo-done::after {
+  content: "";
+  display: block;
+  inline-size: .6rem;
+  block-size: .34rem;
+  border: solid var(--violet);
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg);
+}
 .demo-events code { overflow-wrap: anywhere; color: #e6d3ff; font-size: .84rem; }
 .demo-events li > .demo-running, .demo-dot {
   flex: 0 0 .5rem;

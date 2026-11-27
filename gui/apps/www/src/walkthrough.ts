@@ -34,8 +34,8 @@ const steps = [
     screen: `<p class="demo-context">Field Notes · Codex</p>
       <h3>Notes empty state</h3>
       <ul class="demo-events" aria-label="Sample activity">
-        <li class="demo-reveal"><span aria-hidden="true">✓</span>Read <code>src/NotesList.tsx</code></li>
-        <li class="demo-reveal"><span aria-hidden="true">✓</span>Added the empty state</li>
+        <li class="demo-reveal"><span class="demo-done" aria-hidden="true"></span>Read <code>src/NotesList.tsx</code></li>
+        <li class="demo-reveal"><span class="demo-done" aria-hidden="true"></span>Added the empty state</li>
         <li class="demo-reveal"><span class="demo-running" aria-hidden="true"></span>Running <code>npm test</code></li>
       </ul>`,
   },
