@@ -84,6 +84,15 @@ green CI, or a completed agent turn is not completion. If a gate cannot be
 cleared, leave a concise handoff with the exact blocker, evidence, and next
 safe action; report non-deploying changes according to their actual scope.
 
+**Use GitHub issues as the work queue.** At the start of an engineering run,
+review open issues and active PRs. Pick a ready issue, reuse any existing PR,
+and record a short plan, scope, and browser acceptance checks in the issue or
+PR. When scope and permissions are clear, own the work through review, CI,
+merge, and live verification, then select the next ready issue instead of
+waiting for a new prompt. Do not duplicate active work or bypass release gates.
+Ask only when an unresolved decision, permission, or real blocker prevents safe
+progress; record the blocker and continue another ready issue when appropriate.
+
 1. **Recover context.** Read the relevant instructions, issue or existing PR,
    and latest main and PR revisions. Trace the owning source, route, build
    output, and runtime in the map. Search with `rg` before adding a new owner.
