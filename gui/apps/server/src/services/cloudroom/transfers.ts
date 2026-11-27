@@ -31,6 +31,7 @@ import {
 } from "./protocol.js";
 import type { CloudRuntime } from "./runtime.js";
 import { SANDBOX_PREFIX, sandboxThread, type SandboxWakeTrigger } from "./sandboxes.js";
+import { redactSecrets } from "./shares.js";
 import { baseBranch, binding, command, commands, localTeleports, projectCopyProgress, teleportBlocked, teleportProgress, type Binding } from "./store.js";
 
 export interface TransferHooks {
@@ -141,27 +142,52 @@ export class CloudTransfers {
       if (create) this.hooks.progress(threadId, [{ key: "workspace", text: `Using workspace: ${workspace.path}`, status: "completed" }]);
       if (!workspace.head) return null;
       const quoted = `'${name}'`;
-      // A warm project snapshot skips the clone, so switch to the chosen base branch here.
       const base = baseBranch(command(this.rt.host.db, `first_${threadId}`)?.input);
-      const switchBase = base ? `[ "$current" = '${base}' ] || { git fetch -q origin '${base}' && git checkout -q -B '${base}' 'origin/${base}'; } 2>/dev/null; ` : "";
+      // Git moves branch configuration with the branch when title inference renames it.
+      const branchOwner = "cloudroom-thread";
+      const owned = base
+        ? `[ "$(git config --local --get "branch.$current.${branchOwner}")" = '${thread.id}' ] && exit 0;`
+        : 'case "$current" in room/*|cloudroom/*) exit 0 ;; esac;';
+      // A warm checkout can have an old copy of the selected branch. Fetch its exact head into a temporary ref so
+      // another fetch cannot change what we start from. Check it out directly without resetting a local branch.
+      const incoming = `refs/cloudroom/incoming/${randomUUID()}`;
+      const start = base
+        ? `trap 'git update-ref -d "${incoming}" >/dev/null 2>&1' EXIT;
+           GIT_TERMINAL_PROMPT=0 git fetch -q --no-tags --no-write-fetch-head origin '+refs/heads/${base}:${incoming}' ||
+             { printf '%s\\n' 'Could not fetch selected branch ${base} from origin.' >&2; exit 1; };
+           commit=$(git rev-parse --verify "${incoming}^{commit}") || exit 1;
+           git checkout -q -b ${quoted} --no-overwrite-ignore "$commit" -- &&
+             git config --local 'branch.${name}.${branchOwner}' '${thread.id}'`
+        : `git pull -q --ff-only 2>/dev/null; git checkout -q -b ${quoted}`;
       // Only the branch Cloudroom's clone or snapshot checked out moves. One the agent made or checked out itself stays,
       // with its commits and any merge in progress (#1370, #1377). With no known default branch, it moves as before.
       const kept = 3;
-      const own = `default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null); [ -z "$default" ] || [ "$current" = "\${default#origin/}" ]${base ? ` || [ "$current" = '${base}' ]` : ""} || { printf '%s\\n' "$current"; exit ${kept}; }; `;
+      const own = `default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null); [ -z "$default" ] || [ "$current" = "\${default#origin/}" ]${base ? ` || [ "$current" = '${base}' ]` : ""} || exit ${kept}; `;
+      const detached = base ? `printf '%s\\n' 'The checkout is detached.' >&2; exit 1` : "exit 0";
       const script = create
-        ? `current=$(git symbolic-ref --quiet --short HEAD) || exit 0; case "$current" in room/*|cloudroom/*) ;; *) ${own}${switchBase}git pull -q --ff-only 2>/dev/null; git checkout -q -b ${quoted} ;; esac`
+        ? `current=$(git symbolic-ref --quiet --short HEAD) || { ${detached}; };
+           [ "$current" = ${quoted} ] && exit 0;
+           ${owned}
+           ${own}${start}`
         : `current=$(git symbolic-ref --quiet --short HEAD) || exit 0; case "$current" in room/*|cloudroom/*) [ "$current" = ${quoted} ] || git rev-parse -q --verify "$current@{upstream}" >/dev/null || git branch -m ${quoted} ;; esac`;
       // One switch at a time per checkout: a retry waits for the try whose answer was lost, then finds its branch and
       // changes nothing, so the late try can't move the folder back to the base branch (#1524).
-      const lock = `exec 9>>"$(git rev-parse --git-path cloudroom-branch.lock)" && flock 9; `;
-      const result = await again((signal) => client.runOnVm({ command: `${lock}${script}\ngit symbolic-ref --quiet --short HEAD`, cwd: workspace.path }, signal));
+      const lock = `exec 9>>"$(git rev-parse --git-path cloudroom-branch.lock)" && flock 9 || exit 1`;
+      const result = await again((signal) => client.runOnVm({ command: `${lock}\n(${script})\nstatus=$?\ngit symbolic-ref --quiet --short HEAD\nexit "$status"`, cwd: workspace.path }, signal));
       const branch = Buffer.from(result.stdout, "hex").toString().trim().split("\n").at(-1);
-      if (branch) this.hooks.progress(threadId, [{ key: "branch", text: `Using branch: ${branch}`, status: "completed" }]);
-      if (create && result.code === kept && branch) { onKept?.(branch); return null; }
+      if (branch && (result.code === 0 || (result.code === kept && !base))) this.hooks.progress(threadId, [{ key: "branch", text: `Using branch: ${branch}`, status: "completed" }]);
+      if (create && result.code === kept && branch) {
+        onKept?.(branch);
+        if (!base) return null;
+        this.hooks.progress(threadId, [{ key: "branch", text: `Could not create branch: ${name}`, status: "failed" }]);
+        return `The folder is on ${branch}. Cloudroom kept that branch and could not start the thread from ${base}.`;
+      }
       // A detached checkout exits 0 with no branch to switch. A failed or killed command, or any other branch, means the
       // switch failed (#816).
       if (!create || (result.code === 0 && (!branch || /^(room|cloudroom)\//.test(branch)))) return null;
-      return `Cloudroom could not switch the folder to the thread's branch ${name}${branch ? `, so it is still on ${branch}` : ""}. Git said: ${Buffer.from(result.stderr, "hex").toString().trim().slice(-300) || `exit code ${result.code}`}`;
+      const error = redactSecrets(Buffer.from(result.stderr, "hex").toString(), []).trim().slice(0, 300) || `exit code ${result.code}`;
+      this.hooks.progress(threadId, [{ key: "branch", text: `Could not create branch: ${name}`, status: "failed" }]);
+      return `Cloudroom could not switch the folder to the thread's branch ${name}${branch ? `, so it is still on ${branch}` : ""}. Git said: ${error}`;
     } catch (error) {
       // A rename that fails never blocks the agent; the next title change retries.
       return create ? `Cloudroom could not set up the thread's branch ${name}: ${error instanceof Error ? error.message : String(error)}` : null;

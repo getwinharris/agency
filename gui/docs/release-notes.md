@@ -6,6 +6,24 @@ See the [bapX Agents desktop package source](../apps/desktop/package.json) for t
 
 These entries record when Hostinger verified each deployed image. The desktop version identifies the package source at that commit. Download availability is tracked under [Pending](#pending).
 
+### 27 November 2026, 17:10 IST
+
+Moved first-party web deployment to GitHub Actions. The [Public web workflow](https://github.com/getwinharris/agency/actions/workflows/web.yml) verifies the source revision and deploys the shared Rust image to Hostinger. Retired VPS polling after checking all five hostnames and the browser acceptance flows. [PR #92](https://github.com/getwinharris/agency/pull/92)
+
+- Desktop source version `0.1.0`
+- Served SHA `353870427b68b63e97627ec1b73c23027b4ac80d`
+- Image `sha256:a52d8e68d66fbbb18d96cb67e41fd7908ae9ce8eeada35cb3ebe66fab81b2a46`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45990620382), attempt 1
+
+### 27 November 2026, 16:52 IST
+
+Organized the [bapX Docs release notes](https://docs.bapx.in/release-notes/) into a timeline and added the verified homepage, landing alias, and private Core records. [PR #87](https://github.com/getwinharris/agency/pull/87)
+
+- Desktop source version `0.1.0`
+- Served SHA `7c5d29d208b72f1249d27e46de051e91561a7a68`
+- Image `sha256:b56814534a574959c34cc885d78b990ebb7e8c42d70b8a9b76ad3912c7258786`
+- [Exact-main workflow and image manifest](https://github.com/getwinharris/agency/actions/runs/45987954176), attempt 1
+
 ### 27 November 2026, 16:05 IST
 
 Updated the [bapX homepage](https://bapx.in/) with a private Core setup path and a sample walkthrough of parallel agent worktrees and reconnecting. [PR #76](https://github.com/getwinharris/agency/pull/76)
