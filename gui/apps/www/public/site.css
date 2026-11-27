@@ -140,6 +140,7 @@ img { display: block; max-width: 100%; height: auto; }
 }
 .worktree-diagram {
   --diagram-gap: 1.25rem;
+
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
@@ -258,7 +259,6 @@ img { display: block; max-width: 100%; height: auto; }
 @media (max-width: 440px) {
   .hero .actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .hero .actions .button { justify-content: space-between; }
-  .demo-titlebar { flex-wrap: wrap; }
   .hero { gap: 1rem; padding-block: 2rem 2.25rem; }
   .hero-content > p { margin-block: 1rem 1.25rem; }
   .worktree-figure figcaption { padding-block: .5rem; }
@@ -290,6 +290,7 @@ img { display: block; max-width: 100%; height: auto; }
   align-items: center;
 }
 .demo-titlebar {
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: .45rem 1rem;
   min-block-size: 3.6rem;
@@ -548,6 +549,7 @@ img { display: block; max-width: 100%; height: auto; }
 
 .landing-main {
   --landing-section-gap: clamp(3.25rem, 6.5vw, 6.5rem);
+
   overflow-wrap: anywhere;
   -webkit-tap-highlight-color: #ccaaff36;
 }
