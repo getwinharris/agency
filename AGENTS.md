@@ -94,7 +94,11 @@ continuous run, without waiting for another prompt between implementation,
 testing, review, merge, and automatic deployment. Do not bypass approvals or
 required checks. For a web change, confirm the served SHA and exercise the
 changed behavior in a real browser before calling it shipped. An open PR,
-green CI, or a completed agent turn is not completion. If a gate cannot be
+green CI, a diagnostics report, an isolated smoke test, or a completed agent
+turn is not completion. Meet all agreed acceptance criteria for the in-scope
+user journey in production. Small increments are fine; a minimal demo is
+not the final deliverable. Fix recoverable blockers and keep independent
+work moving when an external dependency requires owner action. If a gate cannot be
 cleared, leave a concise handoff with the exact blocker, evidence, and next
 safe action; report non-deploying changes according to their actual scope.
 
@@ -162,7 +166,8 @@ stop condition set for the run.
    on the VPS first, from the actual download, and verify install and launch.
    Linux success does not verify another platform. Before announcing any
    platform, verify its public download, checksum, applicable signing and
-   update checks, and install and launch on that platform. Mark missing or
+   update checks, install and launch, and the agreed end-to-end workflow on
+   that platform (including signup and real agent tasks when in scope). Mark missing or
    unverified packages explicitly. A successful build is not a public release.
 
 ## Web release verification
@@ -191,4 +196,4 @@ stop condition set for the run.
   public changes and their evidence. Use the desktop package version for the
   product and the full `main` SHA for web deployments. Keep pending work and
   availability gaps marked in the notes.
-- If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete when the live revision and smoke checks pass.
+- If a post-deploy check fails, restore the previous healthy release and report the blocker. Report the PR, deployed SHA, workflow run, and verified live URLs. The task is complete only when the live revision, smoke checks, and every in-scope user-facing acceptance check pass.
