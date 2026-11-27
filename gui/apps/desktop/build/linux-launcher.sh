@@ -12,6 +12,12 @@ while read -r _ _ _ _ point _; do
   [ "$point" = "${appdir// /\\040}" ] && mounted=1 && break
 done < /proc/self/mountinfo
 
+# The AppImage runtime consumes the extract flag before reaching this launcher.
+# Keep extract mode for the backend, which launches the AppImage again.
+if [ "$mounted" -eq 0 ] && [ -n "${APPIMAGE:-}" ] && [ -n "${APPDIR:-}" ]; then
+  export APPIMAGE_EXTRACT_AND_RUN=1
+fi
+
 if [ -n "$ELECTRON_RUN_AS_NODE" ] || [ "$mounted" -eq 0 ]; then
   exec -a "$0" "$app" "$@"
 fi

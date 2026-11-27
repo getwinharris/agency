@@ -170,7 +170,9 @@ pnpm exec turbo run smoke:packaged --filter=@cloudroom/desktop
 
 Running an AppImage normally requires FUSE and, on some distributions, the
 `libfuse2` compatibility package. If FUSE is unavailable, launch it with
-`--appimage-extract-and-run` instead.
+`--appimage-extract-and-run` instead. If your build opens a window but the
+backend still reports a FUSE error, use `APPIMAGE_EXTRACT_AND_RUN=1` when
+launching it to put both processes in extract mode.
 
 Linux users whose window manager supplies all window controls can remove the
 native Electron title bar with `--no-window-frame`:
