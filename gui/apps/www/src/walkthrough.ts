@@ -83,7 +83,7 @@ const steps = [
     duration: 3300,
     screen: `<p class="demo-reconnected demo-reveal"><span class="demo-dot" aria-hidden="true"></span>Reconnected to your private Core</p>
     <div class="demo-summary demo-reveal"><strong>Git review</strong>
-      <p>Review the UI and test changes in their branches, then merge the changes you choose into <code>main</code> in Git.</p>
+      <p>Review the changes on each branch, then merge the ones you choose into <code>main</code> in Git.</p>
     </div>`,
   },
 ];
