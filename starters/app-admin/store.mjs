@@ -26,6 +26,9 @@ function checkSnapshot(snapshot, appId) {
   if (collectionNames.some(name => !Array.isArray(snapshot[name]))) {
     throw new Error("Invalid app data collections");
   }
+  if (snapshot.passwordRegistrations !== undefined && !Array.isArray(snapshot.passwordRegistrations)) {
+    throw new Error("Invalid password registrations");
+  }
   return snapshot;
 }
 

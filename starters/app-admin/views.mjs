@@ -82,16 +82,47 @@ function renderPublicForm(form, session) {
   </section>`;
 }
 
-export function renderHome({ appName, session, form, message, googleEnabled }) {
-  const content = session ? renderPublicForm(form, session) : `<section class="panel padded" aria-labelledby="signin-title">
-    <h2 id="signin-title">Sign up or sign in</h2>
-    <form class="stack" method="post" action="/auth/email">
+function renderPasswordForm(signup, emailEnabled, googleEnabled) {
+  const action = signup ? "signup" : "signin";
+  const button = signup ? "Create account" : "Sign in";
+  return `<section class="panel padded" aria-labelledby="signin-title">
+    <h2 id="signin-title">${button}</h2>
+    <form class="stack" method="post" action="/auth/password/${action}">
       <label for="email">Email address</label>
-      <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
-      <button class="primary" type="submit">Send sign-in link</button>
+      <input id="email" name="email" type="email" autocomplete="username" maxlength="254" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}"
+        maxlength="256"${signup ? ' minlength="15" aria-describedby="password-length"' : ""} required>
+      ${signup ? '<p class="muted" id="password-length">Use 15 to 128 characters.</p>' : ""}
+      <button class="primary" type="submit">${button}</button>
     </form>
-    ${googleEnabled ? '<p class="actions"><a class="button" href="/auth/google">Continue with Google</a></p>' : ""}
+    <p>${signup ? '<a href="/">Sign in to an existing account</a>' : '<a href="/?signup=1">Create an account</a>'}</p>
+    ${!signup && emailEnabled ? `<details>
+      <summary>Sign in with an email link</summary>
+      <form class="stack" method="post" action="/auth/email">
+        <label for="link-email">Email address for the sign-in link</label>
+        <input id="link-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+        <button type="submit">Send sign-in link</button>
+      </form>
+    </details>` : ""}
+    ${!signup && googleEnabled ? '<p class="actions"><a class="button" href="/auth/google">Continue with Google</a></p>' : ""}
   </section>`;
+}
+
+function renderEmailVerification(session) {
+  return `<section class="panel padded" aria-labelledby="verify-email-title">
+    <h2 id="verify-email-title">Verify your email</h2>
+    <form method="post" action="/auth/email">
+      ${csrfField(session)}
+      <input type="hidden" name="email" value="${escapeHtml(session.email)}">
+      <button type="submit">Send verification link</button>
+    </form>
+  </section>`;
+}
+
+export function renderHome({ appName, session, form, message, signup, emailEnabled, googleEnabled }) {
+  const content = session ? `${renderPublicForm(form, session)}${emailEnabled && !session.emailVerified ? renderEmailVerification(session) : ""}` :
+    renderPasswordForm(signup, emailEnabled, googleEnabled);
   return renderPage(appName, `${header(appName, session)}
     <main class="home" id="main" tabindex="-1">
       <h1>${escapeHtml(appName)}</h1>
@@ -234,8 +265,8 @@ function renderUsers(users, session) {
         <tbody>${users.map((user) => `<tr>
           <th scope="row">${escapeHtml(user.email)}</th>
           <td>${escapeHtml(signupMethods[user.signupMethod] ?? "—")}</td>
-          <td>${dateTime(user.verifiedAt)}</td>
-          <td>${user.role === "owner" ? "Owner" : `<form class="role-form" method="post" action="/admin/roles/${encodeURIComponent(user.id)}">
+          <td>${user.verifiedAt ? dateTime(user.verifiedAt) : "Unverified"}</td>
+          <td>${user.role === "owner" || !user.verifiedAt ? roles[user.role] : `<form class="role-form" method="post" action="/admin/roles/${encodeURIComponent(user.id)}">
             ${csrfField(session)}
             <select name="role" aria-label="Role for ${escapeHtml(user.email)}">${option("customer", roles.customer, user.role)}${option("staff", roles.staff, user.role)}</select>
             <button type="submit">Save role</button>

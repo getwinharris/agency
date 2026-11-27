@@ -6,6 +6,7 @@
 - Let an app Admin starter listen on a private bridge behind its TLS proxy.
 - Add an operator-run static publishing pilot for sandbox builds on sandbox-check.app.bapx.in.
 - Add an opt-in app starter with site-scoped sign-in, verified signup activity, forms, and an enquiries dashboard backed by persistent project data.
+- Give the app admin starter a provider-free email and password flow with salted password hashes, app-local owner provisioning, and optional verified email and Google sign-in.
 - Restore the original bapX wordmark and favicon formats across all first-party websites.
 - Guide visitors to private Core setup or a MediaHub brief with a matching service.
 - Compare draft and published MediaHub copy before publishing in Admin.
