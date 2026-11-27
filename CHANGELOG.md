@@ -4,6 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Keep the Linux AppImage backend in extract mode when launched without FUSE.
 - Explain the private Core setup on the homepage and show parallel worktrees and reconnecting in a sample walkthrough.
 - Document how to verify the running private Core build after a restart.
 - Present verified bapX web deployments as a chronological timeline in Docs.

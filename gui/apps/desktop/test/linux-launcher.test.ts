@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -10,6 +11,7 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 const require = createRequire(resolve(process.cwd(), "package.json"));
@@ -64,4 +66,27 @@ describe("installLinuxLauncher", () => {
     );
     expect((await modeOf(join(root, "resources.pak"))).toString(8)).toBe("640");
   });
+
+  it.runIf(process.platform === "linux")(
+    "keeps the app and its subprocesses in extract mode when the AppImage is not mounted",
+    async () => {
+      root = await mkdtemp(join(tmpdir(), "linux-launcher-"));
+      const app = join(root, "gui-cloudroom");
+      await writeFile(
+        app,
+        '#!/bin/bash\nprintf "%s" "${APPIMAGE_EXTRACT_AND_RUN:-unset}"\n',
+      );
+      await chmod(app, 0o755);
+      await installLinuxLauncher(root, "gui-cloudroom");
+
+      const run = promisify(execFile);
+      const extracted = await run(app, [], {
+        env: { APPDIR: root, APPIMAGE: join(root, "bapx-agents.AppImage") },
+      });
+      const unpacked = await run(app, [], { env: {} });
+
+      expect(extracted.stdout).toBe("1");
+      expect(unpacked.stdout).toBe("unset");
+    },
+  );
 });
