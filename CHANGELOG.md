@@ -4,7 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
-- Keep the Linux AppImage backend in extract mode when launched without FUSE.
+- Deploy verified `main` builds to Hostinger directly from the Public web workflow and preserve digest-based rollback.
 - Explain the private Core setup on the homepage and show parallel worktrees and reconnecting in a sample walkthrough.
 - Document how to verify the running private Core build after a restart.
 - Present verified bapX web deployments as a chronological timeline in Docs.
@@ -27,5 +27,6 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Add an authenticated MediaHub inquiry inbox and homepage editor at Admin.
 - Use the bapX violet accent for primary buttons and keyboard navigation on the Agents, Docs, and Privacy pages.
 - Rebrand the macOS and Windows desktop package sources as bapX Agents v0.1.0 with an Agency update channel.
+- Keep the Linux AppImage backend in extract mode when launched without FUSE.
 - Update public contact and repository links.
 - Publish developer Markdown on Docs with local navigation and a verified release changelog.
