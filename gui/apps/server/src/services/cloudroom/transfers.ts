@@ -143,6 +143,11 @@ export class CloudTransfers {
       if (!workspace.head) return null;
       const quoted = `'${name}'`;
       const base = baseBranch(command(this.rt.host.db, `first_${threadId}`)?.input);
+      // Git moves branch configuration with the branch when title inference renames it.
+      const branchOwner = "cloudroom-thread";
+      const owned = base
+        ? `[ "$(git config --local --get "branch.$current.${branchOwner}")" = '${thread.id}' ] && exit 0;`
+        : 'case "$current" in room/*|cloudroom/*) exit 0 ;; esac;';
       // A warm checkout can have an old copy of the selected branch. Fetch its exact head into a temporary ref so
       // another fetch cannot change what we start from. Check it out directly without resetting a local branch.
       const incoming = `refs/cloudroom/incoming/${randomUUID()}`;
@@ -151,7 +156,8 @@ export class CloudTransfers {
            GIT_TERMINAL_PROMPT=0 git fetch -q --no-tags --no-write-fetch-head origin '+refs/heads/${base}:${incoming}' ||
              { printf '%s\\n' 'Could not fetch selected branch ${base} from origin.' >&2; exit 1; };
            commit=$(git rev-parse --verify "${incoming}^{commit}") || exit 1;
-           git checkout -q -b ${quoted} --no-overwrite-ignore "$commit" --`
+           git checkout -q -b ${quoted} --no-overwrite-ignore "$commit" -- &&
+             git config --local 'branch.${name}.${branchOwner}' '${thread.id}'`
         : `git pull -q --ff-only 2>/dev/null; git checkout -q -b ${quoted}`;
       // Only the branch Cloudroom's clone or snapshot checked out moves. One the agent made or checked out itself stays,
       // with its commits and any merge in progress (#1370, #1377). With no known default branch, it moves as before.
@@ -161,7 +167,7 @@ export class CloudTransfers {
       const script = create
         ? `current=$(git symbolic-ref --quiet --short HEAD) || { ${detached}; };
            [ "$current" = ${quoted} ] && exit 0;
-           ${base ? "" : 'case "$current" in room/*|cloudroom/*) exit 0 ;; esac;'}
+           ${owned}
            ${own}${start}`
         : `current=$(git symbolic-ref --quiet --short HEAD) || exit 0; case "$current" in room/*|cloudroom/*) [ "$current" = ${quoted} ] || git rev-parse -q --verify "$current@{upstream}" >/dev/null || git branch -m ${quoted} ;; esac`;
       // One switch at a time per checkout: a retry waits for the try whose answer was lost, then finds its branch and

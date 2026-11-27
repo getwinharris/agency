@@ -771,7 +771,12 @@ it.each([
       if (fault === "terminated" && command.includes("git checkout -q -b")) return json({ code: null, stdout: "", stderr: "", truncated: false });
       const result = spawnSync("/bin/bash", ["-c", command], { cwd: input.cwd ?? root, input: Buffer.from(input.stdin ?? "", "hex") });
       // The branch switch ran, but its answer is lost with the connection (#1524).
-      if (fault === "branch dropped" && command.includes("git checkout -q -b") && faults-- > 0) return void req.socket.destroy();
+      if (fault === "branch dropped" && command.includes("git checkout -q -b") && faults-- > 0) {
+        // Title inference may rename the created branch before startup retries with its original title.
+        if (selection === "second push" && result.status === 0)
+          git(folder, "branch", "-m", checkout().branch.replace("room/files-ready-", "room/preview-candidate-"));
+        return void req.socket.destroy();
+      }
       const state = await marker();
       if (state && state !== "copying") atDone ??= { marker: state, ...checkout() };
       return json({ code: result.status, stdout: result.stdout.toString("hex"), stderr: result.stderr.toString("hex"), truncated: false });
@@ -835,6 +840,7 @@ it.each([
         expect(git(folder, "rev-parse", "HEAD")).toBe(selectedHead);
         expect(git(folder, "for-each-ref", "--format=%(refname)", "refs/cloudroom/incoming/")).toBe("");
         if (selection === "second push") {
+          expect(atDone?.branch).toMatch(/^room\/preview-candidate-/);
           expect(git(folder, "rev-parse", `refs/heads/${baseBranch}`)).toBe(localHead);
           expect(await readFile(join(folder, "draft.txt"), "utf8")).toBe("uncommitted draft\n");
         }
