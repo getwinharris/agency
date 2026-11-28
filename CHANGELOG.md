@@ -8,12 +8,17 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - List, read, and explicitly edit tracked Agency skills from the checkout CLI.
 - Use `bapx-cli` in agent Tools and supported installs, with `room-cli` compatibility.
 - Generate and check the Agency map and project index with the checkout CLI in local workflows and CI.
+- Publish the rebuilt bapX landing experience with the recovered hero, workflow and plan diagrams, plus an offline interactive workspace tour.
+
+- Add Download and INR Pricing pages for bapX Agents, with solo local use free and bapX cloud starting at 5 GB.
+
 - Add the App hostname to the shared Rust web release and route it to the bapX account window.
 - Add one bapX sign-in and invitation signup on the main site, with an in-window Admin menu for operators.
 - Revoke the previous hosted device credential when switching bapX Agents accounts.
 - Keep private Core status connected when an in-flight readiness check reloads the same saved connection.
 - Generate a searchable Agency source index, check Docs publication coverage in CI, and record independent browser verification after deployment.
 - Let bapX Agents connect to a ready private Core while its agent model catalog loads.
+- Let the desktop app start or reconnect when its local server takes longer to verify the caller.
 - Generate the Agency architecture map from checked-in source and verify its routes and release coverage in CI.
 - Deploy verified `main` builds to Hostinger directly from the Public web workflow and preserve digest-based rollback.
 - Explain the private Core setup on the homepage and show parallel worktrees and reconnecting in a sample walkthrough.
