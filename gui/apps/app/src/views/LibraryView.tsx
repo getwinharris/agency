@@ -36,11 +36,17 @@ const PAGE_LIMIT = "100";
 
 type SidebarProject = SidebarBootstrapResponse["projects"][number];
 
+class LibraryFileDownloadError extends Error {
+  constructor(readonly status: number) {
+    super("Library file download failed");
+  }
+}
+
 async function saveLibraryFile(url: string, filename: string): Promise<void> {
   // Use the normal authenticated app fetch. A browser download navigation can
   // arrive without the app surface used for protected file reads.
   const response = await fetchWithAppSurface(url);
-  if (!response.ok) throw new Error("Library file download failed");
+  if (!response.ok) throw new LibraryFileDownloadError(response.status);
   const blobUrl = URL.createObjectURL(await response.blob());
   try {
     const link = document.createElement("a");
@@ -65,9 +71,10 @@ function LocalProjectFiles({
   const [search, setSearch] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
-  const [failedDownloadPath, setFailedDownloadPath] = useState<string | null>(
-    null,
-  );
+  const [downloadFailure, setDownloadFailure] = useState<{
+    path: string;
+    tooLarge: boolean;
+  } | null>(null);
   const query = useDebouncedValue(search.trim(), 200);
   const { canOpenPreferredFileTarget, openPathInPreferredFileTarget } =
     useLocalOpenTargets({ enabled: selectedPath !== null });
@@ -211,15 +218,20 @@ function LocalProjectFiles({
                 disabled={downloadingPath !== null}
                 onClick={() => {
                   setDownloadingPath(activeFile.path);
-                  setFailedDownloadPath(null);
+                  setDownloadFailure(null);
                   void saveLibraryFile(
                     buildProjectFileContentUrl(project.id, activeFile.path, {
                       hostId,
                     }),
                     activeFile.name,
                   )
-                    .catch(() => {
-                      setFailedDownloadPath(activeFile.path);
+                    .catch((error: unknown) => {
+                      setDownloadFailure({
+                        path: activeFile.path,
+                        tooLarge:
+                          error instanceof LibraryFileDownloadError &&
+                          error.status === 413,
+                      });
                     })
                     .finally(() => {
                       setDownloadingPath(null);
@@ -231,13 +243,14 @@ function LocalProjectFiles({
                   : "Download"}
               </Button>
             </div>
-            {failedDownloadPath === activeFile.path ? (
+            {downloadFailure?.path === activeFile.path ? (
               <p
                 role="alert"
                 className="border-b p-3 text-sm text-muted-foreground"
               >
-                Could not download this file. Make sure its project folder is
-                connected and try again.
+                {downloadFailure.tooLarge
+                  ? "This file is too large to download from Library. Open the project folder and copy it directly."
+                  : "Could not download this file. Make sure its project folder is connected and try again."}
               </p>
             ) : null}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
@@ -279,7 +292,7 @@ function LocalSessionFiles({
   const query = useDebouncedValue(search.trim(), 200);
   const [download, setDownload] = useState<{
     path: string;
-    status: "running" | "failed";
+    status: "running" | "failed" | "too-large";
   } | null>(null);
   const files = useQuery({
     queryKey: [
@@ -424,7 +437,15 @@ function LocalSessionFiles({
                     );
                   })().then(
                     () => setDownload(null),
-                    () => setDownload({ path: active.path, status: "failed" }),
+                    (error: unknown) =>
+                      setDownload({
+                        path: active.path,
+                        status:
+                          error instanceof LibraryFileDownloadError &&
+                          error.status === 413
+                            ? "too-large"
+                            : "failed",
+                      }),
                   );
                 }}
               >
@@ -433,13 +454,16 @@ function LocalSessionFiles({
                   : "Download"}
               </Button>
             </div>
-            {download?.path === active.path && download.status === "failed" ? (
+            {download?.path === active.path &&
+            (download.status === "failed" ||
+              download.status === "too-large") ? (
               <p
                 role="alert"
                 className="border-b p-3 text-sm text-muted-foreground"
               >
-                Could not download this session file. Refresh the file list and
-                try again.
+                {download.status === "too-large"
+                  ? "This session file is too large to download from Library."
+                  : "Could not download this session file. Refresh the file list and try again."}
               </p>
             ) : null}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">

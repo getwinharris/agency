@@ -188,6 +188,16 @@ describe("Library workspace", () => {
     ]);
   });
 
+  it("gives size-limit guidance for a 413 response", async () => {
+    mocks.download.mockResolvedValue({ ok: false, status: 413 });
+    renderLibrary();
+    fireEvent.click(await screen.findByRole("button", { name: "README.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This file is too large to download from Library.",
+    );
+  });
+
   it("does not request files without a connected local host", () => {
     mocks.localHostId = null;
     renderLibrary();
@@ -306,5 +316,15 @@ describe("Library session files", () => {
       "Could not download",
     );
     expect(mocks.download).not.toHaveBeenCalled();
+  });
+  it("shows size-limit guidance for an oversized session file", async () => {
+    mocks.download.mockResolvedValue({ ok: false, status: 413 });
+    renderLibrary();
+    chooseSession();
+    fireEvent.click(await screen.findByRole("button", { name: "notes.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This session file is too large to download from Library.",
+    );
   });
 });
