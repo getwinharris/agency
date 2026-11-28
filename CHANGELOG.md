@@ -4,6 +4,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Add Download and INR Pricing pages for bapX Agents, with solo local use free and bapX cloud starting at 5 GB.
+
 - Add the App hostname to the shared Rust web release and route it to the bapX account window.
 - Add one bapX sign-in and invitation signup on the main site, with an in-window Admin menu for operators.
 - Revoke the previous hosted device credential when switching bapX Agents accounts.

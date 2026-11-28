@@ -270,6 +270,8 @@ fn static_path(name: &str, path: &str) -> Option<PathBuf> {
         }
         ("bapx.in" | "www.bapx.in", "" | "index.html") => Some("index.html".into()),
         ("bapx.in" | "www.bapx.in", "privacy") => Some("privacy/index.html".into()),
+        (APEX | "www.bapx.in", "download") => Some("download/index.html".into()),
+        (APEX | "www.bapx.in", "pricing") => Some("pricing/index.html".into()),
         (MEDIAHUB, "") => Some("mediahub/index.html".into()),
         (MEDIAHUB, path) if path.starts_with("mediahub/") => Some(path.into()),
         (MEDIAHUB, path) if path.starts_with("clients/") => {
