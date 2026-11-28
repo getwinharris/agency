@@ -234,17 +234,39 @@ export function publicPages() {
     <h1>bapX pricing</h1>
     <p>Use your own CLI agents and API credentials. Paid bapX plans are priced by storage, not agent hours.</p>
   </header>
+  <div class="pricing-plans">
+  <fieldset class="pricing-cycle" aria-describedby="pricing-cycle-note">
+    <legend>Billing period</legend>
+    <label><input type="radio" name="pricing-cycle" value="monthly" checked> Monthly</label>
+    <label><input type="radio" name="pricing-cycle" value="yearly" id="pricing-yearly"> Yearly <span>Save 10%</span></label>
+  </fieldset>
+  <p class="pricing-cycle-note" id="pricing-cycle-note">Annual billing is available on the 20 GB and 50 GB plans.</p>
   <section class="download-grid" aria-label="bapX plans">
     <article class="download-card">
       <h2>Free</h2>
       <p><strong>₹0</strong> · Solo, local only</p>
-      <p>Run your own CLIs and use your own APIs on your device. No team workspace or bapX cloud services.</p>
+      <p>Run your own CLIs and use your own APIs on your device. No team workspace, bapX cloud services, or web hosting.</p>
     </article>
     <article class="download-card">
       <h2>Basic</h2>
       <p><strong>₹500/month</strong> · 5 GB</p>
       <p>The minimum paid plan for bapX cloud storage, agent sessions, automations, deployment, web hosting, and teams. No free cloud tier or trial.</p>
     </article>
+    <article class="download-card">
+      <h2>20 GB</h2>
+      <div class="pricing-monthly"><p><strong>₹2,000/month</strong></p><p>₹21,600/year · Save 10% with annual billing</p></div>
+      <div class="pricing-yearly"><p><strong>₹21,600/year</strong></p><p>Billed yearly · Save 10% with annual billing</p></div>
+    </article>
+    <article class="download-card">
+      <h2>50 GB</h2>
+      <div class="pricing-monthly"><p><strong>₹4,000/month</strong></p><p>₹43,200/year · Save 10% with annual billing</p></div>
+      <div class="pricing-yearly"><p><strong>₹43,200/year</strong></p><p>Billed yearly · Save 10% with annual billing</p></div>
+    </article>
+  </section>
+  </div>
+  <section class="download-next download-card pricing-enterprise" aria-labelledby="custom-enterprise-heading">
+    <div><h2 id="custom-enterprise-heading">Custom Enterprise</h2><p>Use your own server or discuss a dedicated VM provided by bapX. We’ll scope the setup and price with you.</p></div>
+    <div class="download-next-links"><a href="mailto:${contact}?subject=bapX%20Enterprise%20inquiry">Contact sales</a></div>
   </section>
   <p>Third-party model providers may charge separately. Plan availability is confirmed in your bapX account.</p>
   <div class="download-next-links"><a href="/download/">Download bapX Agents</a><a href="/account/">Open your account</a></div>
