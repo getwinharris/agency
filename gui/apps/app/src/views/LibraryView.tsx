@@ -7,7 +7,10 @@ import type { SidebarBootstrapResponse } from "@cloudroom/server-contract";
 import { Icon } from "@cloudroom/shared-ui/icon";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ProjectFilePreviewTabContent } from "@/components/right-panel/shell/file-preview-tabs";
+import {
+  ProjectFilePreviewTabContent,
+  ThreadStorageFilePreviewTabContent,
+} from "@/components/right-panel/shell/file-preview-tabs";
 import { Button } from "@cloudroom/shared-ui/button";
 import { Input } from "@cloudroom/shared-ui/input";
 import { useSidebarNavigation } from "@/hooks/queries/sidebar-navigation-query";
@@ -22,7 +25,10 @@ import {
 } from "@/lib/absolute-file-path";
 import type { MarkdownLinkRouting } from "@/components/ui/markdown-link-routing";
 import { fetchWithAppSurface } from "@/lib/app-surface";
-import { buildProjectFileContentUrl } from "@/lib/file-content-urls";
+import {
+  buildProjectFileContentUrl,
+  buildThreadStorageRawContentUrl,
+} from "@/lib/file-content-urls";
 import { sdk } from "@/lib/sdk";
 import { buildOpenInEditorHandler } from "./thread-detail/threadWorkspaceOpenPath";
 
@@ -30,11 +36,11 @@ const PAGE_LIMIT = "100";
 
 type SidebarProject = SidebarBootstrapResponse["projects"][number];
 
-async function saveProjectFile(url: string, filename: string): Promise<void> {
+async function saveLibraryFile(url: string, filename: string): Promise<void> {
   // Use the normal authenticated app fetch. A browser download navigation can
   // arrive without the app surface used for protected file reads.
   const response = await fetchWithAppSurface(url);
-  if (!response.ok) throw new Error("Project file download failed");
+  if (!response.ok) throw new Error("Library file download failed");
   const blobUrl = URL.createObjectURL(await response.blob());
   try {
     const link = document.createElement("a");
@@ -206,7 +212,7 @@ function LocalProjectFiles({
                 onClick={() => {
                   setDownloadingPath(activeFile.path);
                   setFailedDownloadPath(null);
-                  void saveProjectFile(
+                  void saveLibraryFile(
                     buildProjectFileContentUrl(project.id, activeFile.path, {
                       hostId,
                     }),
@@ -256,6 +262,274 @@ function LocalProjectFiles({
         )}
       </section>
     </div>
+  );
+}
+
+type SidebarSession = SidebarProject["threads"][number];
+
+function LocalSessionFiles({
+  session,
+  hostId,
+}: {
+  session: SidebarSession;
+  hostId: string;
+}) {
+  const [path, setPath] = useState<string | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<
+    "idle" | "running" | "failed"
+  >("idle");
+  const files = useQuery({
+    queryKey: [
+      "library",
+      "session-files",
+      session.projectId,
+      hostId,
+      session.id,
+      session.environmentId,
+    ],
+    queryFn: async ({ signal }) => {
+      const location = await sdk.threads.storageLocation({
+        threadId: session.id,
+        signal,
+      });
+      if (location.hostId !== hostId)
+        throw new Error("Session is not on this computer");
+      const list = await sdk.threads.storageFiles({
+        threadId: session.id,
+        limit: PAGE_LIMIT,
+        signal,
+      });
+      const current = await sdk.threads.storageLocation({
+        threadId: session.id,
+        signal,
+      });
+      if (
+        current.hostId !== hostId ||
+        current.storageRootPath !== location.storageRootPath ||
+        list.storageRootPath !== location.storageRootPath
+      ) {
+        throw new Error("Session storage moved while files were loading");
+      }
+      return list;
+    },
+  });
+  const active = files.isSuccess
+    ? files.data.files.find((file) => file.path === path)
+    : undefined;
+
+  return (
+    <div className="grid min-h-0 min-w-0 flex-1 gap-4 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,2fr)]">
+      <section
+        aria-label="Files in this session"
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border"
+      >
+        <div className="flex items-center justify-between gap-2 border-b p-3">
+          <span className="text-sm font-medium">Files in this session</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={files.isFetching}
+            onClick={() => {
+              setPath(null);
+              setDownloadStatus("idle");
+              void files.refetch();
+            }}
+          >
+            Refresh
+          </Button>
+        </div>
+        {files.isPending ? (
+          <p role="status" className="m-3 text-sm text-muted-foreground">
+            Loading session files…
+          </p>
+        ) : null}
+        {files.isError ? (
+          <p role="alert" className="m-3 text-sm text-muted-foreground">
+            Could not load files from this session on this computer.
+          </p>
+        ) : null}
+        {files.isSuccess && files.data.files.length === 0 ? (
+          <p className="m-3 text-sm text-muted-foreground">
+            No files in this session.
+          </p>
+        ) : null}
+        {files.isSuccess && files.data.files.length > 0 ? (
+          <ul className="max-h-64 min-h-0 overflow-auto p-1 lg:max-h-none">
+            {files.data.files.map((file) => (
+              <li key={file.path}>
+                <button
+                  type="button"
+                  aria-pressed={file.path === active?.path}
+                  className="w-full break-all rounded-md px-3 py-2 text-left text-sm hover:bg-accent aria-pressed:bg-accent"
+                  onClick={() => {
+                    setPath(file.path);
+                    setDownloadStatus("idle");
+                  }}
+                >
+                  {file.path}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {files.isSuccess && files.data.truncated ? (
+          <p className="border-t p-3 text-xs text-muted-foreground">
+            Only the first {PAGE_LIMIT} files are shown.
+          </p>
+        ) : null}
+      </section>
+      <section
+        aria-label="Session file preview"
+        className="flex min-h-72 min-w-0 flex-col overflow-hidden rounded-lg border"
+      >
+        {active ? (
+          <>
+            <div className="flex items-center justify-between gap-2 border-b p-3">
+              <p className="min-w-0 truncate text-sm font-medium">
+                {active.name}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={downloadStatus === "running"}
+                onClick={() => {
+                  setDownloadStatus("running");
+                  void (async () => {
+                    const location = await sdk.threads.storageLocation({
+                      threadId: session.id,
+                    });
+                    if (
+                      location.hostId !== hostId ||
+                      location.storageRootPath !== files.data?.storageRootPath
+                    ) {
+                      throw new Error("Session storage moved");
+                    }
+                    await saveLibraryFile(
+                      buildThreadStorageRawContentUrl(session.id, active.path),
+                      active.name,
+                    );
+                  })().then(
+                    () => setDownloadStatus("idle"),
+                    () => setDownloadStatus("failed"),
+                  );
+                }}
+              >
+                {downloadStatus === "running" ? "Downloading…" : "Download"}
+              </Button>
+            </div>
+            {downloadStatus === "failed" ? (
+              <p
+                role="alert"
+                className="border-b p-3 text-sm text-muted-foreground"
+              >
+                Could not download this session file. Refresh the file list and
+                try again.
+              </p>
+            ) : null}
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
+              <ThreadStorageFilePreviewTabContent
+                key={active.path}
+                activePath={active.path}
+                threadId={session.id}
+                isPanelOpen
+                lineRange={null}
+              />
+            </div>
+          </>
+        ) : (
+          <p className="m-4 text-sm text-muted-foreground">
+            Select a session file to preview it.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function LocalLibrarySources({
+  project,
+  hostId,
+  rootPath,
+}: {
+  project: SidebarProject;
+  hostId: string;
+  rootPath: string;
+}) {
+  const [source, setSource] = useState("project");
+  const [sessionId, setSessionId] = useState("");
+  const sessions = project.threads.filter(
+    (thread) =>
+      thread.projectId === project.id &&
+      thread.environmentHostId === hostId &&
+      thread.environmentId &&
+      thread.executionTarget !== "cloud" &&
+      !thread.deletedAt,
+  );
+  const active = sessions.find((session) => session.id === sessionId);
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          aria-pressed={source === "project"}
+          variant={source === "project" ? "secondary" : "outline"}
+          onClick={() => setSource("project")}
+        >
+          Project files
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          aria-pressed={source === "session"}
+          variant={source === "session" ? "secondary" : "outline"}
+          onClick={() => setSource("session")}
+        >
+          Session files
+        </Button>
+        {source === "session" && sessions.length > 0 ? (
+          <label className="flex min-w-0 max-w-full items-center gap-2 text-sm font-medium">
+            Session
+            <select
+              className="min-w-0 rounded-md border bg-background px-3 py-2 text-foreground"
+              value={active?.id ?? ""}
+              onChange={(event) => setSessionId(event.currentTarget.value)}
+            >
+              <option value="" disabled>
+                Choose a local session
+              </option>
+              {sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title ?? session.titleFallback ?? "Untitled session"}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      {source === "project" ? (
+        <LocalProjectFiles
+          project={project}
+          hostId={hostId}
+          rootPath={rootPath}
+        />
+      ) : active ? (
+        <LocalSessionFiles
+          key={JSON.stringify([active.id, active.environmentId])}
+          session={active}
+          hostId={hostId}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {sessions.length === 0
+            ? "No local sessions for this project."
+            : "Choose a session to see its stored files."}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -336,7 +610,7 @@ export default function LibraryView() {
           Open a local project to see its files here.
         </p>
       ) : active ? (
-        <LocalProjectFiles
+        <LocalLibrarySources
           key={JSON.stringify([
             active.project.id,
             localHostId,

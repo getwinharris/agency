@@ -6,6 +6,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 - Show the existing Loops panel as Automations in the workspace sidebar, preserving saved loops and run history.
 - Add a Library workspace for searching, previewing, and downloading project files on the connected computer.
+- Browse files stored by a selected local session from the Library workspace.
 
 - Prefer the bundled `ego-browser` skill for browser work in bapX Agents.
 - List, read, and explicitly edit tracked Agency skills from the checkout CLI.

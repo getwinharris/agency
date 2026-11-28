@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   localHostId: "host-local" as string | null,
   list: vi.fn(),
   download: vi.fn(),
+  sessionList: vi.fn(),
+  sessionLocation: vi.fn(),
 }));
 
 function project(id: string, name: string, hostId: string) {
@@ -23,6 +25,30 @@ function project(id: string, name: string, hostId: string) {
     id,
     name,
     sources: [{ type: "local_path", hostId, path: `/fixtures/${id}` }],
+    threads: [
+      {
+        id: `${id}-local`,
+        projectId: id,
+        environmentId: "env",
+        environmentHostId: hostId,
+        title: `${name} session`,
+      },
+      {
+        id: `${id}-cloud`,
+        projectId: id,
+        executionTarget: "cloud",
+        environmentId: "env",
+        environmentHostId: hostId,
+        title: "Cloud session",
+      },
+      {
+        id: "remote",
+        projectId: id,
+        environmentId: "remote-env",
+        environmentHostId: "host-remote",
+        title: "Remote session",
+      },
+    ],
   };
 }
 
@@ -49,9 +75,26 @@ vi.mock("@/lib/app-surface", () => ({
   fetchWithAppSurface: mocks.download,
 }));
 vi.mock("@/lib/sdk", () => ({
-  sdk: { projects: { files: mocks.list } },
+  sdk: {
+    projects: { files: mocks.list },
+    threads: {
+      storageFiles: mocks.sessionList,
+      storageLocation: mocks.sessionLocation,
+    },
+  },
 }));
 vi.mock("@/components/right-panel/shell/file-preview-tabs", () => ({
+  ThreadStorageFilePreviewTabContent: ({
+    activePath,
+    threadId,
+  }: {
+    activePath: string;
+    threadId: string;
+  }) => (
+    <span>
+      {threadId}/{activePath}
+    </span>
+  ),
   ProjectFilePreviewTabContent: ({
     activePath,
     hostId,
@@ -84,6 +127,19 @@ function renderLibrary() {
 beforeEach(() => {
   mocks.localHostId = "host-local";
   mocks.download.mockReset().mockResolvedValue({ ok: false });
+  mocks.sessionLocation
+    .mockReset()
+    .mockResolvedValue({
+      hostId: "host-local",
+      storageRootPath: "/sessions/one",
+    });
+  mocks.sessionList
+    .mockReset()
+    .mockResolvedValue({
+      files: [{ name: "notes.md", path: "notes.md" }],
+      truncated: false,
+      storageRootPath: "/sessions/one",
+    });
   mocks.list
     .mockReset()
     .mockImplementation(
@@ -163,5 +219,58 @@ describe("Library workspace", () => {
       ),
     );
     expect(screen.queryByRole("button", { name: "poster.svg" })).toBeNull();
+  });
+});
+
+describe("Library session files", () => {
+  function chooseSession() {
+    fireEvent.click(screen.getByRole("button", { name: "Session files" }));
+    const select = screen.getByLabelText("Session");
+    fireEvent.change(select, { target: { value: "one-local" } });
+    return select;
+  }
+
+  it("lists only local sessions in the selected project and resets the preview on project change", async () => {
+    renderLibrary();
+    const select = chooseSession();
+    expect(within(select).queryByText("Cloud session")).toBeNull();
+    expect(within(select).queryByText("Remote session")).toBeNull();
+    expect(within(select).queryByText("Second project session")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "notes.md" }));
+    expect(screen.getByText("one-local/notes.md")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Project"), {
+      target: { value: "two" },
+    });
+    expect(screen.queryByText("one-local/notes.md")).toBeNull();
+  });
+
+  it("does not read files if the current storage location is on a different host", async () => {
+    mocks.sessionLocation.mockResolvedValue({
+      hostId: "host-remote",
+      storageRootPath: "/sessions/remote",
+    });
+    renderLibrary();
+    chooseSession();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not load files",
+    );
+    expect(mocks.sessionList).not.toHaveBeenCalled();
+  });
+
+  it("discards a list if the session moves during the read", async () => {
+    mocks.sessionLocation.mockResolvedValueOnce({
+      hostId: "host-local",
+      storageRootPath: "/sessions/one",
+    });
+    mocks.sessionLocation.mockResolvedValueOnce({
+      hostId: "host-remote",
+      storageRootPath: "/sessions/one",
+    });
+    renderLibrary();
+    chooseSession();
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not load files",
+    );
+    expect(screen.queryByRole("button", { name: "notes.md" })).toBeNull();
   });
 });
