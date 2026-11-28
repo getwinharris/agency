@@ -14,6 +14,8 @@ import {
   stripRoutePathSuffix,
 } from "@cloudroom/client-core";
 
+export const LIBRARY_ROUTE_PATH = "/library";
+
 export {
   APP_ROOT_ROUTE_PATH,
   AUTH_CALLBACK_ROUTE_PATH,

@@ -51,6 +51,8 @@ jobs:
           apps/server/test/public/public-project-skills.test.ts
           apps/server/test/threads/thread-runtime-config.test.ts
           apps/app/src/components/tools/detail-page-recipes.test.tsx
+          apps/app/src/views/LibraryView.test.tsx
+          apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.markdown-images.test.tsx
           packages/plugin-sdk/src/internal/command-guard.test.ts
           packages/scripts/test/run-cli.test.ts
       - name: Workspace Automations navigation checks

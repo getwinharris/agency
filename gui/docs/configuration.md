@@ -38,6 +38,20 @@ takes precedence. In-place progress updates require a stdout TTY.
 
 The data folder holds saved settings: `config.json` (non-secret settings, and the server a joined machine uses), `env.json` (provider credentials and environment), and `client.json` (SSH targets for opening a remote machine's files in local editors). The launcher applies them at startup. Edit them by hand; there is no command for them.
 
+## Library on this computer
+
+In an Agents desktop build that includes **Library**, choose it in the sidebar
+and select a project with a folder on this computer. Search by filename or path. The list follows the existing
+project file browser's exclusions, including Git ignore rules. Select a file
+to see its preview when supported, download the original, or open it in the
+configured local editor when that action is available. Markdown uses the
+existing rendered preview and source view; images referenced inside the project
+can render without publishing the file.
+
+This Library shows files in the selected project's local folder. It does not
+index cloud sessions or classify files by which agent made them. It does not
+publish files to the web or enable hosted Library access.
+
 ## Repository worktree hooks
 
 Commit `.bb-env-setup.sh` when a managed worktree needs repository setup.
