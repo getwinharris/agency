@@ -103,6 +103,16 @@ jobs:
               }
             done
           done
+          for host in bapx.in www.bapx.in; do
+            for slug in download pricing; do
+              curl --fail --silent --show-error -H "Host: $host" \
+                "http://127.0.0.1:8080/$slug/" --output "$RUNNER_TEMP/$host-$slug.html"
+            done
+            grep -Fq 'Get the bapX app' "$RUNNER_TEMP/$host-download.html"
+            grep -Fq 'href="/pricing/"' "$RUNNER_TEMP/$host-download.html"
+            grep -Fq 'Solo, local only' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹500/month' "$RUNNER_TEMP/$host-pricing.html"
+          done
           for icon in codex claude-code cursor hermes opencode pi; do
             curl --fail --silent --show-error -H 'Host: bapx.in' \
               "http://127.0.0.1:8080/brand/agents/$icon.svg" --output "$RUNNER_TEMP/$icon.svg"
