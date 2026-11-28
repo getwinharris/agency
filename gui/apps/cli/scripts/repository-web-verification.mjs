@@ -11,8 +11,8 @@ export const webHealthHosts = [
 ];
 
 const landingMarkers = [
-  '<h1 id="headline">', 'id="how-it-works"', "data-demo-step", "data-demo-agent-picker",
-  "data-demo-agent-unavailable", "bapx-agent-roster", 'id="faq"',
+  '<h1 id="headline">', 'id="how-it-works"', 'id="workflow"', "data-landing-tour", "data-tour-send",
+  "data-tour-target", "data-tour-agent", 'id="agent-access"', 'id="faq"',
 ];
 const guides = {
   "build-from-source": [],
@@ -110,7 +110,14 @@ async function verifyWeb(origin, revision) {
   for (const path of ["/api/auth/session", "/api/admin/session", "/v1/sessions"]) {
     await page(appHost, path, [], 404);
   }
-  for (const host of ["bapx.in", "www.bapx.in"]) await page(host, "/", landingMarkers);
+  for (const host of ["bapx.in", "www.bapx.in"]) {
+    const homepage = await page(host, "/", landingMarkers);
+    if (/127\.0\.0\.1:18819|data-workspace-fixture/.test(homepage.toString())) {
+      throw new Error(`${host}/: unexpected local workspace fixture.`);
+    }
+    await page(host, "/download/", ["Get the bapX app", 'href="/pricing/"']);
+    await page(host, "/pricing/", ["Solo, local only", "₹500/month"]);
+  }
   for (const icon of ["codex", "claude-code", "cursor", "hermes", "opencode", "pi"]) {
     await page("bapx.in", `/brand/agents/${icon}.svg`, ["<svg"]);
   }

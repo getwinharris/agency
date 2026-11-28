@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const launcher = fileURLToPath(new URL("../bin/bapx-cli", import.meta.url));
 const revision = "a".repeat(40);
-const homepage = '<h1 id="headline">bapX</h1><div id="how-it-works" data-demo-step data-demo-agent-picker data-demo-agent-unavailable id="bapx-agent-roster"></div><h2 id="faq">FAQ</h2>';
+const homepage = '<h1 id="headline">bapX</h1><div id="how-it-works"></div><div id="workflow"></div><section data-landing-tour><button data-tour-send></button><select data-tour-target></select><select data-tour-agent></select></section><div id="agent-access"></div><h2 id="faq">FAQ</h2>';
 const routes = new Map();
 for (const host of ["admin.bapx.in", "app.bapx.in", "bapx.in", "docs.bapx.in", "mediahub.bapx.in", "www.bapx.in"]) {
   routes.set(`${host}/healthz`, [200, JSON.stringify({ ready: true, service: "bapx-web", revision })]);
@@ -18,7 +18,11 @@ routes.set("app.bapx.in/?next=https://example.invalid/", [307, "", { Location: "
 for (const path of ["/api/auth/session", "/api/admin/session", "/v1/sessions"]) {
   routes.set(`app.bapx.in${path}`, [404, "Not found"]);
 }
-for (const host of ["bapx.in", "www.bapx.in"]) routes.set(`${host}/`, [200, homepage]);
+for (const host of ["bapx.in", "www.bapx.in"]) {
+  routes.set(`${host}/`, [200, homepage]);
+  routes.set(`${host}/download/`, [200, 'Get the bapX app <a href="/pricing/">Pricing</a>']);
+  routes.set(`${host}/pricing/`, [200, "Solo, local only; ₹500/month"]);
+}
 for (const icon of ["codex", "claude-code", "cursor", "hermes", "opencode", "pi"]) {
   routes.set(`bapx.in/brand/agents/${icon}.svg`, [200, "<svg></svg>"]);
 }
@@ -68,6 +72,11 @@ test("checkout CLI verifies a loopback image and fails on release drift", async 
     ["escaping App redirect", "app.bapx.in/?next=https://example.invalid/", [307, "", { Location: "https://example.invalid/" }], /expected redirect to the bapX account/],
     ["App exposes a native session route", "app.bapx.in/v1/sessions", [200, "Opened"], /expected HTTP 404, received 200/],
     ["incomplete landing", "bapx.in/", [200, '<h1 id="headline">bapX</h1>'], /missing id="how-it-works"/],
+    ["readiness marker differs from Hostinger", "bapx.in/", [200, homepage.replace('<h1 id="headline">', '<h1 id="headline" aria-label="bapX">')], /missing <h1 id="headline">/],
+    ["missing workspace control", "www.bapx.in/", [200, homepage.replace(" data-tour-agent", "")], /missing data-tour-agent/],
+    ["workspace fixture leak", "www.bapx.in/", [200, homepage + '<div data-workspace-fixture></div>'], /unexpected local workspace fixture/],
+    ["missing Pricing navigation", "bapx.in/download/", [200, "Get the bapX app"], /missing href="\/pricing\/"/],
+    ["incorrect Pricing copy", "www.bapx.in/pricing/", [200, "Solo, local only; ₹700/month"], /missing ₹500\/month/],
     ["anonymous Admin access", "bapx.in/api/admin/session", [200, "Opened"], /expected HTTP 401, received 200/],
     ["escaping favicon redirect", "bapx.in/favicon.svg", [308, "", { Location: "https://docs.bapx.in/brand/favicon.svg" }], /expected a permanent redirect/],
     ["wrong favicon bytes", "admin.bapx.in/favicon.ico", [200, "changed"], /asset differs from favicon.ico/],

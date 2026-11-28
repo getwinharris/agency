@@ -23,6 +23,7 @@ on:
       - 'gui/apps/cli/scripts/repository-cli.mjs'
       - 'gui/apps/cli/scripts/repository-inventory.mjs'
       - 'gui/apps/cli/scripts/repository-web-verification.mjs'
+      - 'gui/apps/cli/scripts/repository-web-verification.test.mjs'
       - '.github/workflows/source-inventory.yml'
       - '.github/workflows/app.yml'
       - '.github/workflows/core.yml'

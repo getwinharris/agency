@@ -176,10 +176,12 @@
       "gui/apps/www/src/build.ts",
       "gui/apps/www/src/docs/markdown.ts",
       "gui/apps/www/src/docs/pages.ts",
+      "gui/apps/www/src/landing-tour.ts",
       "gui/apps/www/src/landing.ts",
       "gui/apps/www/src/mediahub/pages.ts",
       "gui/apps/www/src/mediahub/portfolio.ts",
       "gui/apps/www/src/pages.ts",
+      "gui/apps/www/src/recovered-homepage.html",
       "gui/apps/www/src/walkthrough.ts"
     ],
     "workspace_packages": [

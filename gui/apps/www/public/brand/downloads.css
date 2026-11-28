@@ -1,0 +1,52 @@
+.download-page { padding-block: clamp(3rem, 8vw, 7.5rem) clamp(3rem, 7vw, 6rem); }
+.download-intro { max-width: 46rem; margin-block-end: clamp(2.25rem, 5vw, 4.5rem); }
+.download-kicker {
+  display: flex; align-items: center; gap: .55rem; color: #d2b4fb; font: 650 .74rem/1.4 ui-monospace, monospace;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.download-kicker > span, .download-pending > span {
+  width: .45rem; height: .45rem; border-radius: 50%; background: currentColor; flex: none;
+}
+.download-intro h1 { margin: .6rem 0 .9rem; font-size: clamp(2.5rem, 6.8vw, 5.4rem); line-height: 1.02; letter-spacing: -.065em; }
+.download-intro > p:last-child, .download-list-heading p, .download-next p { color: var(--muted); line-height: 1.6; }
+.download-intro > p:last-child { max-width: 37rem; font-size: clamp(1rem, 2vw, 1.17rem); }
+.download-list-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .5rem 1rem; padding-block-end: .95rem; }
+.download-list-heading h2, .download-list-heading p, .download-next h2, .download-next p { margin: 0; }
+.download-list-heading h2, .download-next h2 { font-size: clamp(1.15rem, 2.5vw, 1.6rem); }
+.download-list-heading p { font-size: .86rem; }
+.download-platform-links { display: flex; flex-wrap: wrap; gap: .4rem; padding-block-end: .9rem; }
+.download-platform-links a { display: inline-block; min-height: 2.75rem; align-content: center; padding: .35rem .65rem; color: #e0c6ff; font-size: .82rem; }
+.download-platform-links a:hover { color: #fff; }
+.download-card:target { outline: 2px solid #d7b4ff; outline-offset: 3px; }
+.download-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+.download-card {
+  min-width: 0; scroll-margin-top: 5rem; padding: clamp(.95rem, 2vw, 1.45rem); border: 1px solid var(--line); border-radius: .75rem;
+  background: linear-gradient(145deg, #1e1727, #121019 70%);
+}
+.download-card[data-recommended="true"] { border-color: #a47bcb; box-shadow: inset 0 0 0 1px #a47bcb35; }
+.download-card-top { display: flex; align-items: center; justify-content: space-between; gap: .35rem; margin-bottom: 1.2rem; }
+.download-icon { display: inline-grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: .52rem; color: #e1c5ff; background: #38294d; }
+.download-format { color: #e3d9ee; font: 600 .69rem ui-monospace, monospace; }
+.download-card h3 { margin: 0; font-size: 1.25rem; }
+.download-card p, .download-card summary { font-size: .86rem; line-height: 1.5; }
+.download-target, .download-detail, .download-card details p { color: var(--muted); }
+.download-target { margin: .35rem 0 .9rem; }
+.download-pending { display: flex; gap: .45rem; align-items: center; color: #f5d49e; font-weight: 650; margin: 0; }
+.download-detail { margin: .4rem 0 1rem; }
+.download-card details { border-top: 1px solid var(--line); }
+.download-card summary { cursor: pointer; align-content: center; min-height: 2.75rem; color: #e0c6ff; }
+.download-card details p { margin: 0; }
+.download-next {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+  border-top: 1px solid var(--line); padding-top: 1.35rem; margin-top: clamp(2rem, 4.5vw, 4rem);
+}
+.download-next p { font-size: .92rem; margin-top: .3rem; }
+.download-next-links { display: flex; flex-wrap: wrap; gap: .65rem; }
+.download-next-links a {
+  display: inline-block; min-height: 2.75rem; align-content: center; padding: .48rem .72rem; border: 1px solid var(--line);
+  border-radius: .45rem; font-size: .85rem; font-weight: 620; text-decoration: none;
+}
+.download-next-links a:first-child { background: #e1c4ff; color: #1d1227; border-color: transparent; }
+.download-next-links a:hover { text-decoration: underline; }
+@media (max-width: 850px) { .download-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .download-grid { grid-template-columns: minmax(0, 1fr); } }
