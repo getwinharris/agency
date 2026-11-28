@@ -81,6 +81,10 @@ export async function loadConfig(env = process.env) {
   if (env.APP_OWNER_PASSWORD_FILE && !path.isAbsolute(env.APP_OWNER_PASSWORD_FILE)) {
     throw new Error("APP_OWNER_PASSWORD_FILE must be an absolute path.");
   }
+  const releaseRevision = env.BAPX_APP_REVISION;
+  if (releaseRevision !== undefined && !/^[0-9a-f]{40}$/.test(releaseRevision)) {
+    throw new Error("BAPX_APP_REVISION must be a full Git commit SHA.");
+  }
   const port = Number(env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT.");
   const forms = JSON.parse(await readFile(new URL("forms.json", import.meta.url), "utf8"));
@@ -93,6 +97,7 @@ export async function loadConfig(env = process.env) {
     host: origin.host,
     bindAddress,
     port,
+    releaseRevision,
     dataDir,
     forms: validateForms(forms.forms),
     googleClientId: env.APP_GOOGLE_CLIENT_ID,

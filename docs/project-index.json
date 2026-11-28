@@ -132,6 +132,7 @@
       ".github/workflows/app.yml",
       ".github/workflows/core.yml",
       ".github/workflows/desktop-packages.yml",
+      ".github/workflows/dynamic-pilot.yml",
       ".github/workflows/source-inventory.yml",
       ".github/workflows/web.yml"
     ],

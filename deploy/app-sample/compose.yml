@@ -1,0 +1,71 @@
+services:
+  app:
+    image: ${BAPX_SAMPLE_IMAGE:?Set the verified sample image}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    environment:
+      APP_ID: dynamic-check
+      APP_NAME: bapX Node sample
+      APP_BIND_ADDRESS: 0.0.0.0
+      APP_ORIGIN: https://dynamic-check.app.bapx.in
+      APP_DATA_DIR: /private
+      APP_OWNER_EMAIL: owner@example.test
+      APP_OWNER_PASSWORD_FILE: /run/secrets/owner-password
+    volumes:
+      - data:/private
+      - type: bind
+        source: ${BAPX_SAMPLE_OWNER_FILE:-/etc/bapx-agency/sample-owner-password}
+        target: /run/secrets/owner-password
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      traefik.enable: "false"
+    networks: [private]
+
+  edge:
+    image: nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236
+    restart: unless-stopped
+    user: '101:101'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    configs:
+      - source: nginx
+        target: /nginx.conf
+    entrypoint: [nginx, -c, /nginx.conf, -g, daemon off;]
+    networks: [private, ingress]
+    labels:
+      traefik.enable: "${BAPX_SAMPLE_ROUTE_ENABLED:-true}"
+      traefik.docker.network: "${BAPX_SAMPLE_INGRESS:-traefik-vmm1_default}"
+      traefik.http.routers.bapx-app-sample.entrypoints: websecure
+      traefik.http.routers.bapx-app-sample.tls: "true"
+      traefik.http.routers.bapx-app-sample.tls.certresolver: letsencrypt
+      traefik.http.routers.bapx-app-sample.rule: Host(`dynamic-check.app.bapx.in`)
+      traefik.http.routers.bapx-app-sample.priority: "500"
+      traefik.http.routers.bapx-app-sample.service: bapx-app-sample
+      traefik.http.services.bapx-app-sample.loadbalancer.server.port: "8080"
+
+volumes:
+  data:
+
+configs:
+  nginx:
+    file: ./nginx.conf
+
+networks:
+  private:
+    internal: true
+  ingress:
+    external: true
+    name: ${BAPX_SAMPLE_INGRESS:-traefik-vmm1_default}

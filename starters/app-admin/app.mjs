@@ -116,7 +116,10 @@ export async function createApp({ config, sendEmail = null, google = null, repor
   async function get(request, response, url) {
     const route = url.pathname;
     const query = url.searchParams;
-    if (route === "/healthz") return response.writeHead(204).end();
+    if (route === "/healthz") {
+      if (config.releaseRevision) response.setHeader("X-BapX-App-Revision", config.releaseRevision);
+      return response.writeHead(204).end();
+    }
     if (route === "/auth/email/verify") {
       const page = auth.emailPage(request, query.get("token"));
       if (!page) throw new RequestError(401, "Open the confirmation link in the browser where you requested it.");

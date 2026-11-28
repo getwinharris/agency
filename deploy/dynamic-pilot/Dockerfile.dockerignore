@@ -1,0 +1,6 @@
+**
+!starters/
+!starters/app-admin/
+!starters/app-admin/**
+starters/app-admin/node_modules
+starters/app-admin/.env*
