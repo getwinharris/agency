@@ -238,6 +238,15 @@ impl Accounts {
         Ok(records)
     }
 
+    fn overview(&self, now: u64) -> Result<serde_json::Value, Failure> {
+        let records = self.read().map_err(|_| UNAVAILABLE)?;
+        Ok(json!({
+            "registeredMembers": records.members.len(),
+            "pendingInvitations": records.invites.values()
+                .filter(|invite| invite.expires > now).count(),
+        }))
+    }
+
     fn update<T>(
         &self,
         update: impl FnOnce(&mut Records) -> Result<T, Failure>,
@@ -389,6 +398,7 @@ pub(super) fn routes() -> Router<Arc<Site>> {
         .route("/session", get(session))
         .route("/sign-out", post(sign_out))
         .route("/invitations", post(invitation))
+        .route("/account-overview", get(account_overview))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn(guard))
 }
@@ -571,6 +581,17 @@ async fn sign_out(State(site): State<Arc<Site>>, headers: HeaderMap) -> Result<R
         [(header::SET_COOKIE, session_header("", 0))],
     )
         .into_response())
+}
+
+async fn account_overview(
+    State(site): State<Arc<Site>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Failure> {
+    if !admin_access(&site, &headers).ok_or(SIGN_IN)? {
+        return Err(FORBIDDEN);
+    }
+    let result = work(site, |_, accounts| accounts.overview(unix_seconds()?)).await?;
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]

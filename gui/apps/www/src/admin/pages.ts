@@ -37,7 +37,7 @@ export function adminWorkspace(embedded = false) {
           <span class="nav-icon icon-page" aria-hidden="true"></span><span>Homepage</span>
         </button>
         <button type="button" class="nav-button" id="nav-invitations" aria-controls="invitations" hidden>
-          <span class="nav-icon icon-page" aria-hidden="true"></span><span>Invitations</span>
+          <span class="nav-icon icon-page" aria-hidden="true"></span><span>Accounts &amp; invitations</span>
         </button>
         <a class="nav-external" href="https://mediahub.bapx.in/" target="_blank" rel="noopener noreferrer">Visit MediaHub <span class="external-arrow" aria-hidden="true"></span></a>
       </nav>
@@ -171,10 +171,16 @@ export function adminWorkspace(embedded = false) {
       <section id="invitations" class="workspace" aria-labelledby="invitations-title" hidden>
         <header class="page-heading">
           <div>
-            <h1 id="invitations-title">Invite a bapX member</h1>
-            <p class="page-summary">Create a single-use signup link and send it to the person you’re inviting.</p>
+            <h1 id="invitations-title">Accounts &amp; invitations</h1>
+            <p class="page-summary">Registered bapX member accounts and unexpired signup invitations. Counts exclude the operator account.</p>
           </div>
+          <button type="button" class="control" id="reload-account-overview">Refresh counts</button>
         </header>
+        <dl class="metrics" aria-label="Account totals">
+          <div><dt>Registered members</dt><dd id="registered-member-count">—</dd></div>
+          <div><dt>Pending invitations</dt><dd id="pending-invitation-count">—</dd></div>
+        </dl>
+        <p class="notice" id="account-overview-notice" role="status"></p>
         <form class="panel invite-form" id="invite-form" method="post" action="/api/auth/invitations">
           <label for="invite-email">Email address</label>
           <input id="invite-email" name="email" type="email" autocomplete="off" maxlength="254" required>

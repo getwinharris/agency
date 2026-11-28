@@ -146,6 +146,30 @@ async fn account_pages_and_apis_use_only_the_canonical_origin() {
             .status(),
         StatusCode::OK
     );
+    let overview = |cookie: &str| {
+        get(APEX, "/api/auth/account-overview").header(header::COOKIE, cookie)
+    };
+    let anonymous = get(APEX, "/api/auth/account-overview").send().await.unwrap();
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(anonymous.headers()[header::CACHE_CONTROL], "no-store");
+    for host in ["www.bapx.in", "admin.bapx.in", MEDIAHUB, APP] {
+        assert_eq!(
+            get(host, "/api/auth/account-overview")
+                .header(header::COOKIE, &operator_cookie)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    let empty_overview = overview(&operator_cookie).send().await.unwrap();
+    assert_eq!(empty_overview.status(), StatusCode::OK);
+    assert_eq!(empty_overview.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(
+        empty_overview.json::<Value>().await.unwrap(),
+        json!({"registeredMembers": 0, "pendingInvitations": 0})
+    );
     let invite = post(
         origin,
         "invitations",
@@ -157,10 +181,34 @@ async fn account_pages_and_apis_use_only_the_canonical_origin() {
     .unwrap();
     assert_eq!(invite.status(), StatusCode::OK);
     let invite = invite.json::<Value>().await.unwrap()["invite"].clone();
+    assert_eq!(
+        overview(&operator_cookie)
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap(),
+        json!({"registeredMembers": 0, "pendingInvitations": 1})
+    );
     let signup = json!({"invite": invite, "password": member_password});
     let member = post(origin, "signup", signup.clone()).send().await.unwrap();
     assert_eq!(member.status(), StatusCode::OK);
     let member_cookie = cookie_pair(&member);
+    assert_eq!(
+        overview(&member_cookie).send().await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        overview(&operator_cookie)
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap(),
+        json!({"registeredMembers": 1, "pendingInvitations": 0})
+    );
     let identity = member.json::<Value>().await.unwrap();
     assert_eq!(identity["role"], "member");
     assert_eq!(identity["identifier"], "member@example.test");

@@ -21,6 +21,7 @@ let copyMode = "draft";
 let copyOperation = null;
 let copyConflict = false;
 let sessionVersion = 0;
+let overviewRequest = 0;
 
 function notice(id, message, error = false) {
   const element = byId(id);
@@ -90,6 +91,9 @@ function clearWorkspace() {
   byId("invite-link").value = "";
   byId("invite-result").hidden = true;
   notice("invite-notice", "");
+  renderAccountOverview();
+  notice("account-overview-notice", "");
+  byId("reload-account-overview").disabled = false;
   notice("copy-notice", "");
   renderCopy();
 }
@@ -132,6 +136,38 @@ function openView(next) {
     if (!records) void loadInbox();
   } else if (view === "copy" && !currentCopy) {
     void loadCopy();
+  } else if (view === "invitations") {
+    void loadAccountOverview();
+  }
+}
+
+function renderAccountOverview(result) {
+  byId("registered-member-count").textContent = result?.registeredMembers ?? "—";
+  byId("pending-invitation-count").textContent = result?.pendingInvitations ?? "—";
+}
+
+async function loadAccountOverview() {
+  if (!unifiedAdmin || !operator) return;
+  const version = sessionVersion;
+  const sequence = ++overviewRequest;
+  const current = () => version === sessionVersion && sequence === overviewRequest;
+  const button = byId("reload-account-overview");
+  button.disabled = true;
+  renderAccountOverview();
+  notice("account-overview-notice", "Loading account counts…");
+  try {
+    const result = await request("account-overview", undefined, "auth");
+    if (!current()) return;
+    if (![result?.registeredMembers, result?.pendingInvitations]
+      .every((count) => Number.isSafeInteger(count) && count >= 0)) {
+      throw new Error("Account counts are unavailable.");
+    }
+    renderAccountOverview(result);
+    notice("account-overview-notice", "Account counts updated.");
+  } catch (error) {
+    if (current()) notice("account-overview-notice", error.message, true);
+  } finally {
+    if (current()) button.disabled = false;
   }
 }
 
@@ -356,6 +392,7 @@ byId("nav-invitations").addEventListener("click", () => {
 });
 byId("reload-inbox").addEventListener("click", loadInbox);
 byId("reload-copy").addEventListener("click", loadCopy);
+byId("reload-account-overview").addEventListener("click", loadAccountOverview);
 byId("search").addEventListener("input", renderInbox);
 byId("filter").addEventListener("change", renderInbox);
 byId("publish-copy").addEventListener("input", () => {
@@ -432,6 +469,7 @@ byId("invite-form").addEventListener("submit", async (event) => {
     output.value = url.href;
     byId("invite-result").hidden = false;
     notice("invite-notice", "Invitation created.");
+    void loadAccountOverview();
   } catch (error) {
     if (version === sessionVersion) notice("invite-notice", error.message, true);
   } finally {
