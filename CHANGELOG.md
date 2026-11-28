@@ -4,6 +4,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Publish the rebuilt bapX landing experience with the recovered hero, workflow and plan diagrams, plus an offline interactive workspace tour.
+
 - Add Download and INR Pricing pages for bapX Agents, with solo local use free and bapX cloud starting at 5 GB.
 
 - Add the App hostname to the shared Rust web release and route it to the bapX account window.
