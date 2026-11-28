@@ -33,6 +33,13 @@ The command verifies the signature and writes
 `in.bapx.agents`. For a release, increase `versionCode` in `AndroidManifest.xml`
 and set the corresponding `versionName`.
 
+## Emulator checks in pull requests
+
+Changes to the Android app or its QA workflow trigger a disposable Android
+emulator test. It uses a temporary signing key and an isolated HTTPS
+fixture to verify first launch, test sign-in, and session retention on
+relaunch. It does not publish an APK or verify a hosted workspace.
+
 ## Verify on a device
 
 Install the signed file with `adb install -r` on a test device. Open bapX Agents,

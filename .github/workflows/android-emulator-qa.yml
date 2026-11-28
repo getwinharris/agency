@@ -2,8 +2,8 @@ name: Android emulator QA
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/44-android-workspace]
+  pull_request:
+    paths: ['gui/apps/android/**', '.github/workflows/android-emulator-qa.yml']
 
 permissions:
   contents: read
