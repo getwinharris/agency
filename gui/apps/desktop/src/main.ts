@@ -102,6 +102,7 @@ import {
   writeOwnedRuntimePidFile,
 } from "./owned-runtime-supervisor.js";
 import {
+  LOCAL_SYSTEM_CONFIG_TIMEOUT_MS,
   probeRoomServer,
   waitForCompatibleServer,
   type CompatibleServerProbeResult,
@@ -1436,6 +1437,7 @@ async function ensureBuiltinRuntimeAttached(): Promise<boolean> {
   }
 
   const existingProbe = await probeRoomServer({
+    configTimeoutMs: LOCAL_SYSTEM_CONFIG_TIMEOUT_MS,
     serverUrl: builtinServerUrl,
     timeoutMs: ATTACH_PROBE_TIMEOUT_MS,
   });
@@ -2789,6 +2791,7 @@ async function decideOnExistingServer(
 
 async function initializeRuntime(args: InitializeRuntimeArgs): Promise<void> {
   const existingProbe = await probeRoomServer({
+    configTimeoutMs: LOCAL_SYSTEM_CONFIG_TIMEOUT_MS,
     serverUrl: args.serverUrl,
     timeoutMs: ATTACH_PROBE_TIMEOUT_MS,
   });

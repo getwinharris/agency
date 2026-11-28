@@ -60,6 +60,7 @@ async function startTestServer(args: StartTestServerArgs): Promise<TestServer> {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   while (testServers.length > 0) {
     const testServer = testServers.pop();
     if (testServer !== undefined) {
@@ -229,6 +230,81 @@ describe("probeBbServer", () => {
 });
 
 describe("waitForCompatibleServer", () => {
+  it("waits for protected config beyond the health polling interval", async () => {
+    const testServer = await startTestServer({
+      handler(request, response) {
+        if (request.url === "/health") {
+          writeJson(response, 200, JSON.stringify({ ok: true }));
+          return;
+        }
+        const timer = setTimeout(() => {
+          writeJson(response, 200, JSON.stringify({
+            hostDaemonPort: 4_242,
+            voiceTranscriptionEnabled: false,
+          }));
+        }, 1_500);
+        response.once("close", () => clearTimeout(timer));
+      },
+    });
+
+    await expect(waitForCompatibleServer({
+      intervalMs: 250,
+      serverUrl: testServer.url,
+      timeoutMs: 2_500,
+    })).resolves.toMatchObject({ kind: "compatible" });
+  });
+
+  it.each([
+    [200, { hostDaemonPort: 4_242, voiceTranscriptionEnabled: false }, "compatible"],
+    [401, { message: "caller denied" }, "incompatible"],
+    [200, { hostDaemonPort: "invalid" }, "incompatible"],
+  ] as const)("validates delayed attach config with HTTP %s and body %j", async (status, body, kind) => {
+    const testServer = await startTestServer({
+      handler(request, response) {
+        if (request.url === "/health") {
+          writeJson(response, 200, JSON.stringify({ ok: true }));
+          return;
+        }
+        const timer = setTimeout(() => writeJson(response, status, JSON.stringify(body)), 400);
+        response.once("close", () => clearTimeout(timer));
+      },
+    });
+
+    await expect(probeRoomServer({
+      configTimeoutMs: 1_000,
+      serverUrl: testServer.url,
+      timeoutMs: 250,
+    })).resolves.toMatchObject({ kind });
+  });
+
+  it("counts a full hung config request toward the startup timeout", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const fetchImpl: ServerProbeFetch = (input, init) => {
+      if (input.endsWith("/health")) {
+        return Promise.resolve(Response.json({ ok: true }));
+      }
+      return new Promise((_, reject) => {
+        const signal = init?.signal;
+        signal?.throwIfAborted();
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    };
+    const start = performance.now();
+    const result = waitForCompatibleServer({
+      fetchImpl,
+      intervalMs: 250,
+      serverUrl: "http://127.0.0.1:65535",
+      timeoutMs: 6_000,
+    });
+    await vi.advanceTimersByTimeAsync(6_250);
+
+    await expect(result).resolves.toMatchObject({
+      kind: "unavailable",
+      reason: expect.stringContaining("Timed out after 6000ms"),
+    });
+    expect(performance.now() - start).toBe(6_250);
+  });
+
   it("retries when system config is transiently unavailable", async () => {
     const fetchImpl = vi
       .fn<ServerProbeFetch>()
