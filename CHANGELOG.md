@@ -4,6 +4,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Keep projects and threads scrollable while Provider usage is open in the workspace sidebar.
+
 - Show the existing Loops panel as Automations in the workspace sidebar, preserving saved loops and run history.
 - Add a Library workspace for searching, previewing, and downloading project files on the connected computer.
 
