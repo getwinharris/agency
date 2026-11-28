@@ -854,7 +854,7 @@ describe("thread runtime config", () => {
         entryPath: "SKILL.md",
       });
       expect(command.injectedSkillSources).toEqual([
-        ...["adr-verbatim", "browser-harness", "create-loop", "decisions", "deepapi", "file-tree", "malware-scan"].map(
+        ...["adr-verbatim", "create-loop", "decisions", "deepapi", "ego-browser", "file-tree", "malware-scan"].map(
           sharedSkill,
         ),
         {

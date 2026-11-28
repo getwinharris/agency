@@ -4,4 +4,4 @@ import { googleProvider, mailProvider } from "./providers.mjs";
 
 const config = await loadConfig();
 const server = await createApp({ config, sendEmail: mailProvider(config), google: googleProvider(config) });
-server.listen(config.port, "127.0.0.1", () => console.log(`App starter listening on port ${config.port}.`));
+server.listen(config.port, config.bindAddress, () => console.log(`App starter listening on port ${config.port}.`));

@@ -301,7 +301,7 @@ describe("plugin CLI commands (bb.cli.register + endpoints + skill + logs)", () 
       join(pluginCommandsSkillDir(harness.config.dataDir), "SKILL.md"),
       "utf8",
     );
-    expect(skill).toContain("room-cli plugin run shadower inspect");
+    expect(skill).toContain("bapx-cli plugin run shadower inspect");
 
     const invalid = await writePlugin(
       join(harness.config.dataDir, "fixtures"),
@@ -351,8 +351,8 @@ describe("plugin CLI commands (bb.cli.register + endpoints + skill + logs)", () 
     expect(content).toContain("name: plugin-commands");
     expect(content).toContain("capped at 1048576 UTF-8 bytes");
     expect(content).toContain("plugin_cli_output_too_large");
-    expect(content).toContain("## room-cli acme — Acme tools");
-    expect(content).toContain("room-cli acme issues [--json]");
+    expect(content).toContain("## bapx-cli acme — Acme tools");
+    expect(content).toContain("bapx-cli acme issues [--json]");
 
     const sources = resolveSkillCatalogEntries(testLogger, {
       additionalSkillsRootPaths: [
@@ -375,8 +375,8 @@ describe("plugin CLI commands (bb.cli.register + endpoints + skill + logs)", () 
     );
     await harness.pluginService.reload("acme");
     const reloaded = await readFile(skillFile, "utf8");
-    expect(reloaded).toContain("## room-cli acme2 — Acme v2");
-    expect(reloaded).not.toContain("## room-cli acme —");
+    expect(reloaded).toContain("## bapx-cli acme2 — Acme v2");
+    expect(reloaded).not.toContain("## bapx-cli acme —");
   });
 
   it("bb.log writes JSONL to the plugin log file and the tail endpoint serves it", async () => {

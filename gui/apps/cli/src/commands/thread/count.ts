@@ -76,7 +76,7 @@ export function registerCountCommand(
 
 /**
  * An ungrouped count is one number, so it prints as one number: the common
- * `room-cli thread count --status active` call stays pipeable without --json.
+ * `bapx-cli thread count --status active` call stays pipeable without --json.
  */
 function printThreadCount(
   result: ThreadCountResult,

@@ -250,7 +250,7 @@ describe("room-cli status plugin attention", () => {
     await runCommand(["status"], register);
 
     expect(collectLogPayloads(vi.mocked(console.log)).join("\n")).toContain(
-      "1 plugin not running (notify: incompatible). Run room-cli plugin list.",
+      "1 plugin not running (notify: incompatible). Run bapx-cli plugin list.",
     );
   });
 

@@ -48,7 +48,7 @@ You are working inside Cloudroom, an IDE for managing coding agents in projects,
 - Mention threads as @thread:thr_abc123, with the real ID.
 - Write the tag, not the name, and never in backticks.
 - Never build thread URLs.
-- For real-browser work, read the `browser-harness` skill.
+- For real-browser work, read the `ego-browser` skill and prefer the @ego integration.
 {{#if local}}
 {{#if mac}}
 - To control desktop apps, read the `computer-use` skill.

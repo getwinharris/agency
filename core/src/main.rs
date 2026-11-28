@@ -1,8 +1,8 @@
 /// The same layout as the Local CLI's help (ADR 20261110-235800).
 #[cfg(unix)]
-const HELP: &str = "Usage: room-cli [command]
+const HELP: &str = "Usage: bapx-cli [command]
 
-Cloudroom CLI in a Cloud thread: this thread, its children, and this sandbox
+bapX CLI in a Cloud thread: this thread, its children, and this sandbox
 
 Commands:
   status        Show this thread and its children
@@ -43,15 +43,15 @@ fn main() {
 
 #[cfg(unix)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let executable = if std::env::args_os()
+    let executable = match std::env::args_os()
         .next()
         .as_deref()
         .and_then(|arg| std::path::Path::new(arg).file_name())
-        .is_some_and(|name| name == "bapx-core")
+        .and_then(|name| name.to_str())
     {
-        "bapx-core"
-    } else {
-        "cloudroom"
+        Some("bapx-core") => "bapx-core",
+        Some("bapx-cli") => "bapx-cli",
+        _ => "cloudroom",
     };
     // `std::env::args()` panics on an argument that isn't UTF-8 (#705).
     let mut args = Vec::new();
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(arg) => args.push(arg),
             Err(arg) => {
                 eprintln!(
-                    "Argument {index} isn't valid UTF-8: {}. Pass text; send bytes on stdin instead (room-cli mac run --stdin).",
+                    "Argument {index} isn't valid UTF-8: {}. Pass text; send bytes on stdin instead (bapx-cli mac run --stdin).",
                     arg.to_string_lossy()
                 );
                 std::process::exit(2);

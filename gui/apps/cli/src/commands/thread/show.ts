@@ -160,7 +160,7 @@ async function fetchCredits(
       ? {
           status: "unavailable",
           message:
-            "Not available yet. Check room-cli cloud status, then try again.",
+            "Not available yet. Check bapx-cli cloud status, then try again.",
         }
       : { status: "available", ...found, credits: found.credits };
   } catch (error) {

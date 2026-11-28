@@ -29,8 +29,8 @@ process.argv = process.argv.map((arg) =>
 const program = new Command();
 
 program
-  .name("room-cli")
-  .description("Cloudroom CLI - manage your local and cloud agents")
+  .name("bapx-cli")
+  .description("bapX CLI - manage your local and cloud agents")
   .enablePositionalOptions()
   .version(formatCloudroomVersion(resolveRoomCliVersion()));
 
@@ -86,7 +86,7 @@ async function tryPluginCommandProxy(
   if (result.outcome === "invalid") {
     // Not "unknown command": the command may exist, but discovery failed (#1494).
     console.error(
-      `Cannot run room-cli ${candidate}: Cloudroom at ${getUrl()} ${result.detail}`,
+      `Cannot run bapx-cli ${candidate}: Cloudroom at ${getUrl()} ${result.detail}`,
     );
     return 1;
   }
@@ -98,15 +98,15 @@ async function tryPluginCommandProxy(
     );
     if (disabledId !== null) {
       console.error(
-        `room-cli ${candidate} is provided by the "${disabledId}" plugin, which is disabled — ` +
-          `run \`room-cli plugin enable ${disabledId}\` or enable it in Plugins.`,
+        `bapx-cli ${candidate} is provided by the "${disabledId}" plugin, which is disabled — ` +
+          `run \`bapx-cli plugin enable ${disabledId}\` or enable it in Plugins.`,
       );
       return 1;
     }
     return;
   }
   const argv = process.argv.slice(3);
-  // `room-cli PLUGIN --help` always prints help: the plugin's own, or one built from its commands.
+  // `bapx-cli PLUGIN --help` always prints help: the plugin's own, or one built from its commands.
   const snippet = match.pluginId === "snippets" ? proxy.snippetArguments(argv) : undefined;
   if (match.rendersHelp !== true && (snippet ? snippet.help && !snippet.command : isCommandHelp(argv))) {
     const help = await import("./plugin-cli-help.js");
@@ -118,19 +118,20 @@ async function tryPluginCommandProxy(
     match.rendersHelp !== true &&
     (snippet?.help ?? argv.slice(1).some((arg) => arg === "--help" || arg === "-h"))
   ) {
-    console.log(command.usage.replace(/^(bb|room|cloudroom) /, "room-cli "));
+    const { bapxCliUsage } = await import("@cloudroom/domain/plugin-cli");
+    console.log(bapxCliUsage(command.usage));
     return 0;
   }
   return proxy.runPluginCliCommand(getUrl(), match.pluginId, argv);
 }
 
 async function main(): Promise<void> {
-  // `room-cli help loop` is `room-cli loop --help`: commander only knows the core commands.
+  // `bapx-cli help loop` is `bapx-cli loop --help`: commander only knows the core commands.
   const helpTarget = process.argv[2] === "help" ? process.argv[3] : undefined;
   if (helpTarget !== undefined && !KNOWN_COMMAND_NAMES.has(helpTarget)) {
     process.argv.splice(2, 2, helpTarget, "--help");
   }
-  // `room-cli wake` is the Loops plugin's `room-cli loop wake`: a plugin has one top-level command.
+  // `bapx-cli wake` is the Loops plugin's `bapx-cli loop wake`: a plugin has one top-level command.
   if (process.argv[2] === "wake") process.argv.splice(2, 1, "loop", "wake");
   const firstArg = process.argv[2];
   const groups = selectCommandGroups(firstArg);
@@ -160,10 +161,10 @@ Current context:
   ROOM_SERVER_URL: ${context.serverUrl}
 
 Quick start:
-  room-cli status
-  room-cli project list
-  room-cli thread show <id>
-  room-cli thread spawn --project <id> --provider codex --prompt "..."
+  bapx-cli status
+  bapx-cli project list
+  bapx-cli thread show <id>
+  bapx-cli thread spawn --project <id> --provider codex --prompt "..."
 `;
   });
 
@@ -198,7 +199,7 @@ main().catch(async (err) => {
     !hasUndiciRuntime &&
       err instanceof ReferenceError &&
       /\bFile is not defined\b/u.test(err.message)
-      ? `room-cli: this command needs Node.js 22 or newer, but this is Node.js ${process.version}. Run room-cli itself, not with node, so it uses Cloudroom's own runtime.`
+      ? `bapx-cli: this command needs Node.js 22 or newer, but this is Node.js ${process.version}. Run bapx-cli itself, not with node, so it uses Cloudroom's own runtime.`
       : err.message,
   );
   await exitWhenIdle(1);

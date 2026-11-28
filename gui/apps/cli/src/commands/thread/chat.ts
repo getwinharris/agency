@@ -174,7 +174,7 @@ async function runChat(threadId: string, getUrl: () => string): Promise<void> {
       announced.add(interaction.id);
       const hint = canApproveOrDeny(interaction)
         ? "Reply /approve or /deny."
-        : `Answer it in the Cloudroom app or with \`room-cli thread interactions list ${threadId}\`.`;
+        : `Answer it in the Cloudroom app or with \`bapx-cli thread interactions list ${threadId}\`.`;
       write(
         `\nWaiting for you: ${formatPendingInteractionSummary({ interaction })}\n${hint}`,
       );

@@ -14,6 +14,10 @@ import { MachineEnvironmentSettings } from "./MachineEnvironmentSettings";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   replace: vi.fn(),
+  connection: vi.fn(),
+}));
+vi.mock("@/hooks/queries/cloudroom-queries", () => ({
+  useCloudroomConnection: () => ({ data: mocks.connection() }),
 }));
 vi.mock("@/hooks/queries/system-queries", () => ({
   useSystemConfig: () => ({
@@ -56,7 +60,28 @@ async function show(
   await screen.findByDisplayValue("API_KEY");
 }
 
+it.each([true, false])(
+  "shows private Core environment guidance when readiness is %s",
+  async (ready) => {
+    mocks.connection.mockReturnValue({ selfHosted: true, ready });
+    await show();
+
+    const guide = screen.getByRole("link", { name: "Private Core environment setup" });
+    expect(guide.getAttribute("href")).toBe(
+      "https://docs.bapx.in/private-core/#agent-environment-on-a-private-core",
+    );
+  },
+);
+
+it("keeps hosted connections on the plugin-machine guidance", async () => {
+  mocks.connection.mockReturnValue({ selfHosted: false, ready: true });
+  await show();
+
+  expect(screen.queryByRole("link", { name: "Private Core environment setup" })).toBeNull();
+});
+
 it("stages additions and preserves an unchanged saved secret", async () => {
+  mocks.connection.mockReturnValue({ selfHosted: true, ready: false });
   await show();
   fireEvent.click(screen.getByRole("button", { name: "Add variable" }));
   fireEvent.change(screen.getByLabelText("Variable name 2"), {
@@ -79,6 +104,7 @@ it("stages additions and preserves an unchanged saved secret", async () => {
 
 it("stages removal and lets users discard it without deleting", async () => {
   await show();
+  expect(screen.queryByRole("link", { name: "Private Core environment setup" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Remove API_KEY" }));
   expect(screen.queryByDisplayValue("API_KEY")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));

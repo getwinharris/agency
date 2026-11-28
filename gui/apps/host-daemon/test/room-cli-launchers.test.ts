@@ -39,7 +39,7 @@ function fakeProgram(path: string, name: string) {
 }
 
 // The Windows app's layout, as Git Bash sees it: <app>/resources/app.asar.unpacked/.../dist/room-cli.
-function runShim(withApp: boolean, withCygpath = false, bare = false) {
+function runShim(withApp: boolean | string, withCygpath = false, bare = false) {
   const root = mkdtempSync(join(tmpdir(), "room-cli-shim-"));
   roots.push(root);
   const dist = join(
@@ -55,7 +55,7 @@ function runShim(withApp: boolean, withCygpath = false, bare = false) {
   mkdirSync(dist, { recursive: true });
   writeFileSync(join(dist, "room-cli"), `${ROOM_CLI_HASHBANG}\n`);
   chmodSync(join(dist, "room-cli"), 0o755);
-  if (withApp) fakeProgram(join(root, "app", "Cloudroom.exe"), "app");
+  if (withApp) fakeProgram(join(root, "app", typeof withApp === "string" ? withApp : "Cloudroom.exe"), "app");
   const bin = join(root, "bin");
   mkdirSync(bin);
   fakeProgram(join(bin, "node"), "node");
@@ -96,6 +96,10 @@ describe("room-cli launchers", () => {
       );
     },
   );
+
+  it.skipIf(!shell)("uses the bapX Agents executable in branded packages", () => {
+    expect(runShim("bapX Agents.exe")).toMatch(/^app RUN_AS_NODE=1 .*room-cli thread list/);
+  });
 
   it.skipIf(!shell)(
     "hands the app cygpath's Windows path, which MSYS_NO_PATHCONV=1 leaves unconverted",

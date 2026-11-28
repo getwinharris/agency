@@ -139,7 +139,7 @@ describe("cloudroom startup module graph", () => {
   it("loads only the named command group for `room-cli thread`", async () => {
     const run = await runCli("source", ["thread", "--help"]);
 
-    expect(run.stdout).toContain("Usage: room-cli thread");
+    expect(run.stdout).toContain("Usage: bapx-cli thread");
     expect(loaded(run, "/apps/cli/src/commands/thread/index.ts")).toHaveLength(
       1,
     );
@@ -214,7 +214,7 @@ describe("cloudroom startup module graph", () => {
     it("loads only the thread chunk for `room-cli thread`", async () => {
       const run = await runCli("dist", ["thread", "--help"]);
 
-      expect(run.stdout).toContain("Usage: room-cli thread");
+      expect(run.stdout).toContain("Usage: bapx-cli thread");
       expect(loaded(run, `${chunkDirUrl}thread-`)).toHaveLength(1);
 
       const otherGroups = CORE_COMMAND_GROUPS.map((group) => group.name).filter(
@@ -285,7 +285,7 @@ describe("cloudroom startup module graph", () => {
             ["fixture", "inspect", helpFlag],
             serverUrl,
           );
-          expect(run.stdout).toBe("room-cli fixture inspect <id>\n");
+          expect(run.stdout).toBe("bapx-cli fixture inspect <id>\n");
         }
         expect(pluginCalls).toBe(0);
 

@@ -67,6 +67,24 @@ it("opens the settings account menu and confirms before signing out", async () =
   await waitFor(() => expect(sdk.cloudroom.logout).toHaveBeenCalledOnce());
   await screen.findByText("Sign in to Cloudroom");
 });
+it.each([
+  { ready: true, label: "Connected", error: null },
+  { ready: false, label: "Unavailable", error: "Core not reachable" },
+])("shows a private Core as $label in the settings sidebar", async ({ ready, label, error }) => {
+  vi.mocked(sdk.cloudroom.status).mockResolvedValue({ ...signedOut, selfHosted: true, ready, error });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(client);
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SidebarProvider><SettingsAccountMenu /></SidebarProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  const link = await screen.findByRole("link", { name: `Private Core ${label}` });
+  expect(link.getAttribute("href")).toBe("/settings/account");
+  expect(screen.queryByText("Local threads only")).toBeNull();
+});
 it("hides the email in the settings account menu and on the Account page while Privacy mode is on", async () => {
   window.localStorage.setItem("cloudroom.privacy-mode", "1");
   try {

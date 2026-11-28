@@ -17,7 +17,8 @@ not opt in can use its own runtime and routes.
 | `APP_OWNER_PASSWORD_FILE` | Absolute path to an app-only secret file containing the initial owner password. The startup process reads it when there is no owner password yet. Remove the file reference after provisioning. |
 | `APP_RESEND_API_KEY`, `APP_EMAIL_FROM` | Optional Resend key and verified sender for email verification and email-link sign-in. |
 | `APP_GOOGLE_CLIENT_ID`, `APP_GOOGLE_CLIENT_SECRET` | Optional Google OAuth web client. Register `<APP_ORIGIN>/auth/google/callback` as its exact redirect URI. |
-| `PORT` | Loopback listener port. Default `3000`. |
+| `APP_BIND_ADDRESS` | Listener address. Default `127.0.0.1`. Use `::1` for IPv6 loopback or `0.0.0.0` when the app runs on a private network behind a TLS proxy. The latter requires an HTTPS `APP_ORIGIN`. |
+| `PORT` | App listener port. Default `3000`. |
 
 Keep credentials in the app's secret configuration. Use separate credentials and
 storage for disposable and live apps. To provision password access for the owner,
@@ -49,9 +50,16 @@ provider's message status for a live check. [Google OpenID Connect](https://deve
 
 ## Deploy and preserve data
 
-The process listens on loopback. Route only the site's hostname to it through
-the hosting layer, preserving the browser's `Host` and `Origin` and terminating
-TLS there. Keep platform credentials and session headers out of those requests.
+The process listens on loopback by default. For a TLS proxy in a separate
+container, set `APP_BIND_ADDRESS=0.0.0.0` and attach the app and proxy to a
+dedicated private bridge with no unrelated containers. Keep the app port
+unpublished on the host. Configure the proxy
+to terminate TLS for the exact hostname in `APP_ORIGIN` and preserve the
+browser's `Host`, `Origin`, and the app's host-only sign-in and session cookies.
+Strip unrelated cookies and Authorization headers. A direct upstream health
+check must send the configured `Host` for `GET /healthz` to return 204. When
+using live credentials, allow outbound HTTPS to the configured sign-in providers.
+
 Apply per-source limits for starting sign-in at the hosting edge. The starter
 limits challenge volume by provider, browser, and email address, and bounds
 password attempts and concurrent hashing in the app process.

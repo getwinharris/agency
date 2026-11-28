@@ -28,6 +28,7 @@ use std::{
 
 const MEDIAHUB: &str = "mediahub.bapx.in";
 const APEX: &str = "bapx.in";
+const APP: &str = "app.bapx.in";
 const APEX_ORIGIN: &str = "https://bapx.in";
 const MEDIAHUB_ORIGIN: &str = "https://mediahub.bapx.in";
 const INQUIRY_PATH: &str = "/api/mediahub/inquiries";
@@ -163,7 +164,7 @@ fn host(headers: &HeaderMap) -> Option<String> {
 }
 
 fn public_host(host: &str) -> bool {
-    matches!(host, APEX | "www.bapx.in" | MEDIAHUB | "docs.bapx.in")
+    matches!(host, APEX | "www.bapx.in" | APP | MEDIAHUB | "docs.bapx.in")
 }
 
 async fn health(headers: HeaderMap) -> Response {
@@ -188,7 +189,7 @@ async fn health(headers: HeaderMap) -> Response {
 async fn favicon(headers: HeaderMap) -> Response {
     if host(&headers)
         .as_deref()
-        .is_some_and(|name| public_host(name) || name == admin::HOST)
+        .is_some_and(|name| (name != APP && public_host(name)) || name == admin::HOST)
     {
         Redirect::permanent("/brand/favicon.svg").into_response()
     } else {
@@ -269,6 +270,8 @@ fn static_path(name: &str, path: &str) -> Option<PathBuf> {
         }
         ("bapx.in" | "www.bapx.in", "" | "index.html") => Some("index.html".into()),
         ("bapx.in" | "www.bapx.in", "privacy") => Some("privacy/index.html".into()),
+        (APEX | "www.bapx.in", "download") => Some("download/index.html".into()),
+        (APEX | "www.bapx.in", "pricing") => Some("pricing/index.html".into()),
         (MEDIAHUB, "") => Some("mediahub/index.html".into()),
         (MEDIAHUB, path) if path.starts_with("mediahub/") => Some(path.into()),
         (MEDIAHUB, path) if path.starts_with("clients/") => {
@@ -306,6 +309,24 @@ async fn static_page(
     let page = uri.path().trim_end_matches('/');
     let account_page = matches!(page, "/sign-in" | "/signup" | "/account");
     let apex = name.as_deref() == Some(APEX);
+    if name.as_deref() == Some(APP) {
+        let target = match page {
+            "" => "/account",
+            page if account_page => page,
+            _ => return StatusCode::NOT_FOUND.into_response(),
+        };
+        if site.accounts.is_none() || !matches!(method, Method::GET | Method::HEAD) {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        return (
+            [
+                (header::CACHE_CONTROL, "no-store"),
+                (header::REFERRER_POLICY, "no-referrer"),
+            ],
+            Redirect::temporary(&format!("{APEX_ORIGIN}{target}/")),
+        )
+            .into_response();
+    }
     if account_page
         && site.accounts.is_some()
         && !apex

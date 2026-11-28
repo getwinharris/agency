@@ -18,7 +18,11 @@ on:
       - 'deploy/**'
       - 'starters/app-admin/**'
       - 'map.mmd'
-      - 'scripts/generate-map.sh'
+      - 'docs/project-index.json'
+      - 'gui/apps/cli/bin/bapx-cli'
+      - 'gui/apps/cli/scripts/repository-cli.mjs'
+      - 'gui/apps/cli/scripts/repository-inventory.mjs'
+      - '.github/workflows/source-inventory.yml'
       - '.github/workflows/app.yml'
       - '.github/workflows/core.yml'
       - '.github/workflows/desktop-packages.yml'
@@ -55,8 +59,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: gui/.nvmrc
       - name: Check the architecture map and project index
-        run: bash scripts/generate-map.sh --check
+        run: ./gui/apps/cli/bin/bapx-cli repo inventory check
       - name: Check deployment scripts
         run: |
           bash -n deploy/deploy-web.sh
@@ -80,18 +87,47 @@ jobs:
             --env BAPX_ADMIN_PASSWORD_FILE=/run/secrets/bapx-admin-password \
             --mount "type=bind,src=$admin_password,dst=/run/secrets/bapx-admin-password,readonly" agency-web:check
           trap 'docker logs agency-web; docker stop agency-web' EXIT
-          for host in bapx.in www.bapx.in docs.bapx.in mediahub.bapx.in admin.bapx.in; do
+          for host in bapx.in www.bapx.in docs.bapx.in mediahub.bapx.in admin.bapx.in app.bapx.in; do
             curl --retry 10 --retry-connrefused --fail --silent --show-error \
               -H "Host: $host" http://127.0.0.1:8080/healthz |
               jq -e --arg sha "$GITHUB_SHA" '.ready == true and .service == "bapx-web" and .revision == $sha'
           done
+          app_redirect=$(curl --fail --silent --show-error --output /dev/null \
+            --write-out '%{http_code} %{redirect_url}' -H 'Host: app.bapx.in' \
+            'http://127.0.0.1:8080/?next=https://example.invalid/')
+          test "$app_redirect" = '307 https://bapx.in/account/'
+          for path in api/auth/session api/admin/session v1/sessions; do
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              -H 'Host: app.bapx.in' "http://127.0.0.1:8080/$path")" = 404
+          done
           for host in bapx.in www.bapx.in; do
             curl --fail --silent --show-error -H "Host: $host" http://127.0.0.1:8080/ \
               --output "$RUNNER_TEMP/$host-home.html"
-            grep -Fq '<h1 id="headline">' "$RUNNER_TEMP/$host-home.html" || {
-              printf 'Expected landing heading is missing for %s.\n' "$host" >&2
+            for marker in '<h1 id="headline"' 'id="how-it-works"' 'id="workflow"' 'data-landing-tour' 'data-tour-send' 'data-tour-target' 'data-tour-agent' 'id="agent-access"' 'id="faq"'; do
+              grep -Fq "$marker" "$RUNNER_TEMP/$host-home.html" || {
+                printf 'Expected landing markup %s is missing for %s.\n' "$marker" "$host" >&2
+                exit 1
+              }
+            done
+            if grep -Eq '127\.0\.0\.1:18819|data-workspace-fixture' "$RUNNER_TEMP/$host-home.html"; then
+              echo "The production homepage references a local demo fixture." >&2
               exit 1
-            }
+            fi
+          done
+          for host in bapx.in www.bapx.in; do
+            for slug in download pricing; do
+              curl --fail --silent --show-error -H "Host: $host" \
+                "http://127.0.0.1:8080/$slug/" --output "$RUNNER_TEMP/$host-$slug.html"
+            done
+            grep -Fq 'Get the bapX app' "$RUNNER_TEMP/$host-download.html"
+            grep -Fq 'href="/pricing/"' "$RUNNER_TEMP/$host-download.html"
+            grep -Fq 'Solo, local only' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹500/month' "$RUNNER_TEMP/$host-pricing.html"
+          done
+          for icon in codex claude-code cursor hermes opencode pi; do
+            curl --fail --silent --show-error -H 'Host: bapx.in' \
+              "http://127.0.0.1:8080/brand/agents/$icon.svg" --output "$RUNNER_TEMP/$icon.svg"
+            grep -Fq '<svg' "$RUNNER_TEMP/$icon.svg"
           done
           curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
           grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"

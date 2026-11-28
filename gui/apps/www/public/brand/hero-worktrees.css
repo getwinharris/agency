@@ -1,0 +1,152 @@
+.hero-worktrees {
+  --worktree-route: #a082bc;
+  --worktree-signal: #e6caff;
+  --worktree-branch-gap: clamp(.55rem, 2vw, 1rem);
+
+  overflow: clip;
+  border-color: #4d3b5f;
+  border-radius: 1rem;
+  background: #130f1c;
+  box-shadow: 0 1rem 3rem #08050f8c;
+}
+
+.hero-worktrees figcaption {
+  border-color: #3b2e4a;
+  background: #1b1425;
+  color: #e1d6eb;
+  font-weight: 620;
+}
+
+.hero-worktrees .worktree-diagram {
+  background:
+    radial-gradient(ellipse at 50% 44%, #342348 0%, transparent 67%),
+    linear-gradient(to right, #cc9ffc15 1px, transparent 1px) center / 1.5rem 1.5rem,
+    linear-gradient(to bottom, #cc9ffc15 1px, transparent 1px) center / 1.5rem 1.5rem;
+}
+
+.hero-worktrees .worktree-origin {
+  grid-template-columns: .95rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: .65rem;
+}
+
+.hero-worktrees .worktree-origin strong { display: block; }
+
+.hero-worktree-project-icon {
+  inline-size: .95rem;
+  block-size: .72rem;
+  border: 1px solid #d6b7f7;
+  border-radius: .16rem;
+  color: #d6b7f7;
+}
+
+.hero-worktree-project-icon::before {
+  display: block;
+  inline-size: 45%;
+  block-size: .2rem;
+  border: 1px solid currentColor;
+  border-block-end: 0;
+  border-start-start-radius: .12rem;
+  border-start-end-radius: .12rem;
+  transform: translateY(-100%);
+  content: "";
+}
+
+.hero-worktrees .worktree-core {
+  gap: .8rem;
+  border-color: var(--worktree-route);
+  background: linear-gradient(115deg, #342346, #201729 80%);
+}
+
+.hero-worktree-core-logo {
+  inline-size: 4.125rem;
+  block-size: auto;
+  flex: none;
+}
+
+.hero-worktrees .worktree-branches {
+  gap: var(--worktree-branch-gap);
+}
+
+.hero-worktrees .worktree-branches::before {
+  inset-inline: calc(25% - var(--worktree-branch-gap) / 4);
+  border-color: var(--worktree-route);
+}
+
+.hero-worktree-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  min-inline-size: 0;
+}
+
+.hero-worktree-agent img {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  flex: none;
+}
+
+.hero-worktree-agent strong { overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Progress follows the static wires, so every stage stays readable throughout. */
+  .hero-worktrees .worktree-core::before,
+  .hero-worktrees .worktree-core::after {
+    inline-size: 1px;
+    border: 0;
+    background:
+      linear-gradient(transparent, var(--worktree-signal) 48%, transparent) center bottom / 100% 300% no-repeat,
+      var(--worktree-route);
+    animation: hero-worktree-route .48s ease-out .09s both;
+  }
+
+  .hero-worktrees .worktree-core::after { animation-delay: .45s; }
+  .hero-worktrees .worktree-branches::after {
+    position: absolute;
+    inset: 0 calc(25% - var(--worktree-branch-gap) / 4) auto;
+    block-size: 1px;
+    content: "";
+    background: var(--worktree-signal);
+    transform-origin: center;
+    animation: hero-worktree-fork .55s ease-out .66s both;
+  }
+
+  .hero-worktrees .worktree-branches > li::after {
+    position: absolute;
+    inset: -1px .8rem auto;
+    block-size: 2px;
+    border-radius: 2px;
+    content: "";
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--worktree-signal), transparent);
+    animation: hero-worktree-arrival .82s ease-out .91s both;
+  }
+
+  .hero-worktrees .worktree-branches > li:nth-child(2)::after { animation-delay: 1.05s; }
+}
+
+@keyframes hero-worktree-route {
+  from { background-position: center bottom; }
+  to { background-position: center top; }
+}
+
+@keyframes hero-worktree-fork {
+  from { transform: scaleX(0); opacity: 0; }
+  35% { opacity: 1; }
+  to { transform: scaleX(1); opacity: 0; }
+}
+
+@keyframes hero-worktree-arrival {
+  from { transform: scaleX(.15); opacity: 0; }
+  38% { opacity: 1; }
+  to { transform: scaleX(1); opacity: 0; }
+}
+
+@media (forced-colors: active) {
+  .hero-worktrees .worktree-core::before,
+  .hero-worktrees .worktree-core::after { border-inline-start: 1px solid CanvasText; }
+
+  .hero-worktrees .worktree-branches::after,
+  .hero-worktrees .worktree-branches > li::after { content: none; }
+}

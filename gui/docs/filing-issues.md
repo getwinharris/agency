@@ -35,7 +35,7 @@ Paste the relevant terminal output, log lines, or HTTP responses. For visual bug
 
 ### 5. Evidence
 
-- Logs from `logs/` under your Cloudroom data directory. `room-cli status --json` prints the directory.
+- Logs from `logs/` under your Cloudroom data directory. `bapx-cli status --json` prints the directory.
 - Thread ids (`thr_…`), project ids, environment ids when relevant. They are primary keys and let us query the database directly.
 - Link to the exact source commit in `davidondrej/cloudroom` when citing public code.
 - If you measured something (memory, timings, counts), say how.

@@ -98,7 +98,7 @@ function fail(code: string, message: string, exitCode = 1): PluginCliResult {
 
 // Cloudroom starts Cua Driver without --grant existing-profile, so it refuses the user's own browser profile (#1555).
 const CONSENT_HINT =
-  "Cloudroom doesn't let Cua Driver attach to the user's own browser profile. For the user's logged-in browser use browser-harness. For a separate browser, call browser_prepare with \"allow_launch\":true and \"profile\":{\"mode\":\"isolated_new\"}.";
+  "Cloudroom doesn't let Cua Driver attach to the user's own browser profile. For a signed-in page, use an authorized Ego task space (see the ego-browser skill). For a separate browser, call browser_prepare with \"allow_launch\":true and \"profile\":{\"mode\":\"isolated_new\"}.";
 
 function withConsentHint(stdout: string) {
   if (!stdout.includes("browser_consent_required")) return stdout;

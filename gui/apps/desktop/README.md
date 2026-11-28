@@ -149,9 +149,9 @@ PowerShell using `Get-AuthenticodeSignature .\apps\desktop\release.noindex\bapx-
 `afterPack` copies `@parcel/watcher-win32-x64` into the package, because
 electron-builder leaves it out, and loads it with the packaged Electron.
 
-Inside the installed app, `room-cli.cmd` and `room-cli.ps1` run on
+Inside the installed app, `bapx-cli.cmd` and `bapx-cli.ps1` run on
 `bapX Agents.exe` with `ELECTRON_RUN_AS_NODE=1`, so the PC needs no Node.
-PowerShell picks `room-cli.ps1`, which passes arguments as JSON in
+PowerShell picks `bapx-cli.ps1`, which passes arguments as JSON in
 `ROOM_CLI_ARGV`, so cmd.exe never re-parses them.
 
 ### Linux (AppImage, x64)
@@ -217,13 +217,14 @@ intended desktop OS before publishing the release in Agency.
 
 Stable builds use bundle and Windows application ID `in.bapx.agents`,
 `~/.bapx-agents` for runtime data, and local ports 39888 and 39889. The desktop
-registers `bapx-agents://` and installs the `bapx-agents-cli` shell shim on
+registers `bapx-agents://` and installs the `bapx-cli` shell shim on
 macOS and Linux.
 
 Set `BB_DESKTOP_RELEASE_CHANNEL=nightly` for the separate bapX Agents Nightly
 build. It uses ID `in.bapx.agents.nightly`, runtime data in
 `~/.bapx-agents-nightly`, and ports 39890 and 39891. Nightly artifacts and
-executables carry a nightly name. Its shell shim is `bapx-agents-nightly-cli`.
+executables carry a nightly name. Its shell shim is `bapx-cli-nightly`. Existing
+`bapx-agents-cli` and `bapx-agents-nightly-cli` shims remain supported.
 
 ## About panel
 

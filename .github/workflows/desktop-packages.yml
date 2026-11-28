@@ -92,6 +92,13 @@ jobs:
       - name: Verify macOS disk image
         if: matrix.platform == 'macos-arm64'
         run: hdiutil verify apps/desktop/release.noindex/bapx-agents-*-arm64.dmg
+      - name: Verify macOS CLI aliases
+        if: matrix.platform == 'macos-arm64'
+        run: |
+          cli='apps/desktop/release.noindex/mac-arm64/bapX Agents.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist'
+          primary="$("$cli/bapx-cli" --version)"
+          legacy="$("$cli/room-cli" --version)"
+          [[ -n "$primary" && "$primary" == "$legacy" ]]
       - name: Verify Windows installer
         if: matrix.platform == 'windows-x64'
         shell: pwsh
@@ -123,6 +130,15 @@ jobs:
           if ((Get-FileHash -LiteralPath $installed).Hash -ne (Get-FileHash -LiteralPath $app.FullName).Hash) {
             throw 'The installed executable differs from the packaged executable'
           }
+          $cliDir = Join-Path (Split-Path $installed) 'resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist'
+          foreach ($extension in @('cmd', 'ps1')) {
+            $primary = & (Join-Path $cliDir "bapx-cli.$extension") --version
+            if ($LASTEXITCODE -ne 0 -or -not $primary) { throw "bapx-cli.$extension failed" }
+            $legacy = & (Join-Path $cliDir "room-cli.$extension") --version
+            if ($LASTEXITCODE -ne 0 -or "$primary" -cne "$legacy") {
+              throw "The $extension CLI aliases report different versions"
+            }
+          }
       - name: Verify Linux AppImage
         if: matrix.platform == 'linux-x64'
         run: |
@@ -136,6 +152,11 @@ jobs:
           "$image" --appimage-extract >/dev/null
           test -x squashfs-root/bapx-agents
           grep -F 'Name=bapX Agents' squashfs-root/*.desktop
+          cli=squashfs-root/resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist
+          primary="$("$cli/bapx-cli" --version)"
+          legacy="$("$cli/room-cli" --version)"
+          [[ -n "$primary" && "$primary" == "$legacy" ]]
+          "$cli/bapx-cli" thread --help | grep -F 'Usage: bapx-cli thread'
       - name: Prepare checksums for verified packages
         env:
           DESKTOP_PLATFORM: ${{ matrix.platform }}

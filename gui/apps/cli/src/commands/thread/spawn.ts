@@ -267,7 +267,7 @@ async function buildProviderSpawnEnvironment(args: {
       inputs = {};
     } else {
       throw new Error(
-        `The '${match.id}' environment provider needs --environment-inputs <json>; \`room-cli environment providers --json\` shows its schema.`,
+        `The '${match.id}' environment provider needs --environment-inputs <json>; \`bapx-cli environment providers --json\` shows its schema.`,
       );
     }
   }
@@ -287,7 +287,7 @@ async function buildProviderSpawnEnvironment(args: {
         if (match.machineAcceptsEmptyInputs) machineInputs = {};
         else {
           throw new Error(
-            `The '${match.machineProviderId}' machine provider needs --machine-inputs <json>; \`room-cli environment providers --json\` shows its schema.`,
+            `The '${match.machineProviderId}' machine provider needs --machine-inputs <json>; \`bapx-cli environment providers --json\` shows its schema.`,
           );
         }
       }
@@ -409,11 +409,11 @@ export function registerSpawnCommand(
     )
     .option(
       "--environment-provider <id>",
-      "Run on an environment provider by id (list them with `room-cli environment providers`)",
+      "Run on an environment provider by id (list them with `bapx-cli environment providers`)",
     )
     .option(
       "--environment-inputs <json>",
-      "JSON value for an --environment-provider that declares inputs (`room-cli environment providers --json` shows the schema)",
+      "JSON value for an --environment-provider that declares inputs (`bapx-cli environment providers --json` shows the schema)",
     )
     .option("--send-at <when>", SEND_AT_HELP)
     .option("--origin-kind <kind>", "Thread origin: fork")
@@ -498,7 +498,7 @@ export function registerSpawnCommand(
           if (machineProvider.acceptsEmptyInputs) machineInputs = {};
           else {
             throw new Error(
-              `The '${machineProvider?.id}' machine provider needs --machine-inputs <json>; \`room-cli machine providers --json\` shows its schema.`,
+              `The '${machineProvider?.id}' machine provider needs --machine-inputs <json>; \`bapx-cli machine providers --json\` shows its schema.`,
             );
           }
         }
@@ -665,7 +665,7 @@ export function registerSpawnCommand(
                   : null;
               if (made) {
                 console.error(
-                  `Cloudroom at ${getUrl()} did not answer the spawn in time (${reason}), but thread ${made.id} exists (${made.status}), so it was not spawned again. Check its start with: room-cli thread show ${made.id}`,
+                  `Cloudroom at ${getUrl()} did not answer the spawn in time (${reason}), but thread ${made.id} exists (${made.status}), so it was not spawned again. Check its start with: bapx-cli thread show ${made.id}`,
                 );
                 thread = made;
                 break;

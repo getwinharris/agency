@@ -93,6 +93,8 @@ export function SettingsAccountMenu() {
   const account = getSettingsSectionRoutePath("account");
 
   if (!email) {
+    const privateCore = status?.selfHosted === true;
+    const privateCoreStatus = status?.ready === true ? "Connected" : "Unavailable";
     return (
       <Link
         to={account}
@@ -101,17 +103,24 @@ export function SettingsAccountMenu() {
         className={cn(ROW_CLASS, "border-t border-foreground/10 py-2")}
       >
         <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground/15">
-          <Icon name="UserRound" className="size-3.5" />
+          <Icon
+            name={privateCore ? "Server" : "UserRound"}
+            className="size-3.5"
+            aria-hidden
+          />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate">Sign in to Cloudroom</span>
+          <span className="block truncate">
+            {privateCore ? "Private Core" : "Sign in to Cloudroom"}
+          </span>{" "}
           <span className="block truncate text-xs text-muted-foreground">
-            Local threads only
+            {privateCore ? privateCoreStatus : "Local threads only"}
           </span>
         </span>
         <Icon
           name="ChevronRight"
           className="size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden
         />
       </Link>
     );

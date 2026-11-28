@@ -248,7 +248,7 @@ describe("Plugin detail recipe", () => {
     ).toBeNull();
 
     for (const item of [
-      "room-cli gh",
+      "bapx-cli gh",
       "review",
       "gh_search",
       "Pull requests",

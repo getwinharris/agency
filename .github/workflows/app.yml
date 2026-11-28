@@ -36,6 +36,25 @@ jobs:
         run: pnpm exec turbo run build typecheck --filter=@cloudroom/app --filter=@cloudroom/server --filter=@cloudroom/desktop --concurrency=2
       - name: Tests
         run: pnpm exec turbo run test --filter=@cloudroom/config --concurrency=2
+      - name: CLI, Tools, and installer regression checks
+        run: >-
+          pnpm exec vitest run --maxWorkers=2
+          apps/cli/src/__tests__/command-output
+          apps/cli/src/__tests__/room-cli.e2e.test.ts
+          apps/cli/src/__tests__/startup-graph.test.ts
+          apps/desktop/test/room-cli-shim.test.ts
+          apps/host-daemon/test/room-cli-launchers.test.ts
+          apps/server/test/app/host-artifact.test.ts
+          apps/server/test/app/install-machine-script.test.ts
+          apps/server/test/services/plugins/plugin-cli.test.ts
+          apps/server/test/skills/shipped-skills-quality.test.ts
+          apps/server/test/public/public-project-skills.test.ts
+          apps/server/test/threads/thread-runtime-config.test.ts
+          apps/app/src/components/tools/detail-page-recipes.test.tsx
+          packages/plugin-sdk/src/internal/command-guard.test.ts
+          packages/scripts/test/run-cli.test.ts
+      - name: Computer Use browser guidance checks
+        run: pnpm --filter bb-plugin-computer-use run test server.test.ts
       - name: App starter tests
         working-directory: starters/app-admin
         run: |

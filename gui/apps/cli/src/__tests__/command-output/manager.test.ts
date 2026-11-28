@@ -20,7 +20,7 @@ describe("room-cli manager command output", () => {
 
     const error = collectLogLines(vi.mocked(console.error)).join("\n");
     expect(error).toContain("Manager threads were replaced by parent threads.");
-    expect(error).toContain("room-cli thread spawn --parent-thread <id>");
+    expect(error).toContain("bapx-cli thread spawn --parent-thread <id>");
   });
 
   it("room-cli manager subcommands exit with the same replacement message", async () => {
@@ -30,6 +30,6 @@ describe("room-cli manager command output", () => {
 
     const error = collectLogLines(vi.mocked(console.error)).join("\n");
     expect(error).toContain("Manager threads were replaced by parent threads.");
-    expect(error).toContain("room-cli thread list --parent-thread <id>");
+    expect(error).toContain("bapx-cli thread list --parent-thread <id>");
   });
 });

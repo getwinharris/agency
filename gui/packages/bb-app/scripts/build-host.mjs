@@ -69,12 +69,14 @@ await copyFile(
   resolve(hostDaemonSource, "room-cli"),
   resolve(hostDaemonTarget, "room-cli"),
 );
-await chmod(resolve(hostDaemonTarget, "room-cli"), 0o755);
-for (const launcher of ["room-cli.cmd", "room-cli.ps1"]) {
+for (const launcher of ["bapx-cli", "bapx-cli.cmd", "bapx-cli.ps1", "room-cli.cmd", "room-cli.ps1"]) {
   await copyFile(
     resolve(hostDaemonSource, launcher),
     resolve(hostDaemonTarget, launcher),
   );
+}
+for (const executable of ["bapx-cli", "room-cli"]) {
+  await chmod(resolve(hostDaemonTarget, executable), 0o755);
 }
 await copyDirectory({
   from: resolve(hostDaemonSource, "room-cli-chunks"),
@@ -105,6 +107,7 @@ await writeFile(
       type: "module",
       os: sourcePackageJson.os,
       bin: {
+        "bapx-cli": "dist/room-cli.js",
         "room-cli": "dist/room-cli.js",
         "bb-app": "dist/bb-app.js",
       },

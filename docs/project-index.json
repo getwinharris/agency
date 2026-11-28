@@ -1,5 +1,5 @@
 {
-  "generated_by": "scripts/generate-map.sh",
+  "generated_by": "bapx-cli repo inventory generate",
   "scope": "Tracked source and declared routes. Verify live behavior separately.",
   "routes": [
     {
@@ -14,6 +14,13 @@
       "router": "agency-admin-login",
       "method": "POST",
       "path": "/api/admin/login",
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "app.bapx.in",
+      "router": "agency-app",
+      "method": null,
+      "path": null,
       "source": "deploy/compose.web.yml"
     },
     {
@@ -172,9 +179,12 @@
       "gui/apps/www/src/build.ts",
       "gui/apps/www/src/docs/markdown.ts",
       "gui/apps/www/src/docs/pages.ts",
+      "gui/apps/www/src/landing-tour.ts",
+      "gui/apps/www/src/landing.ts",
       "gui/apps/www/src/mediahub/pages.ts",
       "gui/apps/www/src/mediahub/portfolio.ts",
       "gui/apps/www/src/pages.ts",
+      "gui/apps/www/src/recovered-homepage.html",
       "gui/apps/www/src/walkthrough.ts"
     ],
     "workspace_packages": [
@@ -282,10 +292,10 @@
     ],
     "bundled_skills": [
       "skills/adr-verbatim/SKILL.md",
-      "skills/browser-harness/SKILL.md",
       "skills/create-loop/SKILL.md",
       "skills/decisions/SKILL.md",
       "skills/deepapi/SKILL.md",
+      "skills/ego-browser/SKILL.md",
       "skills/file-tree/SKILL.md",
       "skills/malware-scan/SKILL.md",
       "skills/risky-changes/SKILL.md",

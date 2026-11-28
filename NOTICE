@@ -418,3 +418,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+The provider marks in gui/apps/www/public/brand/agents/ are from the
+Cloudroom page assets supplied with the bapX design reference archive.
+Codex, Claude Code, Cursor, Hermes Agent, OpenCode, and Pi marks belong
+to their respective owners and are used to identify those integrations.

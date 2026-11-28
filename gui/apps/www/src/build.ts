@@ -6,6 +6,7 @@ import { accountPages } from "./auth/pages.ts";
 import { docsPages } from "./docs/pages.ts";
 import { mediaHubPages } from "./mediahub/pages.ts";
 import { publicPages } from "./pages.ts";
+import { landingTour } from "./landing-tour.ts";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const output = resolve(packageRoot, "dist");
@@ -16,6 +17,8 @@ const pages = {
   ...adminPages(),
   ...accountPages(),
 };
+const homepage = await readFile(resolve(packageRoot, "src/recovered-homepage.html"), "utf8");
+pages["index.html"] = homepage.replace("<!-- BAPX_LANDING_TOUR -->", landingTour());
 await rm(output, { recursive: true, force: true });
 await cp(resolve(packageRoot, "public"), output, { recursive: true });
 const managementStyles = await readFile(resolve(output, "admin/index.css"), "utf8");

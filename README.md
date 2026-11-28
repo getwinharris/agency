@@ -14,10 +14,15 @@ deployments and desktop download availability.
 The [architecture map](map.mmd) traces public routes, private runtime, and
 deployment boundaries. The [Agency project index](docs/project-index.json)
 maps a host, published guide, workflow, or workspace package to tracked
-source. Stage added or removed inputs and run `bash scripts/generate-map.sh`
-from a Git checkout with Docker Compose and `jq` to regenerate both files.
-`bash scripts/generate-map.sh --check` catches drift. Follow the source pointer
-and verify runtime behavior separately.
+source. Stage added or removed inputs and run `./gui/apps/cli/bin/bapx-cli repo inventory generate`
+from a Git checkout with Node.js and Docker Compose to regenerate both files.
+`./gui/apps/cli/bin/bapx-cli repo inventory check` catches drift. Follow the source pointer
+and verify runtime behavior separately. Use `repo inventory map` or
+`repo inventory index` with the same checkout launcher to print a report.
+
+The installed `bapx-cli` command manages agents and their tools. Existing
+`room-cli` invocations still work on supported installations. Use the
+[checkout skills commands](gui/README.md#work-with-repository-skills) to work with tracked Agency skills. [CLI configuration](gui/docs/configuration.md#cloudroom-cli)
 
 ## Upstream Cloudroom
 
