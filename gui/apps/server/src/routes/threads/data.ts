@@ -8,6 +8,7 @@ import { extractThreadContextWindowUsage } from "@cloudroom/thread-view";
 import mimeTypes from "mime-types";
 import { clearTimelineOrderingContextCache } from "../../services/threads/timeline-context-order.js";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import {
   getAppSettings,
   getThreadPluginMetadata,
@@ -147,10 +148,12 @@ function validateFilePath(filePath: string): void {
 interface ThreadStorageTarget {
   hostId: string;
   storagePath: string;
+  storageScope: string;
 }
 
 interface RequireThreadStorageTargetArgs {
   threadId: string;
+  expectedStorageScope?: string;
 }
 
 const RAW_FILE_NO_STORE_CACHE_CONTROL = "no-store";
@@ -243,13 +246,33 @@ async function requireThreadStorageTarget(
     );
   }
   const environment = requireEnvironment(deps.db, thread.environmentId);
-  return {
+  const storagePath = await requireThreadStoragePath(deps, {
     hostId: environment.hostId,
-    storagePath: await requireThreadStoragePath(deps, {
-      hostId: environment.hostId,
-      threadId: thread.id,
-    }),
-  };
+    threadId: thread.id,
+  });
+  // This is a target identity, not a credential. Existing access checks still apply.
+  const storageScope = createHash("sha256")
+    .update(
+      JSON.stringify([
+        thread.id,
+        thread.projectId,
+        environment.id,
+        environment.hostId,
+        storagePath,
+      ]),
+    )
+    .digest("hex");
+  if (
+    args.expectedStorageScope !== undefined &&
+    args.expectedStorageScope !== storageScope
+  ) {
+    throw new ApiError(
+      409,
+      "invalid_request",
+      "Session storage moved. Refresh the file list.",
+    );
+  }
+  return { hostId: environment.hostId, storagePath, storageScope };
 }
 
 function isHtmlPreviewPath(relativePath: string): boolean {
@@ -296,10 +319,14 @@ async function serveThreadStorageRawFile(
     ifNoneMatch?: string;
     ifRange?: string;
     range?: string;
+    expectedStorageScope?: string;
   },
 ): Promise<Response> {
   const filePath = parseSafeRelativeRoutePath(rawPath);
-  const target = await requireThreadStorageTarget(deps, { threadId });
+  const target = await requireThreadStorageTarget(deps, {
+    threadId,
+    expectedStorageScope: headers.expectedStorageScope,
+  });
   const isHtml = isHtmlPreviewPath(filePath.relativePath);
 
   return serveDaemonFileContent(
@@ -752,6 +779,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   get(routes.storageFiles, async (context, query) => {
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
+      expectedStorageScope: query.storageScope,
     });
     const limit = parseFileListLimit(query.limit);
 
@@ -789,22 +817,26 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     }
   });
 
-  get(routes.storageLocation, async (context) => {
+  get(routes.storageLocation, async (context, query) => {
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
     });
     return context.json({
       hostId: target.hostId,
       storageRootPath: target.storagePath,
+      ...(query.includeStorageScope === "1"
+        ? { storageScope: target.storageScope }
+        : {}),
     });
   });
 
-  get(routes.storageFile, async (context) =>
+  get(routes.storageFile, async (context, query) =>
     serveThreadStorageRawFile(
       deps,
       context.req.param("id"),
       context.req.param("filePath"),
       {
+        expectedStorageScope: query.storageScope,
         ifNoneMatch: context.req.header("if-none-match"),
         ifRange: context.req.header("if-range"),
         range: context.req.header("range"),
@@ -815,6 +847,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
   get(routes.storagePaths, async (context, query) => {
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
+      expectedStorageScope: query.storageScope,
     });
     const limit = parseFileListLimit(query.limit);
     const inclusion = parsePathKindInclusion({
@@ -862,6 +895,7 @@ export function registerThreadDataRoutes(app: Hono, deps: AppDeps): void {
     validateFilePath(query.path);
     const target = await requireThreadStorageTarget(deps, {
       threadId: context.req.param("id"),
+      expectedStorageScope: query.storageScope,
     });
 
     return serveDaemonFileContent(

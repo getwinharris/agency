@@ -387,6 +387,7 @@ export function ThreadStorageFilePreviewTabContent({
   onOpenInEditor,
   onRevealInFinder,
   threadId,
+  storageScope,
 }: {
   activePath: string;
   isPanelOpen: boolean;
@@ -397,9 +398,11 @@ export function ThreadStorageFilePreviewTabContent({
   onOpenInEditor?: (path: string) => void;
   onRevealInFinder?: (path: string) => void;
   threadId: string;
+  storageScope?: string;
 }) {
   const q = useThreadStorageFilePreview(threadId, activePath, {
     enabled: isPanelOpen,
+    storageScope,
   });
   const routing = useMemo(
     () =>
@@ -409,16 +412,21 @@ export function ThreadStorageFilePreviewTabContent({
         threadId,
         linkRouting: markdownLinkRouting,
         resolveRelativeSrc: (rel) =>
-          buildThreadStorageRawContentUrl(threadId, rel),
+          buildThreadStorageRawContentUrl(threadId, rel, storageScope),
       }),
-    [activePath, markdownLinkRouting, threadId],
+    [activePath, markdownLinkRouting, threadId, storageScope],
   );
   return (
     <SecondaryPanelFilePreview
       {...toPreviewBinding(q)}
       activePath={activePath}
       copyPath={copyPath}
-      htmlPreviewUrl={buildThreadStorageRawContentUrl(threadId, activePath)}
+      // Scoped Library reads show HTML as source so relative iframe requests cannot drop the scope.
+      htmlPreviewUrl={
+        storageScope
+          ? null
+          : buildThreadStorageRawContentUrl(threadId, activePath)
+      }
       lineRange={lineRange}
       markdownLinkRouting={routing}
       onSelectionAddToChat={onSelectionAddToChat}

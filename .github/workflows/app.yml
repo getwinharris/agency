@@ -55,6 +55,8 @@ jobs:
           apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.markdown-images.test.tsx
           packages/plugin-sdk/src/internal/command-guard.test.ts
           packages/scripts/test/run-cli.test.ts
+      - name: Session file route checks
+        run: pnpm exec vitest run --maxWorkers=2 apps/server/test/public/public-thread-data.test.ts -t 'thread storage|stale scoped session'
       - name: Workspace Automations navigation checks
         run: |
           pnpm --filter bb-plugin-automations run test navigation.test.tsx

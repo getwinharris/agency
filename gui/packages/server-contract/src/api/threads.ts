@@ -1142,10 +1142,19 @@ export const threadEventWaitQuerySchema = z.object({
 });
 export type ThreadEventWaitQuery = z.infer<typeof threadEventWaitQuerySchema>;
 
+const threadStorageScopeSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+export const threadStorageLocationQuerySchema = z.object({
+  includeStorageScope: z.literal("1").optional(),
+});
+export type ThreadStorageLocationQuery = z.infer<
+  typeof threadStorageLocationQuerySchema
+>;
+
 export const threadStorageFilesQuerySchema = z
   .object({
     query: z.string().min(1).max(FILE_LIST_QUERY_MAX_LENGTH),
     limit: z.string().regex(/^\d+$/),
+    storageScope: threadStorageScopeSchema,
   })
   .partial();
 export type ThreadStorageFilesQuery = z.infer<
@@ -1161,9 +1170,17 @@ export type ThreadStoragePathsQuery = z.infer<
   typeof threadStoragePathsQuerySchema
 >;
 
-export const threadStorageContentQuerySchema = z.object({
-  path: z.string().min(1),
+export const threadStorageRawFileQuerySchema = z.object({
+  storageScope: threadStorageScopeSchema.optional(),
 });
+export type ThreadStorageRawFileQuery = z.infer<
+  typeof threadStorageRawFileQuerySchema
+>;
+
+export const threadStorageContentQuerySchema =
+  threadStorageRawFileQuerySchema.extend({
+    path: z.string().min(1),
+  });
 export type ThreadStorageContentQuery = z.infer<
   typeof threadStorageContentQuerySchema
 >;
@@ -1172,6 +1189,7 @@ export const threadStorageLocationResponseSchema = z
   .object({
     hostId: z.string().min(1),
     storageRootPath: z.string().min(1),
+    storageScope: threadStorageScopeSchema.optional(),
   })
   .strict();
 export type ThreadStorageLocationResponse = z.infer<

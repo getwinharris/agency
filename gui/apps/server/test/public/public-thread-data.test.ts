@@ -16,6 +16,7 @@ import {
   getThread,
   queuedThreadMessages,
   setThreadExecutionOverride,
+  threads,
 } from "@cloudroom/db";
 import {
   encodeClientTurnRequestIdNumber,
@@ -3818,6 +3819,58 @@ describe("public thread data routes", () => {
         hostId: host.id,
         storageRootPath: `/tmp/bb-host-data/${host.id}/thread-storage/${thread.id}`,
       });
+    });
+  });
+
+  it("rejects stale scoped session file requests without reading the changed environment", async () => {
+    await withTestHarness(async (harness) => {
+      const { host } = seedHostSession(harness.deps);
+      const { project } = seedProjectWithSource(harness.deps, {
+        hostId: host.id,
+      });
+      const first = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/first",
+      });
+      const next = seedEnvironment(harness.deps, {
+        hostId: host.id,
+        projectId: project.id,
+        path: "/tmp/second",
+      });
+      const thread = seedThread(harness.deps, {
+        projectId: project.id,
+        environmentId: first.id,
+      });
+      const base = `/api/v1/threads/${thread.id}/thread-storage`;
+      const before = threadStorageLocationResponseSchema.parse(
+        await readJson(
+          await harness.app.request(`${base}/location?includeStorageScope=1`),
+        ),
+      );
+      expect(before.storageScope).toMatch(/^[a-f0-9]{64}$/);
+      harness.deps.db
+        .update(threads)
+        .set({ environmentId: next.id })
+        .where(eq(threads.id, thread.id))
+        .run();
+      const after = threadStorageLocationResponseSchema.parse(
+        await readJson(
+          await harness.app.request(`${base}/location?includeStorageScope=1`),
+        ),
+      );
+      expect(after.storageScope).not.toBe(before.storageScope);
+      const rpc = vi.spyOn(harness.hub, "requestHostOnlineRpc");
+      const scope = `storageScope=${before.storageScope}`;
+      for (const req of [
+        `files?${scope}`,
+        `content?path=report.html&${scope}`,
+        `files/images/figure.svg?${scope}`,
+      ]) {
+        const response = await harness.app.request(`${base}/${req}`);
+        expect(response.status).toBe(409);
+      }
+      expect(rpc).not.toHaveBeenCalled();
     });
   });
 
