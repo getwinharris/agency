@@ -231,3 +231,65 @@ fn oversized_release_fails_while_the_prior_revision_stays_readable() {
     );
     assert_eq!(fixture.text("/").unwrap(), "first revision");
 }
+
+#[test]
+fn operator_status_reports_only_the_selected_revision_without_writing() {
+    let fixture = Fixture::new();
+    assert_eq!(fixture.store.active_revision(&GRANT).unwrap(), None);
+    assert!(!fixture.store.published.join(GRANT.slug).exists());
+    let first = fixture.publish().unwrap();
+    assert_eq!(
+        fixture.store.active_revision(&GRANT).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let prior = fixture.store.published.join("pilot/current");
+    let metadata = fs::metadata(&prior).unwrap();
+    let first_stamp = file_stamp(&metadata);
+    assert_eq!(fixture.store.active_revision(&GRANT).unwrap(), Some(first));
+    assert_eq!(file_stamp(&fs::metadata(prior).unwrap()), first_stamp);
+
+    let second = fixture.publish().unwrap();
+    assert_eq!(fixture.store.active_revision(&GRANT).unwrap(), Some(second));
+}
+
+#[test]
+fn operator_status_rejects_wrong_owner_and_incomplete_or_tampered_publication() {
+    let fixture = Fixture::new();
+    let revision = fixture.publish().unwrap();
+    let site = fixture.store.published.join("pilot");
+    let mismatch = SiteGrant {
+        business: "not-ours",
+        ..GRANT
+    };
+    assert_eq!(
+        fixture.store.active_revision(&mismatch).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+
+    let pointer = site.join("current");
+    fs::write(&pointer, "malformed").unwrap();
+    assert!(fixture.store.active_revision(&GRANT).is_err());
+    fs::write(&pointer, format!("{revision}\n")).unwrap();
+    let index = site.join("revisions").join(&revision).join("index.html");
+    fs::remove_file(&index).unwrap();
+    assert!(fixture.store.active_revision(&GRANT).is_err());
+    fs::remove_file(&pointer).unwrap();
+    assert!(fixture.store.active_revision(&GRANT).is_err());
+}
+
+#[test]
+fn operator_status_rejects_symlinked_site_metadata() {
+    let fixture = Fixture::new();
+    fixture.publish().unwrap();
+    let site = fixture.store.published.join("pilot");
+    for name in ["owner", "current"] {
+        let path = site.join(name);
+        let original = site.join(format!("{name}-original"));
+        fs::rename(&path, &original).unwrap();
+        symlink(&original, &path).unwrap();
+        assert!(fixture.store.active_revision(&GRANT).is_err());
+        fs::remove_file(&path).unwrap();
+        fs::rename(original, path).unwrap();
+        assert!(fixture.store.active_revision(&GRANT).unwrap().is_some());
+    }
+}

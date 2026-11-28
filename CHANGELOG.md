@@ -4,6 +4,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Add an operator-only command to inspect the selected snapshot for an approved hosted site.
+
 - Show the existing Loops panel as Automations in the workspace sidebar, preserving saved loops and run history.
 - Add a Library workspace for searching, previewing, and downloading project files on the connected computer.
 

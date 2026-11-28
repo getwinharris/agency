@@ -35,6 +35,21 @@ Use a trailing slash for directory index URLs, such as `/about/`.
 Traefik strips Cookie and Authorization on the pilot host. Admin keeps its
 host-only session cookie.
 
+## Inspect an approved release
+
+From the operator's release environment, run the Core command with the
+read-only publication store path and the same approved identifiers used to
+publish the site:
+
+```sh
+bapx-core publish-site status RELEASE_ROOT SLUG ACCOUNT BUSINESS PROJECT
+```
+
+The command reports the selected immutable snapshot and its assigned HTTPS
+URL or that no snapshot is present. It rejects mismatched ownership and
+incomplete release metadata without changing the store. The output does not
+confirm DNS, TLS, routing, or public reachability. Verify those separately.
+
 ## One exact-host pilot
 
 Hostinger DNS points `app.bapx.in` and its wildcard to the VPS. The Compose
