@@ -172,36 +172,23 @@ export function PluginSidebarFooterDisclosure({
   onDismiss: () => void;
 }) {
   const item = activeItem ?? warmItem;
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [contentHeight, setContentHeight] = useState<number | null>(null);
-
-  useLayoutEffect(() => {
-    const content = contentRef.current;
-    if (content === null) return;
-    const measure = () =>
-      setContentHeight(content.getBoundingClientRect().height);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, [item]);
-
   if (item === null || item.kind !== "disclosure") return null;
   const Component = item.component;
   return (
-    // z-[70] keeps the popup above the sidebar's sticky section labels (z-index up to 60).
+    // An open disclosure reserves its own space below the scrollable list.
+    // A warmed disclosure stays out of layout until opened.
     <section
       id={footerDisclosureId(item)}
       aria-label={item.label}
       data-testid={`plugin-sidebar-footer-disclosure-${item.pluginId}-${item.id}`}
+      inert={activeItem === null}
       className={cn(
-        "absolute bottom-full left-2 z-[70] w-[calc(100%-1rem)] overflow-hidden rounded-lg border border-sidebar-border bg-sidebar shadow-xl transition-[height] duration-200 ease-out motion-reduce:transition-none",
-        activeItem === null && "invisible pointer-events-none",
+        "shrink-0 overflow-hidden rounded-lg border border-sidebar-border bg-sidebar",
+        activeItem === null &&
+          "invisible pointer-events-none absolute inset-x-2 bottom-full",
       )}
-      style={{ height: contentHeight ?? undefined }}
     >
-      <div ref={contentRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
+      <div className="max-h-[min(40dvh,18rem)] overflow-auto [@media(max-height:580px)]:max-h-[min(25dvh,8rem)]">
         <PluginSlotMount
           pluginId={item.pluginId}
           slotKind="experimental_sidebarFooter"
