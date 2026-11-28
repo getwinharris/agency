@@ -129,6 +129,7 @@
   "workspace_config": "gui/pnpm-workspace.yaml",
   "sources": {
     "workflows": [
+      ".github/workflows/android-emulator-qa.yml",
       ".github/workflows/app.yml",
       ".github/workflows/core.yml",
       ".github/workflows/desktop-packages.yml",
