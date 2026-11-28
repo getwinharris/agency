@@ -362,13 +362,12 @@ ${edges.join("\n")}
     package["macOS, Windows and Linux builds · gui/apps/desktop/"]
     desktop["Electron and bb-app local UI, server and host daemon"]
     coreApi["Private Core API · core/src/lib.rs and core/docs/setup.md"]
-    workspaceGrant["Approved member workspace · core/src/workspace_access.rs"]
+    workspaceGrant["Offline workspace policy check · core/src/workspace_access.rs"]
     harnesses["Native agent harnesses · core/src/runtime/"]
     journal["Private sessions, history and agent account credentials"]
     skills["Agent Skills · skills/ and local .agents/skills/"]
     desktopCI --> package --> desktop
     desktop -->|"Private bearer-authenticated HTTP/SSE"| coreApi
-    workspaceGrant -->|"Resolve a dedicated private Core"| coreApi
     coreApi --> harnesses
     coreApi --> journal
     skills -->|"Native discovery"| harnesses
