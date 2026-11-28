@@ -411,7 +411,15 @@ function outputs() {
   const service = config.services?.["agency-web"] ?? {};
   const routers = parseRouters(service.labels ?? {});
   const ci = read(workflow);
-  if (!ci.split("\n").some((line) => line.trim() === verifyCommand)) {
+  // This check is intentionally narrow: the web job must declare the verifier
+  // as its own unconditional, single-command step. A command found somewhere
+  // in a shell block does not prove that Actions executes it.
+  const webJob = ci.split(/^  web:[ \t]*$/m)[1]?.split(/^  [\w-]+:[ \t]*$/m)[0] ?? "";
+  const steps = webJob.split(/^    steps:[ \t]*$/m)[1] ?? "";
+  const verifications = steps.split(/^      - /m)
+    .filter((step) => step.startsWith("name: Verify public web smoke routes\n"));
+  if (verifications.length !== 1 ||
+      verifications[0].trimEnd() !== `name: Verify public web smoke routes\n        run: ${verifyCommand}`) {
     throw new Error(`Public web CI must run ${verifyCommand}.`);
   }
   const routeGroups = validateRoutes(routers);
