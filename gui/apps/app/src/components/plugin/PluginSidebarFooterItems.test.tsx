@@ -330,6 +330,11 @@ describe("PluginSidebarFooterItems", () => {
     expect(card()?.classList.contains("invisible")).toBe(false);
     expect(card()?.classList.contains("absolute")).toBe(false);
     expect(card()?.hasAttribute("inert")).toBe(false);
+    expect(
+      card()?.firstElementChild?.classList.contains(
+        "[@media(max-height:580px)]:max-h-[min(25dvh,8rem,max(2rem,calc(100dvh_-_21rem)))]",
+      ),
+    ).toBe(true);
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(mounts).toBe(1);
   });

@@ -188,7 +188,7 @@ export function PluginSidebarFooterDisclosure({
           "invisible pointer-events-none absolute inset-x-2 bottom-full",
       )}
     >
-      <div className="max-h-[min(40dvh,18rem)] overflow-auto [@media(max-height:580px)]:max-h-[min(25dvh,8rem)]">
+      <div className="max-h-[min(40dvh,18rem)] overflow-auto [@media(max-height:580px)]:max-h-[min(25dvh,8rem,max(2rem,calc(100dvh_-_21rem)))]">
         <PluginSlotMount
           pluginId={item.pluginId}
           slotKind="experimental_sidebarFooter"
