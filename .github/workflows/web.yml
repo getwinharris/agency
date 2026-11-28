@@ -123,6 +123,17 @@ jobs:
             grep -Fq 'href="/pricing/"' "$RUNNER_TEMP/$host-download.html"
             grep -Fq 'Solo, local only' "$RUNNER_TEMP/$host-pricing.html"
             grep -Fq '₹500/month' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq 'No team workspace, bapX cloud services, or web hosting.' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '>20 GB<' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹2,000/month' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹21,600/year' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '>50 GB<' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹4,000/month' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹43,200/year' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq 'Save 10% with annual billing' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq 'Custom Enterprise' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq 'mailto:bapxmediahub@gmail.com?subject=bapX%20Enterprise%20inquiry' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '>Contact sales<' "$RUNNER_TEMP/$host-pricing.html"
           done
           for icon in codex claude-code cursor hermes opencode pi; do
             curl --fail --silent --show-error -H 'Host: bapx.in' \
