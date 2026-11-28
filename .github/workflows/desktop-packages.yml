@@ -11,6 +11,17 @@ on:
       - 'skills/**'
       - 'LICENSE'
       - 'NOTICE'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/desktop-packages.yml'
+      - 'core/**'
+      - 'gui/**'
+      - '!gui/apps/android/**'
+      - '!gui/apps/www/**'
+      - 'skills/**'
+      - 'LICENSE'
+      - 'NOTICE'
   workflow_dispatch:
 
 permissions:
@@ -181,6 +192,21 @@ jobs:
             lines.push(`${hash.digest("hex")}  ${name}`);
           }
           await writeFile(`${directory}/SHA256SUMS.txt`, lines.join("\n") + "\n");
+          const revision = process.env.GITHUB_SHA;
+          if (!/^[a-f0-9]{40}$/.test(revision ?? "")) throw new Error("Missing exact package source revision");
+          const candidate = {
+            product: "bapX Agents",
+            version,
+            revision,
+            platform: process.env.DESKTOP_PLATFORM,
+            sourceRef: process.env.GITHUB_REF,
+            sourceEvent: process.env.GITHUB_EVENT_NAME,
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            published: false,
+            distributionVerified: false,
+          };
+          await writeFile(`${directory}/CANDIDATE.json`, JSON.stringify(candidate, null, 2) + "\n");
           JS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -191,6 +217,7 @@ jobs:
             gui/apps/desktop/release.noindex/bapx-agents-*.exe
             gui/apps/desktop/release.noindex/bapx-agents-*.AppImage
             gui/apps/desktop/release.noindex/SHA256SUMS.txt
+            gui/apps/desktop/release.noindex/CANDIDATE.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

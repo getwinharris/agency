@@ -209,7 +209,12 @@ bundle, installer name, and About panel. Ordinary development builds show
 `dev`. The desktop release has its own version and build process.
 
 The Desktop packages workflow builds native Apple Silicon, Windows x64, and
-Linux x64 artifacts and uploads verified packages with SHA-256 checksums.
+Linux x64 artifacts and uploads smoke-tested candidates with SHA-256
+checksums. It runs on relevant pull requests and main-branch changes, or can
+be dispatched for a specific branch. Read the retained artifact's
+`CANDIDATE.json` for the exact source revision, version, platform, and build
+run. These CI artifacts are not public releases and do not certify signing,
+interactive installation, or production account access.
 The macOS job uses an ad-hoc signature for launch checks. Distributable macOS
 builds require an Apple Developer ID signature and notarization. Windows
 verification uses a silent install on a Windows Server runner. Verify the
