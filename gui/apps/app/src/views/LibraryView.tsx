@@ -21,6 +21,7 @@ import {
   normalizeAbsoluteFilePath,
 } from "@/lib/absolute-file-path";
 import type { MarkdownLinkRouting } from "@/components/ui/markdown-link-routing";
+import { fetchWithAppSurface } from "@/lib/app-surface";
 import { buildProjectFileContentUrl } from "@/lib/file-content-urls";
 import { sdk } from "@/lib/sdk";
 import { buildOpenInEditorHandler } from "./thread-detail/threadWorkspaceOpenPath";
@@ -28,6 +29,23 @@ import { buildOpenInEditorHandler } from "./thread-detail/threadWorkspaceOpenPat
 const PAGE_LIMIT = "100";
 
 type SidebarProject = SidebarBootstrapResponse["projects"][number];
+
+async function saveProjectFile(url: string, filename: string): Promise<void> {
+  // Use the normal authenticated app fetch. A browser download navigation can
+  // arrive without the app surface used for protected file reads.
+  const response = await fetchWithAppSurface(url);
+  if (!response.ok) throw new Error("Project file download failed");
+  const blobUrl = URL.createObjectURL(await response.blob());
+  try {
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    link.click();
+  } finally {
+    // Give compact browsers time to start reading the blob before revoking it.
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+  }
+}
 
 function LocalProjectFiles({
   project,
@@ -40,6 +58,10 @@ function LocalProjectFiles({
 }) {
   const [search, setSearch] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
+  const [failedDownloadPath, setFailedDownloadPath] = useState<string | null>(
+    null,
+  );
   const query = useDebouncedValue(search.trim(), 200);
   const { canOpenPreferredFileTarget, openPathInPreferredFileTarget } =
     useLocalOpenTargets({ enabled: selectedPath !== null });
@@ -175,16 +197,43 @@ function LocalProjectFiles({
               <p className="min-w-0 truncate text-sm font-medium">
                 {activeFile.name}
               </p>
-              <a
-                className="shrink-0 rounded-md px-2 py-1 text-sm underline underline-offset-4 hover:bg-accent focus-visible:outline-ring"
-                download={activeFile.name}
-                href={buildProjectFileContentUrl(project.id, activeFile.path, {
-                  hostId,
-                })}
+              <Button
+                type="button"
+                className="shrink-0"
+                variant="outline"
+                size="sm"
+                disabled={downloadingPath !== null}
+                onClick={() => {
+                  setDownloadingPath(activeFile.path);
+                  setFailedDownloadPath(null);
+                  void saveProjectFile(
+                    buildProjectFileContentUrl(project.id, activeFile.path, {
+                      hostId,
+                    }),
+                    activeFile.name,
+                  )
+                    .catch(() => {
+                      setFailedDownloadPath(activeFile.path);
+                    })
+                    .finally(() => {
+                      setDownloadingPath(null);
+                    });
+                }}
               >
-                Download
-              </a>
+                {downloadingPath === activeFile.path
+                  ? "Downloading…"
+                  : "Download"}
+              </Button>
             </div>
+            {failedDownloadPath === activeFile.path ? (
+              <p
+                role="alert"
+                className="border-b p-3 text-sm text-muted-foreground"
+              >
+                Could not download this file. Make sure its project folder is
+                connected and try again.
+              </p>
+            ) : null}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
               <ProjectFilePreviewTabContent
                 key={activeFile.path}

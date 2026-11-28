@@ -15,6 +15,7 @@ import LibraryView from "./LibraryView";
 const mocks = vi.hoisted(() => ({
   localHostId: "host-local" as string | null,
   list: vi.fn(),
+  download: vi.fn(),
 }));
 
 function project(id: string, name: string, hostId: string) {
@@ -43,6 +44,9 @@ vi.mock("@/hooks/useHostDaemon", () => ({
 }));
 vi.mock("@/hooks/useLocalOpenTargets", () => ({
   useLocalOpenTargets: () => ({ canOpenPreferredFileTarget: false }),
+}));
+vi.mock("@/lib/app-surface", () => ({
+  fetchWithAppSurface: mocks.download,
 }));
 vi.mock("@/lib/sdk", () => ({
   sdk: { projects: { files: mocks.list } },
@@ -79,6 +83,7 @@ function renderLibrary() {
 
 beforeEach(() => {
   mocks.localHostId = "host-local";
+  mocks.download.mockReset().mockResolvedValue({ ok: false });
   mocks.list
     .mockReset()
     .mockImplementation(
@@ -102,14 +107,18 @@ describe("Library workspace", () => {
     expect(within(picker).queryByText("Remote project")).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "README.md" }));
     expect(screen.getByText("one/host-local/README.md")).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: "Download" }).getAttribute("href"),
-    ).toBe(
-      "/api/v1/projects/one/files/content?path=README.md&hostId=host-local",
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() =>
+      expect(mocks.download).toHaveBeenCalledWith(
+        "/api/v1/projects/one/files/content?path=README.md&hostId=host-local",
+      ),
+    );
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not download this file.",
     );
     fireEvent.change(picker, { target: { value: "two" } });
     expect(screen.queryByText("one/host-local/README.md")).toBeNull();
-    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download" })).toBeNull();
     expect(
       await screen.findByRole("button", { name: "second.txt" }),
     ).toBeTruthy();
