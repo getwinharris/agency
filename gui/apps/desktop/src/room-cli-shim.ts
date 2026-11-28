@@ -28,6 +28,7 @@ interface EnsureRoomCliShimArgs {
   appImagePath?: string;
   cliPath: string;
   commandName?: string;
+  preserveExistingLink?: boolean;
   homeDir: string;
   runtimeDefaults?: RoomCliRuntimeDefaults;
 }
@@ -112,7 +113,7 @@ export async function ensureRoomCliShim(
     }
   } else if (!script && current === args.cliPath) {
     return { kind: "unchanged", shimPath };
-  } else if (current !== null && !BUNDLED_CLI_TARGET.test(current)) {
+  } else if (current !== null && (args.preserveExistingLink || !BUNDLED_CLI_TARGET.test(current))) {
     return { kind: "skipped", reason: "user-owned", shimPath };
   }
 

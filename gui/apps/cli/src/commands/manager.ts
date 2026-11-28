@@ -3,9 +3,9 @@ import { action, CliExitError } from "../action.js";
 
 const REMOVED_MANAGER_COMMAND_MESSAGE = [
   "Manager threads were replaced by parent threads.",
-  "Use `room-cli thread spawn --parent-thread <id>` to delegate work,",
-  "`room-cli thread list --parent-thread <id>` to list child threads,",
-  "and `room-cli thread show <id>` to inspect a thread.",
+  "Use `bapx-cli thread spawn --parent-thread <id>` to delegate work,",
+  "`bapx-cli thread list --parent-thread <id>` to list child threads,",
+  "and `bapx-cli thread show <id>` to inspect a thread.",
 ].join(" ");
 
 interface RemovedManagerCommandOptions {

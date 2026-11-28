@@ -324,7 +324,9 @@ exec '${process.execPath}' "$@"
       expect(result.status).not.toBe(0);
       expect(result.stderr).not.toContain("HOME");
       expect(existsSync(join(fixture.dataDir, "resolved-home"))).toBe(unset);
-      expect(existsSync(join(fixture.homeDir, ".local/bin/room-cli"))).toBe(true);
+      for (const name of ["bapx-cli", "room-cli"]) {
+        expect(existsSync(join(fixture.homeDir, ".local/bin", name))).toBe(true);
+      }
       expect(existsSync(join(fixture.dataDir, "auth.json"))).toBe(false);
     },
   );
@@ -850,7 +852,7 @@ fs.writeFileSync(path.join(process.env.ROOM_DATA_DIR, "config.json"), JSON.strin
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "room-cli machine create --provider manual",
+      "bapx-cli machine create --provider manual",
     );
     expect(readdirSync(fixture.dataDir)).toEqual([]);
     expect(existsSync(join(fixture.homeDir, ".local"))).toBe(false);
@@ -1214,6 +1216,7 @@ printf '%s\n' "$*" >>"${join(fixture.dataDir, "launchctl.log")}"
 
   it("restarts an active Linux systemd user unit after replacing it", () => {
     const fixture = createFixture();
+    writeExecutable(join(fixture.binDir, "id"), "#!/bin/sh\necho 1000\n");
     writeJoinedState(fixture);
     writeServerInstallTools(fixture, 200);
     writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Linux\n");
@@ -1350,6 +1353,7 @@ fi
 
   it("replaces a matching legacy systemd unit with exactly one host service", () => {
     const fixture = createFixture();
+    writeExecutable(join(fixture.binDir, "id"), "#!/bin/sh\necho 1000\n");
     writeJoinedState(fixture);
     writeServerInstallTools(fixture, 200);
     writeExecutable(join(fixture.binDir, "uname"), "#!/bin/sh\necho Linux\n");

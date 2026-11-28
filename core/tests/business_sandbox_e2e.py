@@ -187,6 +187,14 @@ def verify(binary, image, socket):
                 )
                 assert status == 200 and output["exit_code"] == 125, (status, output)
                 assert output["stdout"] == "finished" and not output["stderr"], output
+                status, output = run(
+                    origin, alice, "alpha", "notes",
+                    ["/bin/sh", "-c",
+                     "for name in bapx-cli deploy-web publish-site docker; do "
+                     "if command -v \"$name\" >/dev/null; then exit 1; fi; done; "
+                     "test ! -S /var/run/docker.sock"],
+                )
+                assert status == 200 and output["exit_code"] == 0, (status, output)
                 policy["businesses"]["alpha"]["members"] = []
                 write_policy(path, policy)
                 assert run(origin, alice, "alpha", "notes", argv) == absent

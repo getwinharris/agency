@@ -3059,29 +3059,35 @@ async function runDesktopApp(): Promise<void> {
     paths.isPackaged &&
     (process.platform === "darwin" || process.platform === "linux")
   ) {
-    void ensureRoomCliShim({
-      appImagePath: process.platform === "linux" ? appImagePath : undefined,
-      cliPath: resolveBundledRoomCliPath(paths.appPath),
-      commandName: `${DESKTOP_RELEASE_INFO.linuxExecutableName}-cli`,
-      homeDir: homedir(),
-      runtimeDefaults: {
-        dataDir: join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
-        serverUrl: `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
-        hostDaemonPort: DESKTOP_RELEASE_INFO.localDaemonPort,
-      },
-    })
-      .then((result) => {
-        if (result.kind !== "unchanged") {
-          desktopLogger.info(
-            `[desktop] ${result.shimPath}: ${result.kind === "skipped" ? `left alone (${result.reason})` : result.kind}`,
-          );
-        }
+    const commandNames = DESKTOP_RELEASE_INFO.channel === "latest"
+      ? ["bapx-cli", "bapx-agents-cli", "room-cli"]
+      : ["bapx-cli-nightly", "bapx-agents-nightly-cli"];
+    for (const commandName of commandNames) {
+      void ensureRoomCliShim({
+        appImagePath: process.platform === "linux" ? appImagePath : undefined,
+        cliPath: resolveBundledRoomCliPath(paths.appPath),
+        commandName,
+        preserveExistingLink: commandName === "room-cli",
+        homeDir: homedir(),
+        runtimeDefaults: {
+          dataDir: join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
+          serverUrl: `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
+          hostDaemonPort: DESKTOP_RELEASE_INFO.localDaemonPort,
+        },
       })
-      .catch((error: unknown) => {
-        desktopLogger.warn(
-          `[desktop] Could not update the room-cli shim: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
+        .then((result) => {
+          if (result.kind !== "unchanged") {
+            desktopLogger.info(
+              `[desktop] ${result.shimPath}: ${result.kind === "skipped" ? `left alone (${result.reason})` : result.kind}`,
+            );
+          }
+        })
+        .catch((error: unknown) => {
+          desktopLogger.warn(
+            `[desktop] Could not update the ${commandName} shim: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+    }
   }
   const iconPath = resolveDesktopIconPath({
     packagedIconFileName: DESKTOP_RELEASE_INFO.iconFileName,

@@ -172,7 +172,7 @@ describe("room-cli machine command output", () => {
       runCommand(["machine", "create", "--provider", "ssh"], register),
     ).rejects.toThrow("process.exit:130");
     expect(collectLogPayloads(vi.mocked(console.error))).toEqual([
-      "Error: Stopped following; creation continues. Use room-cli machine remove <host-id> to cancel.",
+      "Error: Stopped following; creation continues. Use bapx-cli machine remove <host-id> to cancel.",
     ]);
   });
 
@@ -272,7 +272,7 @@ describe("room-cli machine command output", () => {
       if (args[1] === "show") expect(JSON.parse(output[0]!)).toEqual(vps);
       else if (connected)
         expect(output.at(-1)).toBe(
-          `VPS: srv1.example.cloud (${slow ? "offline" : "online, 2 agents running"}). Start threads on it from the app's new-thread picker; \`room-cli machine show vps\` shows it.`,
+          `VPS: srv1.example.cloud (${slow ? "offline" : "online, 2 agents running"}). Start threads on it from the app's new-thread picker; \`bapx-cli machine show vps\` shows it.`,
         );
       else expect(output.join("\n")).not.toContain("VPS");
       if (slow)

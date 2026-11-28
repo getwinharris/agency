@@ -1,5 +1,5 @@
 {
-  "generated_by": "scripts/generate-map.sh",
+  "generated_by": "bapx-cli repo inventory generate",
   "scope": "Tracked source and declared routes. Verify live behavior separately.",
   "routes": [
     {
@@ -288,10 +288,10 @@
     ],
     "bundled_skills": [
       "skills/adr-verbatim/SKILL.md",
-      "skills/browser-harness/SKILL.md",
       "skills/create-loop/SKILL.md",
       "skills/decisions/SKILL.md",
       "skills/deepapi/SKILL.md",
+      "skills/ego-browser/SKILL.md",
       "skills/file-tree/SKILL.md",
       "skills/malware-scan/SKILL.md",
       "skills/risky-changes/SKILL.md",

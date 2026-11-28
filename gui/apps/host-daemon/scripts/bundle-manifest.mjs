@@ -26,7 +26,7 @@ const NODE_ESM_REQUIRE_BANNER = [
 // the JS below as sh when node is missing too.
 export const ROOM_CLI_HASHBANG = [
   "#!/bin/sh",
-  '":" //; f=$(realpath "$0" 2>/dev/null || readlink "$0" || echo "$0"); for c in cygpath /usr/bin/cygpath; do command -v "$c" >/dev/null && w=$("$c" -m "$f" 2>/dev/null) && [ -f "$w" ] && f=$w && { shopt -s execfail 2>/dev/null; break; }; done; for e in "${f%/Contents/Resources/app.asar.unpacked/*}"/Contents/MacOS/* "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom-nightly "${f%/resources/app.asar.unpacked/*}"/Cloudroom.exe "${f%/resources/app.asar.unpacked/*}/Cloudroom Nightly.exe"; do [ -x "$e" ] && { ELECTRON_RUN_AS_NODE=1 exec "$e" "$f" "$@"; unset ELECTRON_RUN_AS_NODE; echo "room-cli: Windows blocked Cloudroom.exe. Smart App Control or an IT policy can do this. Trying Node.js instead." >&2; }; done; exec node "$f" "$@" || exit',
+  '":" //; f=$(realpath "$0" 2>/dev/null || readlink "$0" || echo "$0"); for c in cygpath /usr/bin/cygpath; do command -v "$c" >/dev/null && w=$("$c" -m "$f" 2>/dev/null) && [ -f "$w" ] && f=$w && { shopt -s execfail 2>/dev/null; break; }; done; for e in "${f%/Contents/Resources/app.asar.unpacked/*}"/Contents/MacOS/* "${f%/resources/app.asar.unpacked/*}"/bapx-agents "${f%/resources/app.asar.unpacked/*}"/bapx-agents-nightly "${f%/resources/app.asar.unpacked/*}/bapX Agents.exe" "${f%/resources/app.asar.unpacked/*}/bapX Agents Nightly.exe" "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom "${f%/resources/app.asar.unpacked/*}"/gui-cloudroom-nightly "${f%/resources/app.asar.unpacked/*}"/Cloudroom.exe "${f%/resources/app.asar.unpacked/*}/Cloudroom Nightly.exe"; do [ -x "$e" ] && { ELECTRON_RUN_AS_NODE=1 exec "$e" "$f" "$@"; unset ELECTRON_RUN_AS_NODE; echo "bapx-cli: Windows blocked the desktop executable. Smart App Control or an IT policy can do this. Trying Node.js instead." >&2; }; done; exec node "$f" "$@" || exit',
 ].join("\n");
 
 // The same for cmd.exe and PowerShell, from
@@ -39,7 +39,7 @@ export const ROOM_CLI_CMD = [
   "@echo off",
   "setlocal",
   'set "ROOM_CLI_APP="',
-  `for %%e in (${APP_DIR}Cloudroom.exe" ${APP_DIR}Cloudroom Nightly.exe") do if not defined ROOM_CLI_APP if exist %%e set "ROOM_CLI_APP=%%~fe"`,
+  `for %%e in (${APP_DIR}bapX Agents.exe" ${APP_DIR}bapX Agents Nightly.exe" ${APP_DIR}Cloudroom.exe" ${APP_DIR}Cloudroom Nightly.exe") do if not defined ROOM_CLI_APP if exist %%e set "ROOM_CLI_APP=%%~fe"`,
   "if defined ROOM_CLI_APP goto app",
   ":node",
   'node "%~dp0room-cli" %*',
@@ -49,7 +49,7 @@ export const ROOM_CLI_CMD = [
   '"%ROOM_CLI_APP%" "%~dp0room-cli" %*',
   "if %ERRORLEVEL% neq 4551 if %ERRORLEVEL% neq 1260 exit /b %ERRORLEVEL%",
   "set ELECTRON_RUN_AS_NODE=",
-  ">&2 echo room-cli: Windows blocked Cloudroom.exe. Smart App Control or an IT policy can do this. Trying Node.js instead.",
+  ">&2 echo bapx-cli: Windows blocked the desktop executable. Smart App Control or an IT policy can do this. Trying Node.js instead.",
   "goto node",
   "",
 ].join("\r\n");
@@ -59,7 +59,7 @@ export const ROOM_CLI_CMD = [
 // still takes its arguments from ROOM_CLI_ARGV (#757). cmd.exe drops environment
 // variables over 8,191 chars, so longer arguments keep the direct (silent) launch.
 export const ROOM_CLI_PS1 = [
-  "$app = @('Cloudroom.exe', 'Cloudroom Nightly.exe') | ForEach-Object { Join-Path $PSScriptRoot \"..\\..\\..\\..\\..\\..\\$_\" } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1",
+  "$app = @('bapX Agents.exe', 'bapX Agents Nightly.exe', 'Cloudroom.exe', 'Cloudroom Nightly.exe') | ForEach-Object { Join-Path $PSScriptRoot \"..\\..\\..\\..\\..\\..\\$_\" } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1",
   "$cli = Join-Path $PSScriptRoot 'room-cli'",
   "$saved = $env:ELECTRON_RUN_AS_NODE, $env:ROOM_CLI_ARGV",
   // Windows PowerShell 5.1 pipes ASCII to programs by default, turning non-ASCII stdin into "?" (#1220).
@@ -68,7 +68,7 @@ export const ROOM_CLI_PS1 = [
   "try {",
   '  $env:ROOM_CLI_ARGV = ConvertTo-Json -Compress -InputObject @($args | ForEach-Object { "$_" })',
   "  if (-not $app) { $app = 'node' } elseif ($env:ROOM_CLI_ARGV.Length -le 8000) { $app = Join-Path $PSScriptRoot 'room-cli.cmd'; $cli = @() } else {",
-  "    [Console]::Error.WriteLine('room-cli: arguments too long to show output in PowerShell; use --prompt-file or --message-file')",
+  "    [Console]::Error.WriteLine('bapx-cli: arguments too long to show output in PowerShell; use --prompt-file or --message-file')",
   "    $env:ELECTRON_RUN_AS_NODE = '1'",
   "  }",
   "  if ($MyInvocation.ExpectingInput) { $input | & $app $cli } else { & $app $cli }",

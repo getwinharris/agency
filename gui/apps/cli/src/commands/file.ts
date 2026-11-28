@@ -259,7 +259,7 @@ export function registerFileCommands(
     );
 }
 
-/** Same command as Cloud, where `room-cli files wait` holds an agent until its project copy lands (ADR 0209).
+/** Same command as Cloud, where `bapx-cli files wait` holds an agent until its project copy lands (ADR 0209).
  *  A Local thread already runs in the real folder, so its files are always ready (#684). */
 export function registerFilesCommand(program: Command): void {
   program

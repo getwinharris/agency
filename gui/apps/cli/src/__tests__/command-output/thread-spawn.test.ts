@@ -432,7 +432,7 @@ describe("room-cli thread spawn command output", () => {
     expect(helpOutput).toContain("--visibility <visibility>");
     expect(helpOutput).toContain("Exact Git ref");
     expect(helpOutput).toContain("origin/<branch> for a remote ref");
-    expect(helpOutput).toContain("room-cli environment providers");
+    expect(helpOutput).toContain("bapx-cli environment providers");
     expect(helpOutput).not.toContain("cloudroom curl");
     expect(helpOutput).toMatch(/Permission mode: accept-edits, auto, or full/);
   });
@@ -1449,7 +1449,7 @@ describe("room-cli thread spawn command output", () => {
       [
         "a provider with inputs and none given",
         ["--environment-provider", "git-worktree"],
-        "Error: The 'git-worktree' environment provider needs --environment-inputs <json>; `room-cli environment providers --json` shows its schema.",
+        "Error: The 'git-worktree' environment provider needs --environment-inputs <json>; `bapx-cli environment providers --json` shows its schema.",
       ],
       [
         "inputs given to a provider without any",
