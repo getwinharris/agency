@@ -80,6 +80,14 @@ fn expired_or_reserved_invites_do_not_grant_accounts() {
             Ok(())
         })
         .unwrap();
+    assert_eq!(
+        accounts.overview(0).unwrap(),
+        json!({"registeredMembers": 0, "pendingInvitations": 1})
+    );
+    assert_eq!(
+        accounts.overview(u64::MAX).unwrap(),
+        json!({"registeredMembers": 0, "pendingInvitations": 0})
+    );
     for key in [expired, reserved] {
         let result = accounts.accept_invite(
             &key,
