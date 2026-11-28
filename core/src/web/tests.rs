@@ -146,10 +146,12 @@ async fn account_pages_and_apis_use_only_the_canonical_origin() {
             .status(),
         StatusCode::OK
     );
-    let overview = |cookie: &str| {
-        get(APEX, "/api/auth/account-overview").header(header::COOKIE, cookie)
-    };
-    let anonymous = get(APEX, "/api/auth/account-overview").send().await.unwrap();
+    let overview =
+        |cookie: &str| get(APEX, "/api/auth/account-overview").header(header::COOKIE, cookie);
+    let anonymous = get(APEX, "/api/auth/account-overview")
+        .send()
+        .await
+        .unwrap();
     assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(anonymous.headers()[header::CACHE_CONTROL], "no-store");
     for host in ["www.bapx.in", "admin.bapx.in", MEDIAHUB, APP] {
