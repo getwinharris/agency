@@ -582,7 +582,7 @@ export function LoopDialog({
               <span aria-hidden className="text-muted-foreground/40">
                 /
               </span>
-              <span className="shrink-0">Loops</span>
+              <span className="shrink-0">Automations</span>
             </div>
           ) : null}
           <DialogTitle className="mt-3 line-clamp-3 shrink-0 text-balance text-[22px] font-semibold leading-snug tracking-[-0.02em] text-foreground">

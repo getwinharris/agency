@@ -9,18 +9,21 @@ import {
   getPluginsRoutePath,
   getSkillsRoutePath,
   isToolsRoutePath,
+  LIBRARY_ROUTE_PATH,
 } from "@/lib/route-paths";
 
 export const NEW_THREAD_NAVIGATION_ITEM_ID = "new-thread";
 export const SEARCH_THREADS_NAVIGATION_ITEM_ID = "search-threads";
 export const PLUGINS_NAVIGATION_ITEM_ID = "extensions";
 export const SKILLS_NAVIGATION_ITEM_ID = "skills";
+export const LIBRARY_NAVIGATION_ITEM_ID = "library";
 
 export function getResourceNavigationItemRoutePath(
   itemId: string,
 ): string | null {
   if (itemId === PLUGINS_NAVIGATION_ITEM_ID) return getPluginsRoutePath();
   if (itemId === SKILLS_NAVIGATION_ITEM_ID) return getSkillsRoutePath();
+  if (itemId === LIBRARY_NAVIGATION_ITEM_ID) return LIBRARY_ROUTE_PATH;
   return null;
 }
 
@@ -92,6 +95,15 @@ export function createSidebarNavigationItems({
       shortcut: null,
       experimental_splitProps: {},
     },
+    {
+      id: LIBRARY_NAVIGATION_ITEM_ID,
+      label: "Library",
+      icon: { kind: "host", name: "extensions" },
+      action: resourceWorkspaceAction,
+      isDisabled: false,
+      shortcut: null,
+      experimental_splitProps: {},
+    },
     ...navPanels.map((panel): ExperimentalSidebarNavigationItem => {
       const action = {
         kind: "open-plugin-panel",
@@ -125,6 +137,11 @@ export function resolveActiveSidebarNavigationItemId({
   navPanels: readonly PluginNavPanelSlot[];
 }): string | null {
   if (pathname === "/") return NEW_THREAD_NAVIGATION_ITEM_ID;
+  if (pathname === LIBRARY_ROUTE_PATH) {
+    return items.some((item) => item.id === LIBRARY_NAVIGATION_ITEM_ID)
+      ? LIBRARY_NAVIGATION_ITEM_ID
+      : null;
+  }
   if (isToolsRoutePath(pathname)) {
     const itemId =
       pathname === getSkillsRoutePath() ||

@@ -38,6 +38,7 @@ import { useRememberPluginNavPanelChrome } from "@/lib/plugin-nav-panel-chrome";
 import { useWebSocket } from "./hooks/useWebSocket";
 import {
   AUTH_CALLBACK_ROUTE_PATH,
+  LIBRARY_ROUTE_PATH,
   CLOUD_CREDITS_SETTINGS_PATH,
   LEGACY_AUTOMATION_DETAIL_ROUTE_PATH,
   LEGACY_AUTOMATIONS_ROUTE_PATH,
@@ -86,6 +87,7 @@ const SettingsView = lazy(() =>
     default: m.SettingsView,
   })),
 );
+const LibraryView = lazy(() => import("./views/LibraryView"));
 const PluginsView = lazy(() =>
   import("./views/ToolsView").then((m) => ({
     default: m.PluginsView,
@@ -294,6 +296,7 @@ export function AppRoutes() {
             path="/settings/plugins/provider-usage"
             element={<LegacyProviderUsageSettings />}
           />
+          <Route path={LIBRARY_ROUTE_PATH} element={<LibraryView />} />
           <Route path={SETTINGS_ROUTE_PATH} element={<SettingsView />} />
           <Route
             path={SETTINGS_SECTION_ROUTE_PATH}

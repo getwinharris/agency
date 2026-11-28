@@ -190,6 +190,7 @@ export function projectFilePreviewQueryKey(
   environmentId: string | null,
   hostId: string | null,
   path: string | null,
+  rootPath: string | null = null,
 ) {
   return [
     PROJECT_FILE_PREVIEW_QUERY_KEY,
@@ -197,6 +198,7 @@ export function projectFilePreviewQueryKey(
     environmentId,
     hostId,
     path,
+    ...(rootPath === null ? [] : [rootPath]),
   ] as const;
 }
 

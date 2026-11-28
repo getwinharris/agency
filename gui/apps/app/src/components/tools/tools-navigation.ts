@@ -85,7 +85,7 @@ export function resolveAutomationBreadcrumbs(
     pathname === AUTOMATIONS_BROWSE_ROUTE_PATH ||
     pathname === `${AUTOMATIONS_ROUTE_PATH}/review`
   ) {
-    return [{ label: "Loops" }];
+    return [{ label: "Automations" }];
   }
   for (const pattern of [
     AUTOMATION_DETAIL_ROUTE_PATH,
@@ -94,7 +94,7 @@ export function resolveAutomationBreadcrumbs(
     const match = matchPath(pattern, pathname);
     if (!match) continue;
     return [
-      { label: "Loops", to: AUTOMATIONS_ROUTE_PATH },
+      { label: "Automations", to: AUTOMATIONS_ROUTE_PATH },
       {
         label:
           resourceLabel ??

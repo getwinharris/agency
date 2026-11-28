@@ -247,7 +247,7 @@ export function useProjectFilePreview(
   projectId: string | undefined,
   path: string | null,
   routing: { environmentId: string | null; hostId: string | null },
-  options?: QueryOptions,
+  options?: QueryOptions & { rootPath?: string | null },
 ) {
   const enabled =
     (options?.enabled ?? true) && Boolean(projectId) && Boolean(path);
@@ -259,6 +259,7 @@ export function useProjectFilePreview(
       routing.environmentId,
       routing.hostId,
       path,
+      options?.rootPath ?? null,
     ),
     queryFn: async ({ signal }) => {
       const requiredProjectId = requireProjectId(

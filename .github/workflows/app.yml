@@ -51,8 +51,14 @@ jobs:
           apps/server/test/public/public-project-skills.test.ts
           apps/server/test/threads/thread-runtime-config.test.ts
           apps/app/src/components/tools/detail-page-recipes.test.tsx
+          apps/app/src/views/LibraryView.test.tsx
+          apps/app/src/components/secondary-panel/ThreadSecondaryPanelTabContent.markdown-images.test.tsx
           packages/plugin-sdk/src/internal/command-guard.test.ts
           packages/scripts/test/run-cli.test.ts
+      - name: Workspace Automations navigation checks
+        run: |
+          pnpm --filter bb-plugin-automations run test navigation.test.tsx
+          pnpm --filter @cloudroom/app exec vitest run --config vitest.config.ts --maxWorkers=2 src/components/layout/AppLayout.tools-breadcrumbs.test.ts src/views/thread-detail/SplitThreadArea.test.tsx
       - name: Computer Use browser guidance checks
         run: pnpm --filter bb-plugin-computer-use run test server.test.ts
       - name: App starter tests
