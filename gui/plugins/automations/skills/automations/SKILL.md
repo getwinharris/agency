@@ -1,6 +1,6 @@
 ---
 name: automations
-description: "Schedule or manage Cloudroom Loops (formerly Automations): recurring and one-shot agent or script runs, local or cloud, and the Review of what they did."
+description: "Schedule or manage loops from bapX Automations: recurring and one-shot agent or script runs, local or cloud, and the Review of what they did."
 ---
 
 # Loops

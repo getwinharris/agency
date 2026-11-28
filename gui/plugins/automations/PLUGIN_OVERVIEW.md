@@ -2,8 +2,8 @@ Loops run agents and scripts on a schedule, once or on a repeat, or when a webho
 
 ## What you get
 
-- A Loops panel in the sidebar. Create, edit, pause, resume, and run loops there. Each loop shows its run history.
-- "● N paused" after Loops in the sidebar when loops' own failures pause them; hovering lists them with Resume. On the panel they sit in a red Paused group above P1, each with why it stopped and Resume. A paused loop tries again on its own after 1 hour, 6 hours, then daily.
+- An Automations panel in the sidebar. Create, edit, pause, resume, and run loops there. Each loop shows its run history.
+- "● N paused" after Automations in the sidebar when loops' own failures pause them; hovering lists them with Resume. On the panel they sit in a red Paused group above P1, each with why it stopped and Resume. A paused loop tries again on its own after 1 hour, 6 hours, then daily.
 - Review. One timeline of what your loops did on their own in the last 7 days, newest first, as a List or a Board. A thread the agent archived is Done; one it left open Needs you. Click "Looks good" to clear an item.
 - Priorities. Every loop is P1 (essential) to P4 (niche), saved with the loop, so the CLI, your phone, and other Macs see it.
 - Scans. A Scans tab that shows how you work and suggests your first loops. A card at the top right points to it when no scan ran in the last 45 days and no new loop was made in the last 10. Scans need a paid plan.

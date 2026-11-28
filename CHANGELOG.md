@@ -4,6 +4,8 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Show the existing Loops panel as Automations in the workspace sidebar, preserving saved loops and run history.
+
 - Prefer the bundled `ego-browser` skill for browser work in bapX Agents.
 - List, read, and explicitly edit tracked Agency skills from the checkout CLI.
 - Use `bapx-cli` in agent Tools and supported installs, with `room-cli` compatibility.

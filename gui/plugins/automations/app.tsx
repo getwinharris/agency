@@ -1061,7 +1061,7 @@ function AutomationsPanel({ subPath }: PluginNavPanelProps) {
 export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "automations",
-    title: "Loops",
+    title: "Automations",
     icon: "Repeat",
     path: PANEL_PATH,
     component: AutomationsPanel,

@@ -2193,7 +2193,7 @@ describe("SplitThreadArea", () => {
     const breadcrumb = await screen.findByRole("navigation", {
       name: "Breadcrumb",
     });
-    expect(breadcrumb.textContent).toContain("Loops");
+    expect(breadcrumb.textContent).toContain("Automations");
     expect(breadcrumb.textContent).toContain("weekly-review");
 
     store.set(resourceRouteLabelAtom, "Weekly review");
@@ -2201,7 +2201,7 @@ describe("SplitThreadArea", () => {
       expect(breadcrumb.textContent).toContain("Weekly review"),
     );
 
-    fireEvent.click(screen.getByRole("link", { name: "Loops" }));
+    fireEvent.click(screen.getByRole("link", { name: "Automations" }));
     expect(screen.getByTestId("location").textContent).toBe(
       "/plugins/automations/automations",
     );
