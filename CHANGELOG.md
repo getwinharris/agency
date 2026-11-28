@@ -41,6 +41,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 - Show where to configure a private Core's agent environment from Machine environment settings.
 - Add an opt-in business sandbox pilot with account and project grants, read-only Linux images, and project-scoped writable volumes.
 - Stop active pilot sandbox jobs after access is revoked while retaining project files.
+- Resolve approved native workspaces from an operator-owned bapX member policy.
 - Install and verify the portable file-tree skill in Codex, OpenCode, and Hermes.
 - Gate automatic Hostinger releases on App and Core checks for the exact main revision, and verify HTTPS provenance and rollback by image digest.
 - Verify the landing heading landmark and exact release revision on both bapX landing hostnames.

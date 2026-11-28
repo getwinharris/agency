@@ -32,6 +32,7 @@ const APP: &str = "app.bapx.in";
 const APEX_ORIGIN: &str = "https://bapx.in";
 const MEDIAHUB_ORIGIN: &str = "https://mediahub.bapx.in";
 const INQUIRY_PATH: &str = "/api/mediahub/inquiries";
+pub(crate) const OPERATOR_ID: &str = "00000000-0000-4000-8000-000000000000";
 const MAX_INQUIRY_BYTES: usize = 16 * 1024;
 const MAX_STATIC_BYTES: u64 = 32 * 1024 * 1024;
 
