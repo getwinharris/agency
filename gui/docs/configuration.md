@@ -50,8 +50,9 @@ can render without publishing the file.
 
 Choose **Session files** and select a session to preview or download files
 stored for that session on this computer. Search the selected session by
-filename or path. The selector shows sessions for the
-chosen project only. A file's presence records where it was stored, not who
+filename or path. The selector shows sessions for the chosen project only.
+HTML files in Session files open as source; download the original to use it
+elsewhere. If a session changes storage location, refresh its file list. A file's presence records where it was stored, not who
 created it. Library does not index cloud sessions, publish files to the web, or
 enable hosted Library access.
 

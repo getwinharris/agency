@@ -33,11 +33,12 @@ export function buildProjectFileContentUrl(
 export function buildThreadStorageContentUrl(
   threadId: string,
   path: string,
+  storageScope?: string,
 ): string {
   return toRelativeUrl(
     apiClient.threads[":id"]["thread-storage"].content.$url({
       param: { id: threadId },
-      query: { path },
+      query: { path, ...(storageScope ? { storageScope } : {}) },
     }),
   );
 }
@@ -45,10 +46,12 @@ export function buildThreadStorageContentUrl(
 export function buildThreadStorageRawContentUrl(
   threadId: string,
   path: string,
+  storageScope?: string,
 ): string {
   return toRelativeUrl(
     apiClient.threads[":id"]["thread-storage"].files[":filePath{.+}"].$url({
       param: { id: threadId, filePath: encodePathSegments(path) },
+      ...(storageScope ? { query: { storageScope } } : {}),
     }),
   );
 }

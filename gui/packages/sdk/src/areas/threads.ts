@@ -52,6 +52,7 @@ import type {
   ThreadSearchResponse,
   ThreadStorageFileListResponse,
   ThreadStorageLocationResponse,
+  ThreadStorageLocationQuery,
   ThreadStoragePathListResponse,
   ThreadTabsResponse,
   ThreadTimelineResponse,
@@ -669,7 +670,9 @@ export interface ThreadsArea {
     args: ThreadTimelineTurnSummaryDetailsArgs,
   ): Promise<ThreadTimelineTurnSummaryDetailsResult>;
   storageFiles(args: ThreadStorageFilesArgs): Promise<ThreadStorageFilesResult>;
-  storageLocation(args: ThreadStatusArgs): Promise<ThreadStorageLocationResult>;
+  storageLocation(
+    args: ThreadStatusArgs & ThreadStorageLocationQuery,
+  ): Promise<ThreadStorageLocationResult>;
   storagePaths(args: ThreadStoragePathsArgs): Promise<ThreadStoragePathsResult>;
   unarchive(args: ThreadUnarchiveArgs): Promise<ThreadUnarchiveResult>;
   unpin(args: ThreadActionArgs): Promise<ThreadMutationResult>;
@@ -1530,7 +1533,11 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
         transport.api.v1.threads[":id"]["thread-storage"].files.$get(
           {
             param: { id: input.threadId },
-            query: { query: input.query, limit: input.limit },
+            query: {
+              query: input.query,
+              limit: input.limit,
+              storageScope: input.storageScope,
+            },
           },
           ...signalRequestArgs(input.signal),
         ),
@@ -1541,6 +1548,9 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
         transport.api.v1.threads[":id"]["thread-storage"].location.$get(
           {
             param: { id: input.threadId },
+            ...(input.includeStorageScope
+              ? { query: { includeStorageScope: input.includeStorageScope } }
+              : {}),
           },
           ...signalRequestArgs(input.signal),
         ),
@@ -1556,6 +1566,7 @@ export function createThreadsArea(args: CreateSdkAreaArgs): ThreadsArea {
               limit: input.limit,
               includeFiles: input.includeFiles,
               includeDirectories: input.includeDirectories,
+              storageScope: input.storageScope,
             },
           },
           ...signalRequestArgs(input.signal),

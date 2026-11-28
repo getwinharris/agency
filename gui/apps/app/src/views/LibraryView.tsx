@@ -27,7 +27,7 @@ import type { MarkdownLinkRouting } from "@/components/ui/markdown-link-routing"
 import { fetchWithAppSurface } from "@/lib/app-surface";
 import {
   buildProjectFileContentUrl,
-  buildThreadStorageRawContentUrl,
+  buildThreadStorageContentUrl,
 } from "@/lib/file-content-urls";
 import { sdk } from "@/lib/sdk";
 import { buildOpenInEditorHandler } from "./thread-detail/threadWorkspaceOpenPath";
@@ -307,28 +307,32 @@ function LocalSessionFiles({
     queryFn: async ({ signal }) => {
       const location = await sdk.threads.storageLocation({
         threadId: session.id,
+        includeStorageScope: "1",
         signal,
       });
-      if (location.hostId !== hostId)
+      if (location.hostId !== hostId || !location.storageScope)
         throw new Error("Session is not on this computer");
       const list = await sdk.threads.storageFiles({
         threadId: session.id,
         limit: PAGE_LIMIT,
+        storageScope: location.storageScope,
         ...(query ? { query } : {}),
         signal,
       });
       const current = await sdk.threads.storageLocation({
         threadId: session.id,
+        includeStorageScope: "1",
         signal,
       });
       if (
         current.hostId !== hostId ||
+        current.storageScope !== location.storageScope ||
         current.storageRootPath !== location.storageRootPath ||
         list.storageRootPath !== location.storageRootPath
       ) {
         throw new Error("Session storage moved while files were loading");
       }
-      return list;
+      return { ...list, storageScope: location.storageScope };
     },
   });
   const active = files.isSuccess
@@ -424,15 +428,21 @@ function LocalSessionFiles({
                   void (async () => {
                     const location = await sdk.threads.storageLocation({
                       threadId: session.id,
+                      includeStorageScope: "1",
                     });
                     if (
                       location.hostId !== hostId ||
+                      location.storageScope !== files.data?.storageScope ||
                       location.storageRootPath !== files.data?.storageRootPath
                     ) {
                       throw new Error("Session storage moved");
                     }
                     await saveLibraryFile(
-                      buildThreadStorageRawContentUrl(session.id, active.path),
+                      buildThreadStorageContentUrl(
+                        session.id,
+                        active.path,
+                        location.storageScope,
+                      ),
                       active.name,
                     );
                   })().then(
@@ -468,7 +478,8 @@ function LocalSessionFiles({
             ) : null}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
               <ThreadStorageFilePreviewTabContent
-                key={active.path}
+                key={`${files.data?.storageScope}/${active.path}`}
+                storageScope={files.data?.storageScope}
                 activePath={active.path}
                 threadId={session.id}
                 isPanelOpen

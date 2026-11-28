@@ -257,7 +257,9 @@ import type {
   ThreadSearchResponse,
   ThreadStorageContentQuery,
   ThreadStorageFileListResponse,
+  ThreadStorageRawFileQuery,
   ThreadStorageFilesQuery,
+  ThreadStorageLocationQuery,
   ThreadStorageLocationResponse,
   ThreadStoragePathListResponse,
   ThreadStoragePathsQuery,
@@ -385,6 +387,8 @@ import {
   threadPaneActionRequestSchema,
   threadSearchQuerySchema,
   threadStorageContentQuerySchema,
+  threadStorageRawFileQuerySchema,
+  threadStorageLocationQuerySchema,
   threadStorageFilesQuerySchema,
   threadStoragePathsQuerySchema,
   terminalInputRequestSchema,
@@ -1590,13 +1594,18 @@ export const publicApiRoutes = {
     storageLocation: defineRoute({
       path: "/threads/:id/thread-storage/location",
       method: "get",
-      request: noRequest<PathId>(),
+      request: optionalQueryRequest<PathId, ThreadStorageLocationQuery>(
+        threadStorageLocationQuerySchema,
+      ),
       response: jsonResponse<ThreadStorageLocationResponse>(),
     }),
     storageFile: defineRoute({
       path: "/threads/:id/thread-storage/files/:filePath{.+}",
       method: "get",
-      request: noRequest<PathThreadAndFilePath>(),
+      request: optionalQueryRequest<
+        PathThreadAndFilePath,
+        ThreadStorageRawFileQuery
+      >(threadStorageRawFileQuerySchema),
       response: binaryResponse<Uint8Array>(),
     }),
     storagePaths: defineRoute({

@@ -879,18 +879,21 @@ export function useThreadStoragePaths(
 export function useThreadStorageFilePreview(
   id: string,
   path: string | null,
-  options?: QueryOptions,
+  options?: QueryOptions & { storageScope?: string },
 ) {
   const enabled = (options?.enabled ?? true) && Boolean(id) && Boolean(path);
   useThreadDetailRealtimeSubscription(id, { enabled });
 
   return useQuery<FilePreview>({
-    queryKey: threadStorageFilePreviewQueryKey(id, path),
+    queryKey: options?.storageScope
+      ? [...threadStorageFilePreviewQueryKey(id, path), options.storageScope]
+      : threadStorageFilePreviewQueryKey(id, path),
     queryFn: ({ signal }) =>
       api.getThreadStorageFilePreview(
         requireThreadId(id, "useThreadStorageFilePreview"),
         path ?? "",
         signal,
+        options?.storageScope,
       ),
     enabled,
     ...REALTIME_OWNED_MOUNT_BASELINE_QUERY_POLICY,

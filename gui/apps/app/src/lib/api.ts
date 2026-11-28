@@ -318,11 +318,12 @@ export async function getThreadStorageFilePreview(
   id: string,
   path: string,
   signal?: AbortSignal,
+  storageScope?: string,
 ): Promise<FilePreview> {
   return loadFilePreview(
     {
       path,
-      url: buildThreadStorageContentUrl(id, path),
+      url: buildThreadStorageContentUrl(id, path, storageScope),
     },
     signal,
   );

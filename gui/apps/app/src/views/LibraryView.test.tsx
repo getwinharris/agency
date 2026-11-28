@@ -130,6 +130,7 @@ beforeEach(() => {
   mocks.sessionLocation.mockReset().mockResolvedValue({
     hostId: "host-local",
     storageRootPath: "/sessions/one",
+    storageScope: "a".repeat(64),
   });
   mocks.sessionList.mockReset().mockResolvedValue({
     files: [{ name: "notes.md", path: "notes.md" }],
@@ -267,6 +268,7 @@ describe("Library session files", () => {
     mocks.sessionLocation.mockResolvedValueOnce({
       hostId: "host-local",
       storageRootPath: "/sessions/one",
+      storageScope: "a".repeat(64),
     });
     mocks.sessionLocation.mockResolvedValueOnce({
       hostId: "host-remote",
@@ -317,6 +319,23 @@ describe("Library session files", () => {
     );
     expect(mocks.download).not.toHaveBeenCalled();
   });
+  it("uses the ordinary file content endpoint for session downloads", async () => {
+    mocks.sessionList.mockResolvedValue({
+      files: [{ name: "report.html", path: "report.html" }],
+      truncated: false,
+      storageRootPath: "/sessions/one",
+    });
+    renderLibrary();
+    chooseSession();
+    fireEvent.click(await screen.findByRole("button", { name: "report.html" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() =>
+      expect(mocks.download).toHaveBeenCalledWith(
+        `/api/v1/threads/one-local/thread-storage/content?path=report.html&storageScope=${"a".repeat(64)}`,
+      ),
+    );
+  });
+
   it("shows size-limit guidance for an oversized session file", async () => {
     mocks.download.mockResolvedValue({ ok: false, status: 413 });
     renderLibrary();
