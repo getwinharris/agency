@@ -13,7 +13,11 @@ import {
   ProjectListSearchThreadsAction,
 } from "./ProjectList";
 import { DEFAULT_BUILT_IN_SIDEBAR_NAVIGATION_ORDER } from "@/components/plugin/pluginNavSidebarOrder";
-import { getPluginsRoutePath, getSkillsRoutePath } from "@/lib/route-paths";
+import {
+  getPluginsRoutePath,
+  getSkillsRoutePath,
+  LIBRARY_ROUTE_PATH,
+} from "@/lib/route-paths";
 
 export type BuiltInSidebarNavigationProps = ComponentProps<
   typeof ProjectListNewThreadAction
@@ -114,6 +118,25 @@ export function BuiltInSidebarNavigation({
       onActivate: () => {
         onNavigate?.();
         void navigate(skillsRoutePath);
+      },
+    },
+    {
+      kind: "built-in",
+      pluginId: "__bb__",
+      id: "library",
+      title: "Library",
+      icon: <Icon name="FolderOpen" aria-hidden="true" />,
+      content: (
+        <ResourceNavSidebarItem
+          icon="FolderOpen"
+          title="Library"
+          routePath={LIBRARY_ROUTE_PATH}
+          onNavigate={onNavigate}
+        />
+      ),
+      onActivate: () => {
+        onNavigate?.();
+        void navigate(LIBRARY_ROUTE_PATH);
       },
     },
   ];

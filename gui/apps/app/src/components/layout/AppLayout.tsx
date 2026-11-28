@@ -383,6 +383,7 @@ const routeTitles: Record<string, { title: string }> = {
   "/settings": { title: "Settings" },
   "/automations": { title: "Automations" },
   "/skills": { title: "Skills" },
+  "/library": { title: "Library" },
 };
 
 function resolveRouteTitle(pathname: string): { title: string } | undefined {
