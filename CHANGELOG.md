@@ -4,6 +4,7 @@ See the [bapX release notes](gui/docs/release-notes.md) for the dated, verified 
 
 ## Unreleased
 
+- Run the exact-revision public web smoke checks through `bapx-cli` in CI and from a source checkout.
 - Show the existing Loops panel as Automations in the workspace sidebar, preserving saved loops and run history.
 - Add a Library workspace for searching, previewing, and downloading project files on the connected computer.
 

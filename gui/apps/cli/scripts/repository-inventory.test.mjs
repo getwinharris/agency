@@ -68,12 +68,29 @@ test("checkout CLI preserves generated outputs and rejects drift without writing
     assert.equal(read(mapPath), map);
     assert.equal(read(indexPath), index);
 
-    const workflow = inventory.release.workflow;
-    const ci = read(workflow);
-    write(workflow, ci.replace("for host in bapx.in www.bapx.in", "for host in bapx.in"));
+    const verifier = inventory.release.smoke_verifier;
+    const checks = read(verifier);
+    write(verifier, checks.replace(', "www.bapx.in",', ','));
     expectFailure("generate", /Public web CI health checks disagree/);
     assert.equal(read(mapPath), map);
     assert.equal(read(indexPath), index);
+    write(verifier, checks);
+
+    const workflow = inventory.release.workflow;
+    const ci = read(workflow);
+    const runLine = /^        run: (.+repo verify web --revision.+)$/m;
+    assert.match(ci, runLine);
+    for (const replacement of [
+      "        # run: $1",
+      "        if: ${{ false }}\n        run: $1",
+      "        continue-on-error: true\n        run: $1",
+      "        run: |\n          if false; then\n            $1\n          fi",
+    ]) {
+      write(workflow, ci.replace(runLine, replacement));
+      expectFailure("check", /Public web CI must run/);
+    }
+    write(workflow, ci.replace(`      - '${verifier}'\n`, ""));
+    expectFailure("check", /Web verifier is missing from Public web PR path coverage/);
     write(workflow, ci);
 
     const ingress = read(compose);

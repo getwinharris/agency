@@ -4,9 +4,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { webGuideSlugs, webHealthHosts } from "./repository-web-verification.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const workflow = ".github/workflows/web.yml";
+const verifier = "gui/apps/cli/scripts/repository-web-verification.mjs";
+const verifyCommand = './gui/apps/cli/bin/bapx-cli repo verify web --revision "$GITHUB_SHA" --origin http://127.0.0.1:8080';
 const compose = "deploy/compose.web.yml";
 const rustWeb = "core/src/web.rs";
 const driver = "deploy/deploy-web.sh";
@@ -152,19 +155,7 @@ function rustPublicHosts() {
   }));
 }
 
-function ciLoopValues(ci, variable, test) {
-  let values = [];
-  const found = [];
-  for (const line of ci.split("\n")) {
-    const loop = new RegExp(`^\\s*for ${variable} in (.*); do$`).exec(line);
-    if (loop) values = loop[1].trim().split(/\s+/);
-    if (/^\s*done$/.test(line)) values = [];
-    if (test(line)) found.push(...values);
-  }
-  return sorted(found);
-}
-
-function validateRoutes(routers, ci) {
+function validateRoutes(routers) {
   const hosts = (name) => routers.find((router) => router.name === name)?.hosts ?? [];
   const publicHosts = sorted([...hosts("agency-web"), ...hosts("agency-app")]);
   const adminHosts = hosts("agency-admin");
@@ -180,7 +171,7 @@ function validateRoutes(routers, ci) {
   requireMatch("Traefik router hosts and the mapped public, Admin, and pilot hosts",
     sorted(routers.flatMap((router) => router.hosts)), sorted([...firstParty, ...pilotHosts]));
   requireMatch("Traefik first-party routes and Public web CI health checks",
-    firstParty, ciLoopValues(ci, "host", (line) => line.includes("/healthz")));
+    firstParty, sorted(webHealthHosts));
   const smokeDriver = read(driver);
   const vpsRoutes = /^\s*done <<'ROUTES'\n([\s\S]*?)^ROUTES$/m.exec(smokeDriver)?.[1] ?? "";
   const vpsAppCheck = /^check_app\(\) \{\n([\s\S]*?)^}/m.exec(smokeDriver)?.[1] ?? "";
@@ -201,9 +192,7 @@ function publishedGuides(ci, tracked) {
   if (!guides.length) throw new Error(`Could not inventory every guide in ${docsRegistry}.`);
   const slugs = sorted(guides.map(({ slug }) => slug));
   if (slugs.length !== guides.length) throw new Error(`Duplicate guide slugs in ${docsRegistry}.`);
-  requireMatch("Published Docs slugs and Public web CI smoke checks", slugs,
-    ciLoopValues(ci, "slug", (line) => /^\s*curl --fail /.test(line)
-      && line.includes("-H 'Host: docs.bapx.in'") && line.includes('"http://127.0.0.1:8080/$slug/"')));
+  requireMatch("Published Docs slugs and Public web CI smoke checks", slugs, sorted(webGuideSlugs));
   const pagesStage = /^FROM .* pages\n([\s\S]*?)(?=^FROM |$(?![\s\S]))/m.exec(read(dockerfile))?.[1] ?? "";
   const imageInputs = [...pagesStage.matchAll(/^COPY ([^ -].*)$/gm)]
     .flatMap(([, inputs]) => inputs.trim().split(/\s+/).slice(0, -1));
@@ -219,6 +208,9 @@ function publishedGuides(ci, tracked) {
   const covers = (inputs, source) => inputs.some(
     (input) => source === input || (input.endsWith("/") && source.startsWith(input)),
   );
+  if (!covers(prInputs, verifier)) {
+    throw new Error(`Web verifier is missing from Public web PR path coverage: ${verifier}.`);
+  }
   for (const { slug, source } of guides) {
     if (!tracked.has(source) || !statSync(join(root, source), { throwIfNoEntry: false })?.isFile()) {
       throw new Error(`Guide ${slug} references a missing or untracked source: ${source}.`);
@@ -270,7 +262,7 @@ function renderIndex(routers, guides, sources) {
     scope: "Tracked source and declared routes. Verify live behavior separately.",
     routes,
     docs: { registry: docsRegistry, guides },
-    release: { workflow, smoke_driver: driver, image: dockerfile },
+    release: { workflow, smoke_verifier: verifier, smoke_driver: driver, image: dockerfile },
     workspace_config: workspaceConfig,
     sources,
   }, null, 2) + "\n";
@@ -306,7 +298,7 @@ flowchart TD
   subgraph release["First-party web release · .github/workflows/web.yml"]
     main["Push to main"]
     checks["App and Core CI"]
-    webChecks["Build and smoke-test the exact web SHA"]
+    webChecks["Build and smoke-test the exact web SHA · bapx-cli repo verify web"]
     registry["GHCR image by immutable digest"]
     artifact["agency-web-release · SHA, digest and Compose checksum"]
     ssh["Actions deploy job · pinned SSH · deploy/deploy-web-ssh.sh"]
@@ -419,7 +411,18 @@ function outputs() {
   const service = config.services?.["agency-web"] ?? {};
   const routers = parseRouters(service.labels ?? {});
   const ci = read(workflow);
-  const routeGroups = validateRoutes(routers, ci);
+  // This check is intentionally narrow: the web job must declare the verifier
+  // as its own unconditional, single-command step. A command found somewhere
+  // in a shell block does not prove that Actions executes it.
+  const webJob = ci.split(/^  web:[ \t]*$/m)[1]?.split(/^  [\w-]+:[ \t]*$/m)[0] ?? "";
+  const steps = webJob.split(/^    steps:[ \t]*$/m)[1] ?? "";
+  const verifications = steps.split(/^      - /m)
+    .filter((step) => step.startsWith("name: Verify public web smoke routes\n"));
+  if (verifications.length !== 1 ||
+      verifications[0].trimEnd() !== `name: Verify public web smoke routes\n        run: ${verifyCommand}`) {
+    throw new Error(`Public web CI must run ${verifyCommand}.`);
+  }
+  const routeGroups = validateRoutes(routers);
   const tracked = new Set(run("git", ["ls-files", "-z"]).split("\0"));
   const guides = publishedGuides(ci, tracked);
   validateIngress(service);

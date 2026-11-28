@@ -16,7 +16,7 @@ flowchart TD
   subgraph release["First-party web release · .github/workflows/web.yml"]
     main["Push to main"]
     checks["App and Core CI"]
-    webChecks["Build and smoke-test the exact web SHA"]
+    webChecks["Build and smoke-test the exact web SHA · bapx-cli repo verify web"]
     registry["GHCR image by immutable digest"]
     artifact["agency-web-release · SHA, digest and Compose checksum"]
     ssh["Actions deploy job · pinned SSH · deploy/deploy-web-ssh.sh"]

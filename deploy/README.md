@@ -124,8 +124,10 @@ device enrollment require the authorized sandbox path tracked in
 Use [release notes](../gui/docs/release-notes.md) for the public changes and their verification evidence. The desktop product version comes from [`gui/apps/desktop/package.json`](../gui/apps/desktop/package.json) at the deployed commit. Web releases have their own cadence and use the full `main` SHA as their revision.
 
 1. From the successful `Public web` run for the exact released `main` SHA, read `release.json` in the `agency-web-release` artifact. Confirm the SHA and immutable image digest match the Hostinger `last-good.json` receipt and the image's OCI revision label. Match the run and attempt to the `deploy` job and the VPS journal.
-2. Confirm each public `/healthz` reports the same SHA. The independent verifier
-   uses an authorized browser to exercise the changed behavior and record the
+2. From the exact release checkout, run the same smoke checks as Public web CI
+   over HTTPS with `./gui/apps/cli/bin/bapx-cli repo verify web --revision SHA --live`.
+   Exercise the changed behavior in a browser. The independent verifier uses
+   an authorized browser to exercise it separately and records the
    URL, viewport, exact served SHA, and result on the PR. Check the Admin
    sign-in page and signed-out HTTP 401 from `GET /api/admin/session` without
    changing production data. Confirm the previous healthy image remains
