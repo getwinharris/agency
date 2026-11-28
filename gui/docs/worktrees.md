@@ -59,7 +59,7 @@ Omit `--base-branch` for bb's smart default. Explicit values are exact:
 
 ## Move a running thread into a worktree
 
-`room-cli thread worktree` moves a Local thread out of the project checkout
+`bapx-cli thread worktree` moves a Local thread out of the project checkout
 into a new managed worktree, starting from its current commit. It keeps its ID
 and chat; the move happens when its current turn ends, and messages wait until
 it finishes. When a running agent moves itself, Cloudroom resumes it in the new
@@ -72,7 +72,7 @@ files (see below). It works for every agent. Claude Code and Codex keep their
 native session. Any other agent starts a fresh session in the worktree and gets
 the chat as hidden context, without tool output; a provider opts out of that
 with `resumesInNewFolder`. To fork into a new thread instead, use
-`room-cli thread fork --new-environment worktree`.
+`bapx-cli thread fork --new-environment worktree`.
 
 ## Copy local files with `.worktreeinclude`
 

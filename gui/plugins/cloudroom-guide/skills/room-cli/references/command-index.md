@@ -4,36 +4,36 @@ This index lists every command path that the core CLI registers. Read the task-s
 
 ## cloud
 
-- `room-cli cloud`
-- `room-cli cloud status`
-- `room-cli cloud check`
-- `room-cli cloud sign-in`
-- `room-cli cloud cancel`
-- `room-cli cloud logout`
-- `room-cli cloud codex`
-- `room-cli cloud codex status`
-- `room-cli cloud codex login`
-- `room-cli cloud codex cancel`
-- `room-cli cloud github`
-- `room-cli cloud github status`
-- `room-cli cloud github login`
-- `room-cli cloud github cancel`
-- `room-cli cloud cursor`
-- `room-cli cloud cursor status`
-- `room-cli cloud cursor login`
-- `room-cli cloud cursor cancel`
-- `room-cli cloud cursor key`
-- `room-cli cloud pi`
-- `room-cli cloud pi key`
-- `room-cli cloud teleport THREAD [--check|--wait [--timeout SECONDS]|--status|--cancel|--to-local]`
-- `room-cli cloud retry-start`
-- `room-cli cloud clear-disk THREAD`
-- `room-cli cloud thread-workspace`
-- `room-cli cloud share THREAD [--status|--stop]`
-- `room-cli cloud env list|set NAME|unset NAME`
-- `room-cli cloud repo add|remove OWNER/NAME`
-- `room-cli cloud setup set`
-- `room-cli cloud auto-delete [30|90|180|365|never]`
+- `bapx-cli cloud`
+- `bapx-cli cloud status`
+- `bapx-cli cloud check`
+- `bapx-cli cloud sign-in`
+- `bapx-cli cloud cancel`
+- `bapx-cli cloud logout`
+- `bapx-cli cloud codex`
+- `bapx-cli cloud codex status`
+- `bapx-cli cloud codex login`
+- `bapx-cli cloud codex cancel`
+- `bapx-cli cloud github`
+- `bapx-cli cloud github status`
+- `bapx-cli cloud github login`
+- `bapx-cli cloud github cancel`
+- `bapx-cli cloud cursor`
+- `bapx-cli cloud cursor status`
+- `bapx-cli cloud cursor login`
+- `bapx-cli cloud cursor cancel`
+- `bapx-cli cloud cursor key`
+- `bapx-cli cloud pi`
+- `bapx-cli cloud pi key`
+- `bapx-cli cloud teleport THREAD [--check|--wait [--timeout SECONDS]|--status|--cancel|--to-local]`
+- `bapx-cli cloud retry-start`
+- `bapx-cli cloud clear-disk THREAD`
+- `bapx-cli cloud thread-workspace`
+- `bapx-cli cloud share THREAD [--status|--stop]`
+- `bapx-cli cloud env list|set NAME|unset NAME`
+- `bapx-cli cloud repo add|remove OWNER/NAME`
+- `bapx-cli cloud setup set`
+- `bapx-cli cloud auto-delete [30|90|180|365|never]`
 
 `sign-in --project ID` prints the browser link for connecting the account's existing VM. `--website-url http://127.0.0.1:PORT` is for local website development. All commands accept `--json`. Logout removes this app's VM credentials, not remote jobs or local history. Existing cloud bindings block switching to another account/core. `retry-start` retries a rejected launch with its saved prompt and original request ID; it never reruns an existing cloud session.
 
@@ -43,24 +43,24 @@ This index lists every command path that the core CLI registers. Read the task-s
 
 ## vm
 
-- `room-cli vm`
-- `room-cli vm run`
-- `room-cli vm pull`
-- `room-cli vm push`
+- `bapx-cli vm`
+- `bapx-cli vm run`
+- `bapx-cli vm pull`
+- `bapx-cli vm push`
 
-`room-cli vm run 'COMMAND' [--thread ID] [--cwd DIR] [--stdin]`, `vm pull VM_PATH [LOCAL_PATH] [--thread ID]`, and `vm push LOCAL_PATH [VM_PATH] [--thread ID]` run commands and copy files as the agent account, in the agent home by default. `--thread ID` targets that Cloud thread's sandbox and wakes it; a subagent has its own unless it was started with `--shared-sandbox`. Without it, they target the signed-in VM, and accounts without a VM must pass `--thread`. Find a thread's repository folder with `room-cli cloud thread-workspace ID`. `run` exits with the command's code, except 1 when it succeeded but its output passed 16 MiB and was cut; it still ran, so redirect output there if only the status matters. Copies are tar archives and follow `cp`: an existing folder or a path ending in `/` gets the copy inside it; any other path is its new name and must not exist yet; unlike `cp`, a `.` source copied into a folder lands as a subfolder named after it. Push sends big ones in pieces; pull is limited to 16 MiB compressed. `~` means the VM agent home.
+`bapx-cli vm run 'COMMAND' [--thread ID] [--cwd DIR] [--stdin]`, `vm pull VM_PATH [LOCAL_PATH] [--thread ID]`, and `vm push LOCAL_PATH [VM_PATH] [--thread ID]` run commands and copy files as the agent account, in the agent home by default. `--thread ID` targets that Cloud thread's sandbox and wakes it; a subagent has its own unless it was started with `--shared-sandbox`. Without it, they target the signed-in VM, and accounts without a VM must pass `--thread`. Find a thread's repository folder with `bapx-cli cloud thread-workspace ID`. `run` exits with the command's code, except 1 when it succeeded but its output passed 16 MiB and was cut; it still ran, so redirect output there if only the status matters. Copies are tar archives and follow `cp`: an existing folder or a path ending in `/` gets the copy inside it; any other path is its new name and must not exist yet; unlike `cp`, a `.` source copied into a folder lands as a subfolder named after it. Push sends big ones in pieces; pull is limited to 16 MiB compressed. `~` means the VM agent home.
 
 ## import
 
-- `room-cli import`
-- `room-cli import bb`
-- `room-cli import claude-code [--days N] [--config-dir FOLDER] [--dry-run] [--json]`
-- `room-cli import codex [--days N] [--dry-run] [--json]`
-- `room-cli import pi [--days N] [--dry-run] [--json]`
-- `room-cli import hermes [--days N] [--dry-run] [--json]`
-- `room-cli import t3code [--days N] [--dry-run] [--json]`
-- `room-cli import conductor [--days N] [--path EXPORT] [--dry-run] [--json]`
-- `room-cli import share LINK [--json]`
+- `bapx-cli import`
+- `bapx-cli import bb`
+- `bapx-cli import claude-code [--days N] [--config-dir FOLDER] [--dry-run] [--json]`
+- `bapx-cli import codex [--days N] [--dry-run] [--json]`
+- `bapx-cli import pi [--days N] [--dry-run] [--json]`
+- `bapx-cli import hermes [--days N] [--dry-run] [--json]`
+- `bapx-cli import t3code [--days N] [--dry-run] [--json]`
+- `bapx-cli import conductor [--days N] [--path EXPORT] [--dry-run] [--json]`
+- `bapx-cli import share LINK [--json]`
 
 `import bb` copies every open BB thread into an idle Local thread with its full history, title, harness, and model. It forks each native session, so it sends no prompts and never changes BB. Re-running skips threads already imported.
 
@@ -70,101 +70,101 @@ This index lists every command path that the core CLI registers. Read the task-s
 
 ## feedback
 
-- `room-cli feedback`
-- `room-cli report`
+- `bapx-cli feedback`
+- `bapx-cli report`
 
-`room-cli feedback "MESSAGE"` sends David, Cloudroom's founder, a bug, friction, or idea (ADR 0158): what you did, what happened, and the exact error. Never include secrets, personal data, or the user's code. The app adds its version, OS, and thread details. It prints `{"sent":false}` while Settings → Send agent feedback is off. `room-cli report` is the old name and still works. It works the same in Cloud threads.
+`bapx-cli feedback "MESSAGE"` sends David, Cloudroom's founder, a bug, friction, or idea (ADR 0158): what you did, what happened, and the exact error. Never include secrets, personal data, or the user's code. The app adds its version, OS, and thread details. It prints `{"sent":false}` while Settings → Send agent feedback is off. `bapx-cli report` is the old name and still works. It works the same in Cloud threads.
 
 ## status
 
-- `room-cli status`
+- `bapx-cli status`
 
 ## settings
 
-- `room-cli settings`
-- `room-cli settings show`
-- `room-cli settings ai-services`
-- `room-cli settings general`
-- `room-cli settings completed-turns`
-- `room-cli settings experiment`
-- `room-cli settings keyboard`
-- `room-cli settings keyboard hints`
-- `room-cli settings keyboard list`
-- `room-cli settings keyboard set`
-- `room-cli settings keyboard reset`
-- `room-cli settings ui`
-- `room-cli settings ui list`
-- `room-cli settings ui get`
-- `room-cli settings ui set`
-- `room-cli settings ui reset`
-- `room-cli settings usage`
-- `room-cli settings version`
-- `room-cli settings reload`
+- `bapx-cli settings`
+- `bapx-cli settings show`
+- `bapx-cli settings ai-services`
+- `bapx-cli settings general`
+- `bapx-cli settings completed-turns`
+- `bapx-cli settings experiment`
+- `bapx-cli settings keyboard`
+- `bapx-cli settings keyboard hints`
+- `bapx-cli settings keyboard list`
+- `bapx-cli settings keyboard set`
+- `bapx-cli settings keyboard reset`
+- `bapx-cli settings ui`
+- `bapx-cli settings ui list`
+- `bapx-cli settings ui get`
+- `bapx-cli settings ui set`
+- `bapx-cli settings ui reset`
+- `bapx-cli settings usage`
+- `bapx-cli settings version`
+- `bapx-cli settings reload`
 
 ## project
 
-- `room-cli project`
-- `room-cli project source`
-- `room-cli project source add`
-- `room-cli project source update`
-- `room-cli project source delete`
-- `room-cli project attachment`
-- `room-cli project attachment upload`
-- `room-cli project attachment download`
-- `room-cli project list`
-- `room-cli project history`
-- `room-cli project reorder`
-- `room-cli project branches`
-- `room-cli project paths`
-- `room-cli project commands`
-- `room-cli project files`
-- `room-cli project content`
-- `room-cli project create`
-- `room-cli project show`
-- `room-cli project update`
-- `room-cli project delete`
+- `bapx-cli project`
+- `bapx-cli project source`
+- `bapx-cli project source add`
+- `bapx-cli project source update`
+- `bapx-cli project source delete`
+- `bapx-cli project attachment`
+- `bapx-cli project attachment upload`
+- `bapx-cli project attachment download`
+- `bapx-cli project list`
+- `bapx-cli project history`
+- `bapx-cli project reorder`
+- `bapx-cli project branches`
+- `bapx-cli project paths`
+- `bapx-cli project commands`
+- `bapx-cli project files`
+- `bapx-cli project content`
+- `bapx-cli project create`
+- `bapx-cli project show`
+- `bapx-cli project update`
+- `bapx-cli project delete`
 
-`room-cli project show <id>` accepts `proj_personal` to inspect Personal.
+`bapx-cli project show <id>` accepts `proj_personal` to inspect Personal.
 
 ## provider
 
-- `room-cli provider`
-- `room-cli provider list`
-- `room-cli provider models`
+- `bapx-cli provider`
+- `bapx-cli provider list`
+- `bapx-cli provider models`
 
 ## manager
 
-- `room-cli manager`
-- `room-cli manager hire`
-- `room-cli manager list`
-- `room-cli manager status`
-- `room-cli manager delete`
+- `bapx-cli manager`
+- `bapx-cli manager hire`
+- `bapx-cli manager list`
+- `bapx-cli manager status`
+- `bapx-cli manager delete`
 
 ## machine
 
-- `room-cli machine`
-- `room-cli machine providers`
-- `room-cli machine enroll`
-- `room-cli machine env`
-- `room-cli machine env list`
-- `room-cli machine env set`
-- `room-cli machine env unset`
-- `room-cli machine create`
-- `room-cli machine list`
-- `room-cli machine show`
-- `room-cli machine join-code`
-- `room-cli machine rename`
-- `room-cli machine remove`
-- `room-cli machine suspend`
-- `room-cli machine resume`
-- `room-cli machine reconcile`
-- `room-cli machine retry-cleanup`
-- `room-cli machine retry-update`
-- `room-cli machine provider-cli`
-- `room-cli machine provider-cli status`
-- `room-cli machine provider-cli install`
+- `bapx-cli machine`
+- `bapx-cli machine providers`
+- `bapx-cli machine enroll`
+- `bapx-cli machine env`
+- `bapx-cli machine env list`
+- `bapx-cli machine env set`
+- `bapx-cli machine env unset`
+- `bapx-cli machine create`
+- `bapx-cli machine list`
+- `bapx-cli machine show`
+- `bapx-cli machine join-code`
+- `bapx-cli machine rename`
+- `bapx-cli machine remove`
+- `bapx-cli machine suspend`
+- `bapx-cli machine resume`
+- `bapx-cli machine reconcile`
+- `bapx-cli machine retry-cleanup`
+- `bapx-cli machine retry-update`
+- `bapx-cli machine provider-cli`
+- `bapx-cli machine provider-cli status`
+- `bapx-cli machine provider-cli install`
 
-`room-cli thread spawn --new-machine <provider-id>` creates a machine for a new
+`bapx-cli thread spawn --new-machine <provider-id>` creates a machine for a new
 environment and requires `--environment-provider <id>`. For a composed option,
 use `--environment-provider <composition-id>` alone. `--machine-inputs <json>`
 configures the machine with optional configured `preset` and `image` names;
@@ -172,214 +172,214 @@ configures the machine with optional configured `preset` and `image` names;
 
 ## updates
 
-- `room-cli updates`
-- `room-cli updates status`
-- `room-cli updates apply`
+- `bapx-cli updates`
+- `bapx-cli updates status`
+- `bapx-cli updates apply`
 
 ## terminal
 
-- `room-cli terminal`
-- `room-cli terminal list`
-- `room-cli terminal create`
-- `room-cli terminal start`
-- `room-cli terminal show`
-- `room-cli terminal attach`
-- `room-cli terminal send`
-- `room-cli terminal resize`
-- `room-cli terminal output`
-- `room-cli terminal wait`
-- `room-cli terminal rename`
-- `room-cli terminal restart`
-- `room-cli terminal close`
-- `room-cli terminal stop`
+- `bapx-cli terminal`
+- `bapx-cli terminal list`
+- `bapx-cli terminal create`
+- `bapx-cli terminal start`
+- `bapx-cli terminal show`
+- `bapx-cli terminal attach`
+- `bapx-cli terminal send`
+- `bapx-cli terminal resize`
+- `bapx-cli terminal output`
+- `bapx-cli terminal wait`
+- `bapx-cli terminal rename`
+- `bapx-cli terminal restart`
+- `bapx-cli terminal close`
+- `bapx-cli terminal stop`
 
 ## thread
 
-- `room-cli thread`
-- `room-cli thread wait`
-- `room-cli thread spawn`
-- `room-cli thread fork`
-- `room-cli thread list`
-- `room-cli thread show`
-- `room-cli thread log`
-- `room-cli thread output`
-- `room-cli thread open`
-- `room-cli thread pane`
-- `room-cli thread section`
-- `room-cli thread section list`
-- `room-cli thread section create`
-- `room-cli thread section rename`
-- `room-cli thread section delete`
-- `room-cli thread search`
-- `room-cli thread history`
-- `room-cli thread read`
-- `room-cli thread unread`
-- `room-cli thread reorder-pinned`
-- `room-cli thread count`
-- `room-cli thread queue`
-- `room-cli thread queue list`
-- `room-cli thread queue create`
-- `room-cli thread queue update`
-- `room-cli thread queue send`
-- `room-cli thread queue delete`
-- `room-cli thread queue reorder`
-- `room-cli thread tabs`
-- `room-cli thread tabs show`
-- `room-cli thread tabs set`
-- `room-cli thread update`
-- `room-cli thread move`
-- `room-cli thread archive`
-- `room-cli thread unarchive`
-- `room-cli thread pin`
-- `room-cli thread unpin`
-- `room-cli thread delete`
-- `room-cli thread edit-message`
-- `room-cli thread tell`
-- `room-cli thread chat`
-- `room-cli thread retry`
-- `room-cli thread stop`
-- `room-cli thread compact`
-- `room-cli thread context`
-- `room-cli thread clear`
-- `room-cli thread cancel-plan`
-- `room-cli thread clear-goal`
-- `room-cli thread pause-goal`
-- `room-cli thread resume-goal`
-- `room-cli thread set-goal`
-- `room-cli thread interactions`
-- `room-cli thread interactions list`
-- `room-cli thread interactions show`
-- `room-cli thread interactions approve`
-- `room-cli thread interactions grant`
-- `room-cli thread interactions answer`
-- `room-cli thread interactions respond`
-- `room-cli thread interactions deny`
+- `bapx-cli thread`
+- `bapx-cli thread wait`
+- `bapx-cli thread spawn`
+- `bapx-cli thread fork`
+- `bapx-cli thread list`
+- `bapx-cli thread show`
+- `bapx-cli thread log`
+- `bapx-cli thread output`
+- `bapx-cli thread open`
+- `bapx-cli thread pane`
+- `bapx-cli thread section`
+- `bapx-cli thread section list`
+- `bapx-cli thread section create`
+- `bapx-cli thread section rename`
+- `bapx-cli thread section delete`
+- `bapx-cli thread search`
+- `bapx-cli thread history`
+- `bapx-cli thread read`
+- `bapx-cli thread unread`
+- `bapx-cli thread reorder-pinned`
+- `bapx-cli thread count`
+- `bapx-cli thread queue`
+- `bapx-cli thread queue list`
+- `bapx-cli thread queue create`
+- `bapx-cli thread queue update`
+- `bapx-cli thread queue send`
+- `bapx-cli thread queue delete`
+- `bapx-cli thread queue reorder`
+- `bapx-cli thread tabs`
+- `bapx-cli thread tabs show`
+- `bapx-cli thread tabs set`
+- `bapx-cli thread update`
+- `bapx-cli thread move`
+- `bapx-cli thread archive`
+- `bapx-cli thread unarchive`
+- `bapx-cli thread pin`
+- `bapx-cli thread unpin`
+- `bapx-cli thread delete`
+- `bapx-cli thread edit-message`
+- `bapx-cli thread tell`
+- `bapx-cli thread chat`
+- `bapx-cli thread retry`
+- `bapx-cli thread stop`
+- `bapx-cli thread compact`
+- `bapx-cli thread context`
+- `bapx-cli thread clear`
+- `bapx-cli thread cancel-plan`
+- `bapx-cli thread clear-goal`
+- `bapx-cli thread pause-goal`
+- `bapx-cli thread resume-goal`
+- `bapx-cli thread set-goal`
+- `bapx-cli thread interactions`
+- `bapx-cli thread interactions list`
+- `bapx-cli thread interactions show`
+- `bapx-cli thread interactions approve`
+- `bapx-cli thread interactions grant`
+- `bapx-cli thread interactions answer`
+- `bapx-cli thread interactions respond`
+- `bapx-cli thread interactions deny`
 
 ## environment
 
-- `room-cli environment`
-- `room-cli environment providers`
-- `room-cli environment list`
-- `room-cli environment delete`
-- `room-cli environment show`
-- `room-cli environment status`
-- `room-cli environment branches`
-- `room-cli environment paths`
-- `room-cli environment diff`
-- `room-cli environment diff-files`
-- `room-cli environment diff-file`
-- `room-cli environment diff-patch`
-- `room-cli environment update`
-- `room-cli environment commit`
-- `room-cli environment archive-threads`
-- `room-cli environment pull-request`
-- `room-cli environment pull-request show`
-- `room-cli environment pull-request ready`
-- `room-cli environment pull-request draft`
-- `room-cli environment pull-request merge`
+- `bapx-cli environment`
+- `bapx-cli environment providers`
+- `bapx-cli environment list`
+- `bapx-cli environment delete`
+- `bapx-cli environment show`
+- `bapx-cli environment status`
+- `bapx-cli environment branches`
+- `bapx-cli environment paths`
+- `bapx-cli environment diff`
+- `bapx-cli environment diff-files`
+- `bapx-cli environment diff-file`
+- `bapx-cli environment diff-patch`
+- `bapx-cli environment update`
+- `bapx-cli environment commit`
+- `bapx-cli environment archive-threads`
+- `bapx-cli environment pull-request`
+- `bapx-cli environment pull-request show`
+- `bapx-cli environment pull-request ready`
+- `bapx-cli environment pull-request draft`
+- `bapx-cli environment pull-request merge`
 
 ## file
 
-- `room-cli file`
-- `room-cli file read`
-- `room-cli file write`
-- `room-cli file list`
-- `room-cli file paths`
-- `room-cli file mkdir`
-- `room-cli file move`
-- `room-cli file remove`
+- `bapx-cli file`
+- `bapx-cli file read`
+- `bapx-cli file write`
+- `bapx-cli file list`
+- `bapx-cli file paths`
+- `bapx-cli file mkdir`
+- `bapx-cli file move`
+- `bapx-cli file remove`
 
 ## theme
 
-- `room-cli theme`
-- `room-cli theme list`
-- `room-cli theme set`
-- `room-cli theme dir`
-- `room-cli theme favicon`
-- `room-cli theme favicon set`
-- `room-cli theme favicon reset`
-- `room-cli theme show`
-- `room-cli theme reset`
+- `bapx-cli theme`
+- `bapx-cli theme list`
+- `bapx-cli theme set`
+- `bapx-cli theme dir`
+- `bapx-cli theme favicon`
+- `bapx-cli theme favicon set`
+- `bapx-cli theme favicon reset`
+- `bapx-cli theme show`
+- `bapx-cli theme reset`
 
 ## plugin
 
-- `room-cli plugin`
-- `room-cli plugin search`
-- `room-cli plugin list`
-- `room-cli plugin source`
-- `room-cli plugin install`
-- `room-cli plugin outdated`
-- `room-cli plugin update`
-- `room-cli plugin new`
-- `room-cli plugin types`
-- `room-cli plugin migrate`
-- `room-cli plugin build`
-- `room-cli plugin dev`
-- `room-cli plugin reload`
-- `room-cli plugin rpc`
-- `room-cli plugin rpc list`
-- `room-cli plugin rpc inspect`
-- `room-cli plugin rpc call`
-- `room-cli plugin enable`
-- `room-cli plugin disable`
-- `room-cli plugin safe-mode`
-- `room-cli plugin config`
-- `room-cli plugin token`
-- `room-cli plugin run`
-- `room-cli plugin logs`
-- `room-cli plugin remove`
+- `bapx-cli plugin`
+- `bapx-cli plugin search`
+- `bapx-cli plugin list`
+- `bapx-cli plugin source`
+- `bapx-cli plugin install`
+- `bapx-cli plugin outdated`
+- `bapx-cli plugin update`
+- `bapx-cli plugin new`
+- `bapx-cli plugin types`
+- `bapx-cli plugin migrate`
+- `bapx-cli plugin build`
+- `bapx-cli plugin dev`
+- `bapx-cli plugin reload`
+- `bapx-cli plugin rpc`
+- `bapx-cli plugin rpc list`
+- `bapx-cli plugin rpc inspect`
+- `bapx-cli plugin rpc call`
+- `bapx-cli plugin enable`
+- `bapx-cli plugin disable`
+- `bapx-cli plugin safe-mode`
+- `bapx-cli plugin config`
+- `bapx-cli plugin token`
+- `bapx-cli plugin run`
+- `bapx-cli plugin logs`
+- `bapx-cli plugin remove`
 
 ## marketplace
 
-- `room-cli marketplace`
-- `room-cli marketplace add`
-- `room-cli marketplace list`
-- `room-cli marketplace refresh`
-- `room-cli marketplace remove`
+- `bapx-cli marketplace`
+- `bapx-cli marketplace add`
+- `bapx-cli marketplace list`
+- `bapx-cli marketplace refresh`
+- `bapx-cli marketplace remove`
 
 ## skill
 
-- `room-cli skill`
-- `room-cli skill list`
-- `room-cli skill show`
-- `room-cli skill files`
-- `room-cli skill update`
-- `room-cli skill delete`
-- `room-cli skill search`
-- `room-cli skill registry`
-- `room-cli skill registry detail`
-- `room-cli skill install`
-- `room-cli skill cli-skills-status`
-- `room-cli skill install-cli-skills`
+- `bapx-cli skill`
+- `bapx-cli skill list`
+- `bapx-cli skill show`
+- `bapx-cli skill files`
+- `bapx-cli skill update`
+- `bapx-cli skill delete`
+- `bapx-cli skill search`
+- `bapx-cli skill registry`
+- `bapx-cli skill registry detail`
+- `bapx-cli skill install`
+- `bapx-cli skill cli-skills-status`
+- `bapx-cli skill install-cli-skills`
 
 ## guide
 
-- `room-cli guide`
+- `bapx-cli guide`
 
 ## voice
 
-- `room-cli voice`
-- `room-cli voice transcribe`
+- `bapx-cli voice`
+- `bapx-cli voice transcribe`
 
 ## browser
 
-- `room-cli browser`
-- `room-cli browser instances`
-- `room-cli browser tabs`
-- `room-cli browser create`
-- `room-cli browser acquire`
-- `room-cli browser connection`
-- `room-cli browser release`
-- `room-cli browser reveal`
-- `room-cli browser close`
-- `room-cli browser capture`
-- `room-cli browser watch`
-- `room-cli browser import-sources`
-- `room-cli browser import-cookies`
+- `bapx-cli browser`
+- `bapx-cli browser instances`
+- `bapx-cli browser tabs`
+- `bapx-cli browser create`
+- `bapx-cli browser acquire`
+- `bapx-cli browser connection`
+- `bapx-cli browser release`
+- `bapx-cli browser reveal`
+- `bapx-cli browser close`
+- `bapx-cli browser capture`
+- `bapx-cli browser watch`
+- `bapx-cli browser import-sources`
+- `bapx-cli browser import-cookies`
 
 Machine lists and name/ID selectors include machines still being created. Machine creation is durable: `create --no-wait` returns the creating host ID. `machine show <host-id>` reads progress and `machine remove <host-id>` cancels it. SIGINT only stops following.
 
-Machine environment: `room-cli machine env list`, `room-cli machine env set NAME`
-(value from stdin), and `room-cli machine env unset NAME`; all accept `--json`.
+Machine environment: `bapx-cli machine env list`, `bapx-cli machine env set NAME`
+(value from stdin), and `bapx-cli machine env unset NAME`; all accept `--json`.
 
-Standalone `room-cli machine create` machines remain until explicitly removed.
+Standalone `bapx-cli machine create` machines remain until explicitly removed.

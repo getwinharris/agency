@@ -107,8 +107,15 @@ async function main() {
   const outputTitleCommandPath = resolve(packageRoot, "dist", "title");
   await copyFile(titleCommandPath, outputTitleCommandPath);
   await chmod(outputTitleCommandPath, 0o755);
-  await writeFile(resolve(packageRoot, "dist", "room-cli.cmd"), ROOM_CLI_CMD);
-  await writeFile(resolve(packageRoot, "dist", "room-cli.ps1"), ROOM_CLI_PS1);
+  await writeFile(
+    resolve(packageRoot, "dist", "bapx-cli"),
+    '#!/bin/sh\ncase $0 in */*) dir=${0%/*} ;; *) dir=. ;; esac\nexec "$dir/room-cli" "$@"\n',
+    { mode: 0o755 },
+  );
+  for (const name of ["bapx-cli", "room-cli"]) {
+    await writeFile(resolve(packageRoot, "dist", `${name}.cmd`), ROOM_CLI_CMD);
+    await writeFile(resolve(packageRoot, "dist", `${name}.ps1`), ROOM_CLI_PS1);
+  }
 }
 
 void main().catch((error) => {

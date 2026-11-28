@@ -103,6 +103,7 @@ interface ThreadTellCommandOptions {
   sendAt?: string;
   requestId?: string;
   messageFile?: string;
+  parent?: boolean;
 }
 
 interface ThreadActionOptions {
@@ -110,7 +111,7 @@ interface ThreadActionOptions {
   json?: boolean;
 }
 
-/** `room-cli thread compact`'s follow-up unless `--then` or `--no-then`. Cloud's CLI (core/src/session/thread.rs) sends the same. */
+/** `bapx-cli thread compact`'s follow-up unless `--then` or `--no-then`. Cloud's CLI (core/src/session/thread.rs) sends the same. */
 const COMPACT_THEN = "Keep going with your task. If it's done, say what we should do next.";
 
 interface ThreadCompactCommandOptions extends ThreadActionOptions {
@@ -321,8 +322,8 @@ export function registerActionsCommands(
             console.log(
               {
                 started: "Resend: the new agent started its first turn.",
-                starting: `Resend: sent, but the new agent hasn't confirmed its first turn yet. Check \`room-cli thread show ${thread.id}\`.`,
-                queued: `Resend: queued; it starts when the thread can run. See \`room-cli thread queue list ${thread.id}\`.`,
+                starting: `Resend: sent, but the new agent hasn't confirmed its first turn yet. Check \`bapx-cli thread show ${thread.id}\`.`,
+                queued: `Resend: queued; it starts when the thread can run. See \`bapx-cli thread queue list ${thread.id}\`.`,
               }[thread.resend],
             );
           }
@@ -561,8 +562,14 @@ export function registerActionsCommands(
     );
 
   parent
-    .command("tell <id> [message]")
-    .description("Send a follow-up message to a thread")
+    .command("tell [id] [message]")
+    .description(
+      "Send a follow-up message to a thread, or with --parent to the thread that started this one",
+    )
+    .option(
+      "--parent",
+      "Send to this thread's saved parent instead of <id> (needs ROOM_THREAD_ID)",
+    )
     .option(
       "--message-file <path>",
       "Read the message from a UTF-8 file, or - for stdin (use it for long messages)",
@@ -603,10 +610,19 @@ export function registerActionsCommands(
     .action(
       action(
         async (
-          id: string,
-          argument: string | undefined,
+          idArgument: string | undefined,
+          messageArgument: string | undefined,
           opts: ThreadTellCommandOptions,
         ) => {
+          // With --parent the only positional is the message, as in Cloud's CLI (core/src/session/thread.rs).
+          if (opts.parent && messageArgument !== undefined) {
+            throw new Error("Pass either a thread ID or --parent, not both.");
+          }
+          const explicitId = opts.parent ? null : idArgument;
+          if (explicitId === undefined || explicitId === "") {
+            throw new Error("Missing thread ID. Pass <id> or use --parent.");
+          }
+          const argument = opts.parent ? idArgument : messageArgument;
           const { messageFile } = opts;
           if (argument !== undefined && messageFile !== undefined) {
             throw new Error(
@@ -628,6 +644,7 @@ export function registerActionsCommands(
               "Missing message: pass it as an argument or with --message-file PATH (- reads stdin).",
             );
           }
+          const id = explicitId ?? (await requireParentThreadId(getUrl));
           const response = await postThreadMessage({
             getUrl,
             threadId: id,
@@ -783,7 +800,7 @@ export function registerActionsCommands(
               // Only this explicit stop ends what the agent left running (#607).
               ...(method === "stop" ? { endProcesses: true } : {}),
             }).catch((error: unknown) => {
-              // Name the code the room-cli skill tells agents to look for.
+              // Name the code the bapx-cli skill tells agents to look for.
               if (
                 error instanceof BbHttpError &&
                 error.code === "thread_stop_unconfirmed"
@@ -868,7 +885,7 @@ export async function postThreadMessage(
   // Local starts a new turn for every send, so a reused ID wouldn't stop a duplicate there.
   if (args.requestId !== undefined && thread?.executionTarget !== "cloud") {
     throw new Error(
-      `--request-id works only for Cloud threads. Check \`room-cli thread log ${args.threadId}\` and \`room-cli thread queue list ${args.threadId}\` before sending again.`,
+      `--request-id works only for Cloud threads. Check \`bapx-cli thread log ${args.threadId}\` and \`bapx-cli thread queue list ${args.threadId}\` before sending again.`,
     );
   }
   // Chosen before sending, so a lost answer still leaves an ID to retry with.
@@ -913,7 +930,7 @@ export async function postThreadMessage(
       error.code === "request_conflict"
     ) {
       throw new Error(
-        `Request ID ${args.requestId} was already used, so this message was not added again. If you are resending an unconfirmed message, it is already saved: check \`room-cli thread show ${args.threadId}\` and don't send it again.`,
+        `Request ID ${args.requestId} was already used, so this message was not added again. If you are resending an unconfirmed message, it is already saved: check \`bapx-cli thread show ${args.threadId}\` and don't send it again.`,
       );
     }
     throw await describeFailedSend(args.threadId, error, async () => {
@@ -962,7 +979,7 @@ async function describeFailedSend(
   const retry =
     requestId === undefined
       ? ""
-      : ` To resend it, run \`room-cli thread tell ${threadId}\` with the same message, options, and \`--request-id ${requestId}\`; Cloudroom won't add it twice.`;
+      : ` To resend it, run \`bapx-cli thread tell ${threadId}\` with the same message, options, and \`--request-id ${requestId}\`; Cloudroom won't add it twice.`;
   // A 500's error ID finds its server log line (#1341).
   const errorId =
     error instanceof BbHttpError
@@ -978,7 +995,7 @@ async function describeFailedSend(
     : "";
   // A sent message shows in the log, a queued one in the queue; `thread show` lists neither.
   return new UnconfirmedSendError(
-    `Cloudroom did not confirm the message, so it may already have been sent (${reason}). Check \`room-cli thread log ${threadId}\` and \`room-cli thread queue list ${threadId}\` before sending it again.${lag}${retry}`,
+    `Cloudroom did not confirm the message, so it may already have been sent (${reason}). Check \`bapx-cli thread log ${threadId}\` and \`bapx-cli thread queue list ${threadId}\` before sending it again.${lag}${retry}`,
     requestId,
   );
 }
@@ -1004,13 +1021,13 @@ export function describeThreadTellOutcome(
   }
   if (response.delivery === "queued") {
     // The server says WHY it is waiting, so the CLI does not have to guess
-    // from the flags it happened to send. `room-cli thread queue list` shows the
+    // from the flags it happened to send. `bapx-cli thread queue list` shows the
     // same reason for the row afterwards.
     const queued = `Thread ${threadId} message queued (${describeQueueWait(response.queuedMessage)})`;
-    const send = `\`room-cli thread queue send ${threadId} ${response.queuedMessage.id}\``;
+    const send = `\`bapx-cli thread queue send ${threadId} ${response.queuedMessage.id}\``;
     // A message cannot answer a question: say how to see and answer it (#1400).
     if (response.queuedMessage.waitingOn?.kind === "interaction") {
-      return `${queued}; it dispatches once that is resolved. \`room-cli thread interactions list ${threadId}\` shows it, and \`show\` prints how to answer.`;
+      return `${queued}; it dispatches once that is resolved. \`bapx-cli thread interactions list ${threadId}\` shows it, and \`show\` prints how to answer.`;
     }
     // Stop does not pause a scheduled row, and `queue send` skips its schedule (#999).
     return response.queuedMessage.waitingOn?.kind === "time"
@@ -1019,7 +1036,7 @@ export function describeThreadTellOutcome(
   }
   // "sent" means saved and handed to the agent, not accepted: a rejection
   // lands later and puts the thread in `error` (#1536).
-  return `Thread ${threadId} message sent; the agent has not confirmed it yet. If it fails, \`room-cli thread show ${threadId}\` shows status error and why.`;
+  return `Thread ${threadId} message sent; the agent has not confirmed it yet. If it fails, \`bapx-cli thread show ${threadId}\` shows status error and why.`;
 }
 
 /**
@@ -1077,6 +1094,26 @@ export function describeQueueWait(row: {
     case "plugin":
       return `${waitingOn.pluginId}: ${waitingOn.reason}`;
   }
+}
+
+/** `tell --parent`: the caller's parent as saved now, so a thread the user moved reaches its new parent, as in Cloud. */
+async function requireParentThreadId(getUrl: () => string): Promise<string> {
+  const callerId = resolveContextThreadId();
+  if (!callerId) {
+    throw new Error(
+      "--parent needs ROOM_THREAD_ID: run it inside a Cloudroom thread, or pass a thread ID.",
+    );
+  }
+  const caller = await createCliRoomSdk(
+    getUrl(),
+    CLI_READ_TIMEOUT_MS,
+  ).threads.get({ threadId: callerId });
+  if (!caller.parentThreadId) {
+    throw new Error(
+      `Thread ${callerId} has no parent that \`thread tell --parent\` can reach.`,
+    );
+  }
+  return caller.parentThreadId;
 }
 
 export function resolveSenderThreadId(

@@ -234,7 +234,7 @@ export function BrowserSettingsSectionContent({
     <>
       <SettingsSection
         title="Browsers"
-        description="Bring signed-in sessions from a browser on this machine into the Cloudroom browser, so previews and agent tabs open already logged in."
+        description="Bring signed-in sessions from a browser on this machine into the bapX Agents browser, so previews and agent tabs open already logged in."
         action={
           supported ? (
             <Button
@@ -252,7 +252,7 @@ export function BrowserSettingsSectionContent({
           <p className="text-sm text-subtle-foreground">
             {desktopBrowser
               ? "Importing browser sessions isn't available on this computer yet."
-              : "Only available in the Cloudroom desktop app."}
+              : "Only available in the bapX Agents desktop app."}
           </p>
         ) : state.status === "loading" ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
@@ -285,8 +285,8 @@ export function BrowserSettingsSectionContent({
       </SettingsSection>
       {supported ? (
         <p className="mt-4 text-xs text-subtle-foreground/75">
-          Also from the CLI: <code>room-cli browser import-sources</code> and{" "}
-          <code>room-cli browser import-cookies</code>.
+          Also from the CLI: <code>bapx-cli browser import-sources</code> and{" "}
+          <code>bapx-cli browser import-cookies</code>.
         </p>
       ) : null}
       {dialogSource && desktopBrowser ? (

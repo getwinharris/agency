@@ -1,0 +1,22 @@
+/* Use with data-scroll-scene. Layout stays in flow and content works without JS. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-scroll-scene] {
+    opacity: calc(.3 + .7 * var(--scene-progress, 1));
+    translate: 0 calc((1 - var(--scene-progress, 1)) * 22px);
+  }
+  [data-scroll-scene]:focus-within { opacity: 1; translate: none; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .product-frame[data-scroll-scene]:hover { border-color: #9b78c2; }
+  .bapx-mode-grid[data-scroll-scene] .bapx-mode:hover,
+  .reference-constellation[data-scroll-scene] [data-roster-agent]:hover {
+    outline: 1px solid #9b78c2;
+    outline-offset: -1px;
+  }
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .bapx-mode-grid[data-scroll-scene] .bapx-mode,
+  .reference-constellation[data-scroll-scene] [data-roster-agent] { transition: translate .18s ease-out; }
+  .bapx-mode-grid[data-scroll-scene] .bapx-mode:hover,
+  .reference-constellation[data-scroll-scene] [data-roster-agent]:hover { translate: 0 -3px; }
+}

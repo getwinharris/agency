@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { cloudroomCommands, cloudroomThreads } from "@cloudroom/db";
@@ -11,7 +12,7 @@ import type { CloudRuntime } from "./runtime.js";
 import { sandboxThread, type SandboxTrigger } from "./sandboxes.js";
 import { reportMacHelperDown, reportMacHelperProblem } from "./setup-telemetry.js";
 import { bindings } from "./store.js";
-import { syncStatus } from "./sync.js";
+import { setupSync, syncStatus } from "./sync.js";
 import { clearUnsentMinutes, markMinutesSent, unsentMinutes } from "./time-in-app.js";
 
 export interface StatusPreviewHooks {
@@ -24,6 +25,7 @@ export class CloudStatusPreviews {
   syncIssue: string | null = null;
   private previewIssue: string | null = null;
   private previewSetupEpoch = -1;
+  private syncSetupEpoch = -1;
   private previewRetryAt = 0;
   private previewFailures = 0;
   private onboardingDue = 0;
@@ -208,6 +210,15 @@ export class CloudStatusPreviews {
     }).catch((error: unknown) => { if (epoch === this.rt.epoch) this.previewIssue = publicError(error); });
   }
 
+  ensureSync(capabilities: Capabilities): Promise<void> | undefined {
+    const epoch = this.rt.epoch;
+    if (!capabilities.sync || this.rt.stopped || this.syncSetupEpoch === epoch) return;
+    this.syncSetupEpoch = epoch;
+    return setupSync(this.rt.host.deps)
+      .then(() => { if (epoch === this.rt.epoch) this.syncIssue = null; })
+      .catch((error: unknown) => { if (epoch === this.rt.epoch) this.syncIssue = publicError(error); });
+  }
+
   ensurePreviews(capabilities: Capabilities): Promise<void> | undefined {
     if (!capabilities.previews || this.rt.stopped || this.previewSetupEpoch === this.rt.epoch || Date.now() < this.previewRetryAt) return;
     const epoch = this.rt.epoch;
@@ -238,6 +249,7 @@ export class CloudStatusPreviews {
     let selfHosted = false;
     let signedOut = false;
     try {
+      const epoch = this.rt.epoch;
       const saved = await this.rt.savedConnection();
       signedOut = !saved?.account || !(saved.token || saved.sandboxToken);
       account = saved?.token ? saved.account ?? null : null;
@@ -261,26 +273,40 @@ export class CloudStatusPreviews {
           model: capabilities?.harnesses.find((h) => h.id === "codex")?.model ?? null,
           steer: capabilities?.steer ?? false, rewind: capabilities?.rewind ?? false, attachments: capabilities?.attachments ?? false,
           compact: capabilities?.compact ?? false, queue_edit: capabilities?.queue_edit ?? false, queue_cancel: capabilities?.queue_cancel ?? false,
-          queue_reorder: capabilities?.queue_reorder ?? false, error: null, cloudQueue: this.rt.sandboxes.cloudQueue(), cloudCapacity: this.rt.sandboxes.cloudCapacity(), cloudPaused: this.rt.sandboxes.cloudPaused(), usedCloud: lastCloudAt !== null, lastCloudAt, recentThreads,
+          queue_reorder: capabilities?.queue_reorder ?? false, error: null, cloudQueue: this.rt.sandboxes.cloudQueue(), cloudCapacity: this.rt.sandboxes.cloudCapacity(), cloudLimit: this.rt.sandboxes.cloudLimit(), cloudPaused: this.rt.sandboxes.cloudPaused(), usedCloud: lastCloudAt !== null, lastCloudAt, recentThreads,
           plan: this.rt.sandboxes.currentPlan(), planUsage: this.rt.sandboxes.planUsage(), burning: this.rt.sandboxes.creditBurn(), deepapi: this.rt.sandboxes.deepapiState(),
         };
       }
-      const connection = await this.rt.connection();
+      const connection = await this.rt.connection(saved);
       const client = new CloudroomClient({ ...connection, timeoutMs: 5000 });
       storage = await this.rt.storage(client);
-      const capabilities = await this.rt.capabilities(client, storage);
+      let capabilities: Capabilities | null;
+      if (selfHosted) {
+        await this.rt.requirePrivateCoreReady(client, storage);
+        const current = await this.rt.savedConnection();
+        if (epoch !== this.rt.epoch || !isDeepStrictEqual(current, saved)) throw new ApiError(409, "cloudroom_connection_changed", "The Core connection changed. Try again.");
+        const catalog = this.rt.currentPrivateCatalog(connection, storage);
+        if (catalog.failure) throw catalog.failure.error;
+        capabilities = catalog.capabilities;
+      } else {
+        capabilities = await this.rt.capabilities(client, storage);
+        await client.ready();
+      }
+      if (epoch !== this.rt.epoch) throw new ApiError(409, "cloudroom_connection_changed", "The Core connection changed. Try again.");
       this.rt.lastCapabilities = capabilities;
-      await client.ready();
-      void this.ensurePreviews(capabilities);
+      if (capabilities) {
+        if (selfHosted) void this.ensureSync(capabilities);
+        void this.ensurePreviews(capabilities);
+      }
       return {
-        ready: true, account, signedOut, selfHosted, projectId, storage, harnesses: capabilities.harnesses,
-        sync: capabilities.sync ? { ...await syncStatus(this.rt.host.deps), issue: this.syncIssue } : null,
-        previews: capabilities.previews ? await this.previews() : null,
-        workspaces: capabilities.workspaces, teleport: capabilities.teleport, repository: capabilities.repository,
-        model: capabilities.harnesses.find((h) => h.id === "codex")?.model ?? null,
-        steer: capabilities.steer, rewind: capabilities.rewind, attachments: capabilities.attachments,
-        compact: capabilities.compact, queue_edit: capabilities.queue_edit, queue_cancel: capabilities.queue_cancel,
-        queue_reorder: capabilities.queue_reorder, error: null, usedCloud: lastCloudAt !== null, lastCloudAt, recentThreads,
+        ready: true, account, signedOut, selfHosted, projectId, storage, harnesses: capabilities?.harnesses ?? null,
+        sync: capabilities?.sync ? { ...await syncStatus(this.rt.host.deps), issue: this.syncIssue } : null,
+        previews: capabilities?.previews ? await this.previews() : null,
+        workspaces: capabilities?.workspaces ?? false, teleport: capabilities?.teleport ?? false, repository: capabilities?.repository ?? null,
+        model: capabilities?.harnesses.find((h) => h.id === "codex")?.model ?? null,
+        steer: capabilities?.steer ?? false, rewind: capabilities?.rewind ?? false, attachments: capabilities?.attachments ?? false,
+        compact: capabilities?.compact ?? false, queue_edit: capabilities?.queue_edit ?? false, queue_cancel: capabilities?.queue_cancel ?? false,
+        queue_reorder: capabilities?.queue_reorder ?? false, error: null, usedCloud: lastCloudAt !== null, lastCloudAt, recentThreads,
       };
     } catch (error) {
       return { ready: false, account, signedOut, selfHosted, projectId, storage, workspaces: false, repository: null, model: null, error: publicError(error) };

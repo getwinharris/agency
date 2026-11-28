@@ -1,12 +1,10 @@
 name: Core
 
 on:
-  push:
-    branches: [main]
-    paths: ['core/**', '.github/workflows/core.yml']
   pull_request:
     paths: ['core/**', '.github/workflows/core.yml']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -38,6 +36,10 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets
           cargo build --locked
+      - name: Disposable business sandbox checks
+        run: |
+          docker pull node:24-alpine
+          python3 tests/business_sandbox_e2e.py --disposable
       - name: Disposable disk-safety and attachment checks
         run: |
           docker pull postgres:16-alpine

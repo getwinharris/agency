@@ -102,6 +102,7 @@ import {
   writeOwnedRuntimePidFile,
 } from "./owned-runtime-supervisor.js";
 import {
+  LOCAL_SYSTEM_CONFIG_TIMEOUT_MS,
   probeRoomServer,
   waitForCompatibleServer,
   type CompatibleServerProbeResult,
@@ -1436,6 +1437,7 @@ async function ensureBuiltinRuntimeAttached(): Promise<boolean> {
   }
 
   const existingProbe = await probeRoomServer({
+    configTimeoutMs: LOCAL_SYSTEM_CONFIG_TIMEOUT_MS,
     serverUrl: builtinServerUrl,
     timeoutMs: ATTACH_PROBE_TIMEOUT_MS,
   });
@@ -2320,7 +2322,7 @@ async function installDownloadedUpdate(): Promise<void> {
     if (process.platform === "win32" && !handedOff) {
       desktopAutoUpdateService.endInstall();
       if (stoppingForQuit) {
-        desktopLogger.error("The update didn't start after bapX Agents stopped; reopening Cloudroom.");
+        desktopLogger.error("The update didn't start after bapX Agents stopped. Reopening bapX Agents.");
         autoUpdater.autoInstallOnAppQuit = false;
         app.relaunch();
         app.exit(0);
@@ -2789,6 +2791,7 @@ async function decideOnExistingServer(
 
 async function initializeRuntime(args: InitializeRuntimeArgs): Promise<void> {
   const existingProbe = await probeRoomServer({
+    configTimeoutMs: LOCAL_SYSTEM_CONFIG_TIMEOUT_MS,
     serverUrl: args.serverUrl,
     timeoutMs: ATTACH_PROBE_TIMEOUT_MS,
   });
@@ -3056,28 +3059,35 @@ async function runDesktopApp(): Promise<void> {
     paths.isPackaged &&
     (process.platform === "darwin" || process.platform === "linux")
   ) {
-    void ensureRoomCliShim({
-      appImagePath: process.platform === "linux" ? appImagePath : undefined,
-      cliPath: resolveBundledRoomCliPath(paths.appPath),
-      commandName: `${DESKTOP_RELEASE_INFO.linuxExecutableName}-cli`,
-      homeDir: homedir(),
-      runtimeDefaults: {
-        dataDir: join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
-        serverUrl: `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
-      },
-    })
-      .then((result) => {
-        if (result.kind !== "unchanged") {
-          desktopLogger.info(
-            `[desktop] ${result.shimPath}: ${result.kind === "skipped" ? `left alone (${result.reason})` : result.kind}`,
-          );
-        }
+    const commandNames = DESKTOP_RELEASE_INFO.channel === "latest"
+      ? ["bapx-cli", "bapx-agents-cli", "room-cli"]
+      : ["bapx-cli-nightly", "bapx-agents-nightly-cli"];
+    for (const commandName of commandNames) {
+      void ensureRoomCliShim({
+        appImagePath: process.platform === "linux" ? appImagePath : undefined,
+        cliPath: resolveBundledRoomCliPath(paths.appPath),
+        commandName,
+        preserveExistingLink: commandName === "room-cli",
+        homeDir: homedir(),
+        runtimeDefaults: {
+          dataDir: join(homedir(), DESKTOP_RELEASE_INFO.dataDirectoryName),
+          serverUrl: `http://127.0.0.1:${DESKTOP_RELEASE_INFO.localServerPort}`,
+          hostDaemonPort: DESKTOP_RELEASE_INFO.localDaemonPort,
+        },
       })
-      .catch((error: unknown) => {
-        desktopLogger.warn(
-          `[desktop] Could not update the room-cli shim: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
+        .then((result) => {
+          if (result.kind !== "unchanged") {
+            desktopLogger.info(
+              `[desktop] ${result.shimPath}: ${result.kind === "skipped" ? `left alone (${result.reason})` : result.kind}`,
+            );
+          }
+        })
+        .catch((error: unknown) => {
+          desktopLogger.warn(
+            `[desktop] Could not update the ${commandName} shim: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+    }
   }
   const iconPath = resolveDesktopIconPath({
     packagedIconFileName: DESKTOP_RELEASE_INFO.iconFileName,
@@ -3146,6 +3156,7 @@ async function runDesktopApp(): Promise<void> {
       dataHome: process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share"),
       desktopName: process.env.CHROME_DESKTOP ?? "",
       iconPath,
+      registerShareLinks: DESKTOP_RELEASE_INFO.channel === "latest",
     })
       .then((result) => {
         if (result.kind !== "unchanged") {

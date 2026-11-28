@@ -397,6 +397,17 @@ impl Mac {
     }
 }
 
+impl Mac {
+    /// Whether the Mac whose app last sent a prompt holds the pairing (`holder_seen`) and last checked in over 90 s ago,
+    /// so `may_move` keeps it there (#2641). No check-in since Core started (a restored pairing) is unknown: no label.
+    fn kept_by_prompting_mac(&self, holder_seen: Option<(String, Option<Instant>)>) -> bool {
+        holder_seen.is_some_and(|(holder, at)| {
+            self.using.lock().unwrap().as_deref() == Some(holder.as_str())
+                && at.is_some_and(|at| at.elapsed() >= CHECK_IN)
+        })
+    }
+}
+
 fn ago(at: Instant) -> String {
     match at.elapsed().as_secs() / 60 {
         0 => "less than a minute".into(),
@@ -700,7 +711,10 @@ fn record_refusal(m: &Manager, reason: &'static str, started: Instant) {
 }
 fn refused(m: &Manager, started: Instant) -> Failure {
     let (reason, message) = m.mac.why_unavailable();
-    record_refusal(m, reason, started);
+    // For analysis only, never shown: a heuristic that can also fire during a slow reconnect or a single Mac's stalled
+    // helper (#2641). Not `paired_away`, which means another Mac was turned away.
+    let kept = reason == "not_connected" && m.mac.kept_by_prompting_mac(m.previews.holder_seen());
+    record_refusal(m, if kept { "holder_silent" } else { reason }, started);
     Failure(StatusCode::CONFLICT, naming(m, message))
 }
 /// The computer name of the Mac this sandbox is paired with, if its helper sent one.
@@ -848,7 +862,7 @@ async fn local_run(
                 cancel.armed = false;
                 return Ok(Json(
                     json!({"job":id,"state":"unknown","mac":mac.name_of(&job.device),
-                    "message":format!("The Mac disconnected while this command was running. It may still finish; check later with: room-cli mac result {id}")}),
+                    "message":format!("The Mac disconnected while this command was running. It may still finish; check later with: bapx-cli mac result {id}")}),
                 ));
             }
         }
@@ -1224,14 +1238,14 @@ pub async fn cli(args: &[String]) -> io::Result<i32> {
         socket = args.remove(1);
         args.remove(0);
     }
-    let usage = "room-cli mac run [--cwd DIR] [--stdin] [--write] COMMAND
-room-cli mac pull MAC_PATH [VM_PATH]
-room-cli mac push VM_PATH [MAC_PATH]
-room-cli mac result JOB
-room-cli mac status
-room-cli mac computer-use status | tools [TOOL] | call TOOL ['JSON'] [--purpose WHY]
+    let usage = "bapx-cli mac run [--cwd DIR] [--stdin] [--write] COMMAND
+bapx-cli mac pull MAC_PATH [VM_PATH]
+bapx-cli mac push VM_PATH [MAC_PATH]
+bapx-cli mac result JOB
+bapx-cli mac status
+bapx-cli mac computer-use status | tools [TOOL] | call TOOL ['JSON'] [--purpose WHY]
 Runs on the user's paired Mac as the user, in their home folder by default.
-Flags go before COMMAND: room-cli mac run --cwd DIR 'COMMAND'. Later words,
+Flags go before COMMAND: bapx-cli mac run --cwd DIR 'COMMAND'. Later words,
 flags included, go to COMMAND. DIR is relative to their home folder, or absolute.
 Add --write when a command changes the Mac. Unless the user gives Full access,
 other commands run read-only, and --write needs their approval.
@@ -1279,7 +1293,7 @@ else under that new name, which must not exist yet.";
             let stdout = value["stdout"].as_str().and_then(unhex);
             if stdout.is_some_and(|stdout| transfer::archive(&stdout)) {
                 return Err(io::Error::other(format!(
-                    "Mac job {job} was part of a room-cli mac pull. Its output is copy data only that pull could use, so it isn't printed. Nothing was copied to the VM: run the pull again."
+                    "Mac job {job} was part of a bapx-cli mac pull. Its output is copy data only that pull could use, so it isn't printed. Nothing was copied to the VM: run the pull again."
                 )));
             }
             print_result(value).await
@@ -1307,13 +1321,15 @@ else under that new name, which must not exist yet.";
 }
 
 /// The Cloudroom app's CLI on the user's computer: its `~/.local/bin` link, else the macOS app's copy, else PATH's.
-const APP_CLI: &str = "c=\"$HOME/.local/bin/room-cli\"; [ -x \"$c\" ] || \
+const APP_CLI: &str = "c=\"$HOME/.local/bin/bapx-cli\"; [ -x \"$c\" ] || \
+     c=\"$HOME/.local/bin/bapx-agents-cli\"; [ -x \"$c\" ] || \
+     c=\"$HOME/.local/bin/room-cli\"; [ -x \"$c\" ] || \
      c=/Applications/Cloudroom.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/host-daemon/dist/room-cli; \
      [ -x \"$c\" ] || c=room-cli;";
 /// Where `mac computer-use` saves the screenshots its replies carry.
 const SHOTS: &str = "/tmp/cloudroom-mac-computer-use";
 
-/// `room-cli mac computer-use ARGS`: the app's Computer Use on the user's computer, as this thread, so its sidebar row
+/// `bapx-cli mac computer-use ARGS`: the app's Computer Use on the user's computer, as this thread, so its sidebar row
 /// shows it and the user approves each app in this thread (docs/scopes/computer-use.md). This sandbox's own screen
 /// stays `room-cli computer-use`. Every call counts as a change: Read-only refuses it, Ask first asks.
 async fn computer_use(socket: &str, args: &[String]) -> io::Result<i32> {
@@ -1419,7 +1435,7 @@ async fn print_result(value: Value) -> io::Result<i32> {
     if cut && code == Some(0) {
         let gap = if mac.is_some() { "" } else { gap };
         eprintln!(
-            "{gap}The command exited 0, but its output passed 16 MiB and was cut, so this exits 1. Do not rerun it as is: write the output to a file on the Mac and copy it with `room-cli mac pull`."
+            "{gap}The command exited 0, but its output passed 16 MiB and was cut, so this exits 1. Do not rerun it as is: write the output to a file on the Mac and copy it with `bapx-cli mac pull`."
         );
         return Ok(1);
     }
@@ -1481,6 +1497,20 @@ mod tests {
             mac.report.lock().unwrap().as_mut().unwrap().1 = old;
             assert!(!mac.unsupported(), "{report}");
         }
+        // #2641: diagnostics record `holder_silent` only for the prompting Mac holding the pairing with an old check-in.
+        let (mac, b) = (super::Mac::default(), "b".repeat(32));
+        let now = Some(std::time::Instant::now());
+        let old = std::time::Instant::now().checked_sub(super::CHECK_IN);
+        assert!(!mac.kept_by_prompting_mac(Some((b.clone(), old))));
+        *mac.using.lock().unwrap() = Some(b.clone());
+        assert!(mac.kept_by_prompting_mac(Some((b.clone(), old))));
+        assert!(!mac.kept_by_prompting_mac(Some((b.clone(), now))));
+        // A pairing restored after a restart has no check-in yet: unknown, so `not_connected` as before.
+        assert!(!mac.kept_by_prompting_mac(Some((b.clone(), None))));
+        assert!(
+            !mac.kept_by_prompting_mac(Some(("a".repeat(32), old)))
+                && !mac.kept_by_prompting_mac(None)
+        );
     }
 
     #[tokio::test]

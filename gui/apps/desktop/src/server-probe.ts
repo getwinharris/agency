@@ -43,10 +43,15 @@ interface UnavailableServerProbeResult {
 }
 
 interface ProbeRoomServerArgs {
+  configTimeoutMs?: number;
   fetchImpl?: ServerProbeFetch;
   serverUrl: string;
   timeoutMs: number;
 }
+
+// The protected endpoint can wait for a five-second macOS caller lookup.
+// Keep this plus the health request and retry interval below the awake poll gap.
+export const LOCAL_SYSTEM_CONFIG_TIMEOUT_MS = 6_000;
 
 interface WaitForCompatibleServerArgs {
   fetchImpl?: ServerProbeFetch;
@@ -194,7 +199,7 @@ export async function probeRoomServer(
   const configResult = await fetchJson({
     fetchImpl,
     schema: systemConfigResponseSchema,
-    timeoutMs: args.timeoutMs,
+    timeoutMs: args.configTimeoutMs ?? args.timeoutMs,
     url: endpointUrl(args.serverUrl, "/api/v1/system/config"),
   });
 
@@ -250,6 +255,7 @@ export async function waitForCompatibleServer(
   while (!timedOut()) {
     lastResult = await probeRoomServer({
       ...(args.fetchImpl === undefined ? {} : { fetchImpl: args.fetchImpl }),
+      configTimeoutMs: Math.min(args.timeoutMs, LOCAL_SYSTEM_CONFIG_TIMEOUT_MS),
       serverUrl: args.serverUrl,
       timeoutMs: Math.min(args.intervalMs, 1_000),
     });

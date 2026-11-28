@@ -298,11 +298,11 @@ export function registerBrowserCommands(
   )
     .requiredOption(
       "--from <source>",
-      "Source browser ID from `room-cli browser import-sources`",
+      "Source browser ID from `bapx-cli browser import-sources`",
     )
     .requiredOption(
       "--profile <directory>",
-      "Source profile directory as printed by `room-cli browser import-sources`",
+      "Source profile directory as printed by `bapx-cli browser import-sources`",
     )
     .action(
       action(

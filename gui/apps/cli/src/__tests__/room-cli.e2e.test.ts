@@ -140,10 +140,10 @@ describe("Cloudroom CLI isolation and message delivery", () => {
     expect(requests.some((path) => /official_|retired_/.test(path))).toBe(false);
   });
 
-  it("advertises the room-cli command without renaming Cloudroom", async () => {
+  it("advertises bapx-cli without changing context variables", async () => {
     const result = await run(["--help"]);
-    expect(result.stdout).toContain("Usage: room-cli");
-    expect(result.stdout).toContain("Cloudroom CLI - manage your local and cloud agents");
+    expect(result.stdout).toContain("Usage: bapx-cli");
+    expect(result.stdout).toContain("bapX CLI - manage your local and cloud agents");
     expect(result.stdout).toContain("ROOM_SERVER_URL");
   });
 
@@ -189,7 +189,7 @@ describe("Cloudroom CLI isolation and message delivery", () => {
 
   // Node.js 18 has no global File, which undici 7 needs (#1800).
   it.each([
-    ["File", `room-cli: this command needs Node.js 22 or newer, but this is Node.js ${process.version}. Run room-cli itself, not with node, so it uses Cloudroom's own runtime.`],
+    ["File", `bapx-cli: this command needs Node.js 22 or newer, but this is Node.js ${process.version}. Run bapx-cli itself, not with node, so it uses Cloudroom's own runtime.`],
     ["File;delete%20globalThis.Blob", "Blob is not defined"],
   ])("on Node without File, deleting %s prints one line, not the bundle", async (globals, message) => {
     const error = await run(["loop", "list"], {

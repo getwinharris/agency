@@ -2,6 +2,16 @@
 
 Agency's Cloudroom-derived Core runs Codex or Pi through an HTTP API. Start with Codex below. [Pi configuration](harnesses.md#configure) uses the same service and API.
 
+This guide builds and runs Core on a machine you control. See the [release
+notes](../../gui/docs/release-notes.md) for Agency's public availability and
+the independently versioned public web service.
+
+The public web image starts `bapx-core serve-web` from the executable
+installed under `/usr/local/lib/bapx` in the image. It also provides
+`/usr/local/bin/cloudroom` with the original CLI version format for existing
+publishing tools. Private Core setup below uses the existing native service
+and paths, including `/usr/local/lib/cloudroom`.
+
 Use a **fresh VM for one trusted user**, with sudo access, systemd, cgroup v2, and space for your repositories and tools. Disk warnings start at 5 GB available; there is no fixed agent allowance or additional reserve. The installer does not configure quotas or change `/etc/fstab`. Containers and other Linux distributions are outside this guide.
 
 Agents run without approval prompts and share their account's files. Do not give that account sudo or access to a Docker socket.
@@ -169,15 +179,31 @@ Never use `tailscale funnel` for Core: it opens the API to the whole internet.
 
 In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Settings or **Use my own Core** during first-run setup. Enter the private HTTPS URL and the Core token from `/etc/cloudroom/core.env`. Cloud threads then run on this machine and share its files.
 
+## Agent environment on a private Core
+
+**Settings → Machines → Advanced → Machine environment** applies to machines
+provisioned by app plugins. Manage your private Core's agent environment on
+the Core host.
+
+Put one literal `NAME=value` entry per line in
+`$CLOUDROOM_STATE_DIR/environment`. With this guide's service configuration,
+the full path is `/var/lib/cloudroom/history/environment`. Keep the file owned
+by the Core service account with permissions `0600`. For example, use
+`BAPX_ENV_TEST=hello` to check that a newly launched agent sees the setting.
+The file is read as data, without shell expansion.
+
+Core reads the file when it launches a new agent process. Already-running
+processes keep their current environment.
+
 ## Your own server vs Cloudroom Cloud
 
-**Works on your own server:**
+**Self-hosted capabilities described by Core:**
 
-- Codex and Pi, set up in `core.env`. Claude Code, Cursor, OpenCode, Hermes, Devin, Droid, Kimi Code, fx, OpenClaw, and Agent Zero's `a0` bridge turn on once they are installed and signed in under the agent account.
+- Codex and Pi, set up in `core.env`. Claude Code, Cursor, OpenCode, Hermes Agent, Devin, Droid, Kimi Code, fx, Antigravity, OpenClaw, and Agent Zero’s `a0` bridge are discovered from installed CLIs and profile directories under the Core agent account. Sign in or configure the provider’s credentials where required.
 - Cloud threads from the desktop app, with Mac access, web previews, secret requests, and synced skills and logins.
 - Saved history, kept on this machine.
 
-**Cloudroom Cloud only:**
+**Upstream Cloudroom Cloud capabilities:**
 
 - GPUs, Cloud loops, and computer use. Local loops still work.
 - Settings → Cloud environment (API keys, repos, setup script). Install your tools on the server yourself.
@@ -188,7 +214,11 @@ In [bapX Agents](../../gui/README.md), choose **Connect your own Core** in Setti
 
 ## Upgrade
 
-Pick a `core-v` version from the [releases](https://github.com/davidondrej/cloudroom/releases), then:
+A verified in-place upgrade procedure for Agency is pending. The [source
+instructions above](#1-install-tools-and-build) are for new installations.
+The archive procedure below applies to upstream Cloudroom installations.
+
+Pick a `core-v` version from the [upstream releases](https://github.com/davidondrej/cloudroom/releases), then:
 
 ```sh
 v=X.Y.Z; a=$(uname -m)
@@ -211,6 +241,15 @@ sudo -u cloudroom-agent -H /usr/local/bin/codex login status
 ```
 
 A failed readiness check usually means the journal or disk protection needs attention. A failed agent start may mean login or model configuration. There is no fixed limit on open harness sessions; actual concurrency depends on available VM resources. Keep logs private when asking for help.
+
+After a restart, check the running Core build with `/v1/dashboard`. The health check reports service status and disk safety. Use the `api` helper from [step 5](#5-run-your-first-task) to print just the running version and commit, then compare them with the installed binary:
+
+```sh
+api http://127.0.0.1:9840/v1/dashboard | python3 -c 'import json, sys; runtime = json.load(sys.stdin)["runtime"]; print(runtime["version"], runtime.get("commit", "unknown"))'
+/usr/local/lib/cloudroom/cloudroom --version
+```
+
+If they differ, check the service’s `ExecStart` with `systemctl show --property=ExecStart cloudroom.service`.
 
 ## Machines without systemd
 

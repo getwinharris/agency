@@ -2,18 +2,56 @@ name: Public web
 
 on:
   pull_request:
-    paths: ['core/**', 'gui/apps/www/**', 'deploy/**', '.github/workflows/web.yml']
+    paths:
+      - 'core/**'
+      - 'gui/README.md'
+      - 'gui/apps/desktop/README.md'
+      - 'gui/apps/desktop/package.json'
+      - 'gui/apps/www/**'
+      - 'gui/docs/configuration.md'
+      - 'gui/docs/release-notes.md'
+      - 'gui/package.json'
+      - 'gui/patches/**'
+      - 'gui/pnpm-lock.yaml'
+      - 'gui/pnpm-workspace.yaml'
+      - 'gui/.nvmrc'
+      - 'deploy/**'
+      - 'starters/app-admin/**'
+      - 'map.mmd'
+      - 'docs/project-index.json'
+      - 'gui/apps/cli/bin/bapx-cli'
+      - 'gui/apps/cli/scripts/repository-cli.mjs'
+      - 'gui/apps/cli/scripts/repository-inventory.mjs'
+      - '.github/workflows/source-inventory.yml'
+      - '.github/workflows/app.yml'
+      - '.github/workflows/core.yml'
+      - '.github/workflows/desktop-packages.yml'
+      - '.github/workflows/web.yml'
   push:
     branches: [main]
-    paths: ['core/**', 'gui/apps/www/**', 'deploy/**', '.github/workflows/web.yml']
+
+concurrency:
+  group: ${{ github.event_name == 'push' && 'public-web-production' || format('public-web-pr-{0}', github.run_id) }}
+  queue: max
 
 permissions:
   contents: read
 
 jobs:
+  app:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/app.yml
+  core:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/core.yml
   web:
+    needs: [app, core]
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (needs.app.result == 'success' && needs.core.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       packages: write
@@ -21,9 +59,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: gui/.nvmrc
+      - name: Check the architecture map and project index
+        run: ./gui/apps/cli/bin/bapx-cli repo inventory check
+      - name: Check deployment scripts
+        run: |
+          bash -n deploy/deploy-web.sh
+          bash -n deploy/deploy-web-ssh.sh
+          bash -n deploy/publish-site.sh
+          sudo visudo -cf deploy/web-deploy.sudoers
       - name: Build
         run: |
           docker build --file deploy/web.Dockerfile --tag agency-web:check \
+            --build-arg "BAPX_WEB_REVISION=$GITHUB_SHA" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" .
       - name: Smoke test
@@ -37,12 +87,83 @@ jobs:
             --env BAPX_ADMIN_PASSWORD_FILE=/run/secrets/bapx-admin-password \
             --mount "type=bind,src=$admin_password,dst=/run/secrets/bapx-admin-password,readonly" agency-web:check
           trap 'docker logs agency-web; docker stop agency-web' EXIT
-          curl --retry 10 --retry-connrefused --fail --silent http://127.0.0.1:8080/healthz
-          curl --fail --silent -H 'Host: bapx.in' http://127.0.0.1:8080/ | grep -F 'Start on your Mac.'
-          curl --fail --silent -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ | grep -F 'bapX Agents documentation'
+          for host in bapx.in www.bapx.in docs.bapx.in mediahub.bapx.in admin.bapx.in app.bapx.in; do
+            curl --retry 10 --retry-connrefused --fail --silent --show-error \
+              -H "Host: $host" http://127.0.0.1:8080/healthz |
+              jq -e --arg sha "$GITHUB_SHA" '.ready == true and .service == "bapx-web" and .revision == $sha'
+          done
+          app_redirect=$(curl --fail --silent --show-error --output /dev/null \
+            --write-out '%{http_code} %{redirect_url}' -H 'Host: app.bapx.in' \
+            'http://127.0.0.1:8080/?next=https://example.invalid/')
+          test "$app_redirect" = '307 https://bapx.in/account/'
+          for path in api/auth/session api/admin/session v1/sessions; do
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              -H 'Host: app.bapx.in' "http://127.0.0.1:8080/$path")" = 404
+          done
+          for host in bapx.in www.bapx.in; do
+            curl --fail --silent --show-error -H "Host: $host" http://127.0.0.1:8080/ \
+              --output "$RUNNER_TEMP/$host-home.html"
+            for marker in '<h1 id="headline"' 'id="how-it-works"' 'id="workflow"' 'data-landing-tour' 'data-tour-send' 'data-tour-target' 'data-tour-agent' 'id="agent-access"' 'id="faq"'; do
+              grep -Fq "$marker" "$RUNNER_TEMP/$host-home.html" || {
+                printf 'Expected landing markup %s is missing for %s.\n' "$marker" "$host" >&2
+                exit 1
+              }
+            done
+            if grep -Eq '127\.0\.0\.1:18819|data-workspace-fixture' "$RUNNER_TEMP/$host-home.html"; then
+              echo "The production homepage references a local demo fixture." >&2
+              exit 1
+            fi
+          done
+          for host in bapx.in www.bapx.in; do
+            for slug in download pricing; do
+              curl --fail --silent --show-error -H "Host: $host" \
+                "http://127.0.0.1:8080/$slug/" --output "$RUNNER_TEMP/$host-$slug.html"
+            done
+            grep -Fq 'Get the bapX app' "$RUNNER_TEMP/$host-download.html"
+            grep -Fq 'href="/pricing/"' "$RUNNER_TEMP/$host-download.html"
+            grep -Fq 'Solo, local only' "$RUNNER_TEMP/$host-pricing.html"
+            grep -Fq '₹500/month' "$RUNNER_TEMP/$host-pricing.html"
+          done
+          for icon in codex claude-code cursor hermes opencode pi; do
+            curl --fail --silent --show-error -H 'Host: bapx.in' \
+              "http://127.0.0.1:8080/brand/agents/$icon.svg" --output "$RUNNER_TEMP/$icon.svg"
+            grep -Fq '<svg' "$RUNNER_TEMP/$icon.svg"
+          done
+          curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/ --output "$RUNNER_TEMP/docs-home.html"
+          grep -F 'bapX Agents documentation' "$RUNNER_TEMP/docs-home.html"
+          grep -F '<a href="/release-notes/">release changelog</a>' "$RUNNER_TEMP/docs-home.html"
+          for slug in build-from-source desktop-packaging private-core project-skills release-notes; do
+            curl --fail --silent --show-error -H 'Host: docs.bapx.in' "http://127.0.0.1:8080/$slug/" --output "$RUNNER_TEMP/docs-$slug.html"
+          done
+          grep -F 'id="1-install-tools-and-build"' "$RUNNER_TEMP/docs-private-core.html"
+          grep -F '<pre tabindex="0"><code' "$RUNNER_TEMP/docs-private-core.html"
+          grep -F '<table>' "$RUNNER_TEMP/docs-desktop-packaging.html"
+          grep -F 'id="install-an-agency-skill-in-native-agents"' "$RUNNER_TEMP/docs-project-skills.html"
+          grep -F '>Verified web deployments</h2>' "$RUNNER_TEMP/docs-release-notes.html"
+          grep -F '>Pending</h2>' "$RUNNER_TEMP/docs-release-notes.html"
+          grep -E '>Served SHA <code>[a-f0-9]{40}</code></li>' "$RUNNER_TEMP/docs-release-notes.html"
+          curl --fail --silent --show-error -H 'Host: docs.bapx.in' http://127.0.0.1:8080/docs.css --output "$RUNNER_TEMP/docs.css"
+          test -s "$RUNNER_TEMP/docs.css"
           curl --fail --silent -H 'Host: mediahub.bapx.in' http://127.0.0.1:8080/clients/nebo-lifestyle-clinic/ | grep -iF 'Nebo Lifestyle Clinic'
-          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/ | grep -F '<title>bapX Admin</title>'
+          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/ | grep -F '<h1 id="login-title">Sign in</h1>'
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: admin.bapx.in' http://127.0.0.1:8080/api/admin/session)" = 401
+          for path in sign-in signup account; do
+            curl --fail --silent --show-error -H 'Host: bapx.in' "http://127.0.0.1:8080/$path/" --output /dev/null
+          done
+          for endpoint in auth/session admin/session; do
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: bapx.in' "http://127.0.0.1:8080/api/$endpoint")" = 401
+          done
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: docs.bapx.in' http://127.0.0.1:8080/api/auth/session)" = 404
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Host: bapx.in' http://127.0.0.1:8080/admin/)" = 404
+          curl --fail --silent --location -H 'Host: bapx.in' http://127.0.0.1:8080/favicon.svg --output "$RUNNER_TEMP/bapx-favicon.svg"
+          cmp gui/apps/www/public/brand/favicon.svg "$RUNNER_TEMP/bapx-favicon.svg"
+          for icon in favicon.ico favicon-96x96.png; do
+            curl --fail --silent -H 'Host: admin.bapx.in' "http://127.0.0.1:8080/$icon" --output "$RUNNER_TEMP/$icon"
+            cmp "gui/apps/www/public/brand/$icon" "$RUNNER_TEMP/$icon"
+          done
+          curl --fail --silent -H 'Host: admin.bapx.in' http://127.0.0.1:8080/brand/bapx-logo-main.svg --output "$RUNNER_TEMP/bapx-logo-main.svg"
+          cmp gui/apps/www/public/brand/bapx-logo-main.svg "$RUNNER_TEMP/bapx-logo-main.svg"
+          BAPX_WEB_IMAGE=agency-web:check docker compose -f deploy/compose.web.yml config --quiet
       - name: Publish main image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -52,4 +173,64 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           image="ghcr.io/${REPO,,}-web"
           docker tag agency-web:check "$image:$GITHUB_SHA"
-          docker push "$image:$GITHUB_SHA"
+          log="$RUNNER_TEMP/agency-web-push.log"
+          docker push "$image:$GITHUB_SHA" | tee "$log"
+          digest=$(sed -nE 's/^.*digest: (sha256:[a-f0-9]{64}).*/\1/p' "$log")
+          [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
+          release="$RUNNER_TEMP/agency-web-release"
+          mkdir "$release"
+          cp deploy/compose.web.yml "$release/compose.web.yml"
+          compose_hash=$(sha256sum "$release/compose.web.yml" | cut -d' ' -f1)
+          jq -n --arg sha "$GITHUB_SHA" --arg image "$image@$digest" --arg composeHash "$compose_hash" \
+            '{sha: $sha, image: $image, composeSha256: $composeHash}' > "$release/release.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: agency-web-release
+          path: ${{ runner.temp }}/agency-web-release
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+  deploy:
+    needs: web
+    if: github.repository == 'getwinharris/agency' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: public-web-production
+      url: https://bapx.in
+    permissions: {}
+    steps:
+      - name: Deploy verified web image on Hostinger
+        shell: bash
+        env:
+          VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+          VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        run: |
+          if [[ ! $GITHUB_SHA =~ ^[0-9a-f]{40}$ ||
+                ! $GITHUB_RUN_ID =~ ^[1-9][0-9]*$ ||
+                ! $GITHUB_RUN_ATTEMPT =~ ^[1-9][0-9]*$ ]]; then
+            echo 'Invalid GitHub release identity.' >&2
+            exit 1
+          fi
+          if [[ ! $VPS_SSH_HOST =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ ||
+                -z $VPS_SSH_KNOWN_HOSTS || -z $VPS_SSH_PRIVATE_KEY ]]; then
+            echo 'Missing or invalid production SSH configuration.' >&2
+            exit 1
+          fi
+
+          umask 077
+          ssh_dir=$(mktemp -d "$RUNNER_TEMP/agency-web-ssh.XXXXXXXX")
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          unset VPS_SSH_PRIVATE_KEY VPS_SSH_KNOWN_HOSTS
+
+          ssh -F /dev/null -nT -i "$ssh_dir/key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
+            -o "UserKnownHostsFile=$ssh_dir/known_hosts" \
+            -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
+            -- "bapx-web-deploy@$VPS_SSH_HOST" \
+            "deploy-web $GITHUB_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"

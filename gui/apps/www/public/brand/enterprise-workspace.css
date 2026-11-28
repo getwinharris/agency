@@ -1,0 +1,49 @@
+.enterprise-workspace{margin-block:clamp(3rem,8vw,7rem);scroll-margin-top:5rem}
+.enterprise-workspace>header{margin:0 0 clamp(1.1rem,2.5vw,2.3rem)}
+.enterprise-workspace h2{margin:.3rem 0;font-size:clamp(2.15rem,5vw,4.45rem);letter-spacing:-.05em;line-height:1.04}
+.workspace-preview{margin:0;min-width:0}
+.workspace-preview iframe{display:block;width:100%;height:clamp(32rem,72svh,46rem);border:1px solid #443754;border-radius:1rem;background:#141218}
+.workspace-preview figcaption{margin-top:.55rem;color:#c7b9d5;font-size:.76rem}
+@media(max-width:680px){.workspace-preview iframe{height:37rem}}
+
+.workspace-preview figcaption{text-align:center}
+
+.enterprise-workspace>header{text-align:center}
+
+.enterprise-workspace h2{font-size:clamp(2.3rem,5.3vw,4.4rem);line-height:1.02;letter-spacing:-.065em;text-wrap:balance}
+.workspace-title-slot{display:inline-grid;vertical-align:-.05em;overflow:hidden;white-space:nowrap;line-height:1.1;color:#c7a6f4}
+.workspace-title-word{grid-area:1/1;opacity:0;transition:opacity .33s ease,transform .45s cubic-bezier(.22,.7,.25,1)}
+.workspace-title-word[data-target-word="cloud"]{transform:translateY(38%)}
+.workspace-title-word[data-target-word="local"]{transform:translateY(-38%)}
+[data-workspace-target="cloud"] [data-target-word="cloud"],[data-workspace-target="local"] [data-target-word="local"]{transform:translateY(0);opacity:1}
+@media(prefers-reduced-motion:reduce){.workspace-title-word{transition:none}}
+.enterprise-workspace>header{margin-bottom:clamp(.6rem,1.4vw,1.25rem)}
+.workspace-preview figcaption a{color:inherit;text-underline-offset:.18em}
+
+.enterprise-workspace h2{text-wrap:wrap}
+.workspace-title-slot{position:relative;display:inline-block;vertical-align:baseline;line-height:inherit;overflow:clip;overflow-clip-margin:.12em}
+.workspace-title-word{display:inline-block}
+.workspace-title-word[aria-hidden=true]{position:absolute;inset-inline-start:0;top:0;pointer-events:none}
+
+.workspace-title-heart{display:inline-block;font-size:.7em;vertical-align:.06em;letter-spacing:0}
+
+.landing-tour{border:1px solid #393140;border-radius:1rem;background:#151419;color:#f5f1f9;overflow:hidden;font-size:.92rem;text-align:left}
+.tour-top{display:flex;gap:.9rem;align-items:center;padding:.85rem 1rem;border-bottom:1px solid #342d3a}
+.tour-top span{margin-inline-start:auto;color:#cbbdd3;font-size:.78rem}
+.tour-layout{display:grid;grid-template-columns:minmax(9rem,17%) minmax(0,1fr);min-height:31rem}
+.tour-sidebar{display:flex;flex-direction:column;gap:.55rem;background:#1a191e;border-inline-end:1px solid #342d3a;padding:1rem;color:#d2c9d8}
+.tour-sidebar small{margin-top:1rem;color:#bfb0ca}.tour-sidebar b{padding:.35rem .5rem;border-radius:.35rem;background:#322b3a;font-size:.88rem}
+.tour-sidebar b::before{content:"▣ ";color:#d7c2f0}.tour-sidebar b[data-environment=cloud]::before{content:"☁ "}
+.tour-main{width:min(100%,54rem);padding:1.2rem;display:grid;align-content:end;gap:.65rem;justify-self:center}
+.tour-thread{display:grid;gap:.6rem}.tour-thread p,.tour-composer p,.tour-goal p,.tour-footer p{margin:0}
+.tour-thread p:first-child{justify-self:end;background:#312738;padding:.6rem .8rem;border-radius:.65rem}
+.tour-thread p:nth-child(2){padding:.6rem .2rem}
+.tour-goal,.tour-composer{padding:.72rem .85rem;border:1px solid #3a3241;border-radius:.7rem;background:#211e24}
+.tour-goal summary{cursor:pointer;color:#ded1e9}.tour-goal p{padding-top:.55rem;color:#d4c7de}
+.tour-controls,.tour-footer{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem}
+.tour-controls{margin-top:.6rem}.tour-controls label{display:grid;gap:.2rem;font-size:.73rem;color:#d6c5e4}
+.tour-controls select,.tour-controls button,.tour-footer button{font:inherit;border:1px solid #665871;border-radius:1rem;padding:.3rem .65rem;color:#f7f1ff;background:#30283a}
+.tour-controls button,.tour-footer button{margin-inline-start:auto;cursor:pointer}
+.tour-controls button:not(:disabled){background:#f7f1ff;color:#251a31}
+.tour-footer p{flex:1;min-width:9rem;color:#cbbdd3;font-size:.82rem}
+@media(max-width:570px){.tour-layout{grid-template-columns:1fr;min-height:25rem}.tour-sidebar{display:none}.tour-main{padding:.7rem}.tour-top span{max-width:7ch}}

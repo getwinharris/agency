@@ -1,4 +1,5 @@
 const byId = (id) => document.getElementById(id);
+const unifiedAdmin = byId("admin-workspace").hasAttribute("data-account-admin");
 const statuses = {
   new: "New",
   contacted: "Contacted",
@@ -16,6 +17,9 @@ let view = "inbox";
 let records = null;
 let selectedId = null;
 let currentCopy = null;
+let copyMode = "draft";
+let copyOperation = null;
+let copyConflict = false;
 let sessionVersion = 0;
 
 function notice(id, message, error = false) {
@@ -24,8 +28,8 @@ function notice(id, message, error = false) {
   element.classList.toggle("error", error);
 }
 
-async function request(path, data) {
-  const opts = { cache: "no-store", credentials: "same-origin" };
+async function request(path, data, scope = "admin") {
+  const opts = { cache: "no-store", credentials: "same-origin", redirect: "error" };
   if (data !== undefined) {
     opts.method = "POST";
     opts.headers = { "Content-Type": "application/json" };
@@ -33,7 +37,7 @@ async function request(path, data) {
   }
   let response;
   try {
-    response = await fetch(`/api/admin/${path}`, opts);
+    response = await fetch(`/api/${scope}/${path}`, opts);
   } catch {
     throw new Error("Could not reach Admin. Try again.");
   }
@@ -42,19 +46,29 @@ async function request(path, data) {
     if (response.status === 401 && operator) {
       showLogin("Your session expired. Sign in again.");
     }
-    throw new Error(payload?.message || "Admin is temporarily unavailable.");
+    if (response.status === 403 && operator && unifiedAdmin && path !== "sign-out") {
+      clearWorkspace();
+      dispatchEvent(new Event("bapx:admin-access-denied"));
+    }
+    const error = new Error(payload?.message || "Admin is temporarily unavailable.");
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
 
-function showLogin(message = "") {
+function clearWorkspace() {
   operator = null;
   sessionVersion++;
   records = null;
   selectedId = null;
   currentCopy = null;
+  copyMode = "draft";
+  copyOperation = null;
+  copyConflict = false;
   byId("inbox").hidden = true;
   byId("copy").hidden = true;
+  byId("invitations").hidden = true;
   byId("side-menu").hidden = true;
   byId("operator-bar").hidden = true;
   byId("operator-name").textContent = "";
@@ -68,8 +82,24 @@ function showLogin(message = "") {
   byId("detail-reference").textContent = "";
   byId("detail-brief").textContent = "";
   byId("publish-copy").reset();
-  byId("password").value = "";
-  previewCopy();
+  if (!unifiedAdmin) {
+    byId("login").hidden = true;
+    byId("password").value = "";
+  }
+  byId("invite-form").reset();
+  byId("invite-link").value = "";
+  byId("invite-result").hidden = true;
+  notice("invite-notice", "");
+  notice("copy-notice", "");
+  renderCopy();
+}
+
+function showLogin(message = "") {
+  clearWorkspace();
+  if (unifiedAdmin) {
+    location.replace("/sign-in/");
+    return;
+  }
   byId("login").hidden = false;
   notice("login-notice", message, Boolean(message));
 }
@@ -78,8 +108,9 @@ function showWorkspace(username) {
   operator = username;
   sessionVersion++;
   byId("initial-status").hidden = true;
-  byId("login").hidden = true;
+  if (!unifiedAdmin) byId("login").hidden = true;
   byId("side-menu").hidden = false;
+  byId("nav-invitations").hidden = !unifiedAdmin;
   byId("operator-bar").hidden = false;
   byId("operator-name").textContent = username;
   notice("detail-notice", "");
@@ -89,9 +120,8 @@ function showWorkspace(username) {
 function openView(next) {
   view = next;
   if (!operator) return;
-  byId("inbox").hidden = view !== "inbox";
-  byId("copy").hidden = view !== "copy";
-  for (const name of ["inbox", "copy"]) {
+  for (const name of ["inbox", "copy", "invitations"]) {
+    byId(name).hidden = view !== name;
     const button = byId(`nav-${name}`);
     if (view === name) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -100,7 +130,7 @@ function openView(next) {
     renderInbox();
     renderDetail();
     if (!records) void loadInbox();
-  } else if (!currentCopy) {
+  } else if (view === "copy" && !currentCopy) {
     void loadCopy();
   }
 }
@@ -236,46 +266,116 @@ async function loadInbox() {
   }
 }
 
-function previewCopy() {
-  byId("preview-headline").textContent = byId("headline").value;
-  byId("preview-intro").textContent = byId("brief-intro").value;
+function draftCopy() {
+  return {
+    headline: byId("headline").value.trim(),
+    briefIntro: byId("brief-intro").value.trim(),
+  };
+}
+
+function hasCopyChanges(draft) {
+  return currentCopy && (draft.headline !== currentCopy.headline || draft.briefIntro !== currentCopy.briefIntro);
+}
+
+function renderCopy() {
+  const draft = draftCopy();
+  const changed = hasCopyChanges(draft);
+  const busy = Boolean(copyOperation);
+  const canEdit = currentCopy && !busy;
+  const preview = copyMode === "published" ? currentCopy : draft;
+  byId("headline").disabled = !canEdit;
+  byId("brief-intro").disabled = !canEdit;
+  byId("reload-copy").disabled = busy;
+  byId("reset-copy").disabled = !canEdit || !changed || copyConflict;
+  byId("publish").disabled = !canEdit || !changed || !draft.headline || !draft.briefIntro || copyConflict;
+  byId("publish-copy").setAttribute("aria-busy", String(busy));
+
+  for (const mode of ["draft", "published"]) {
+    const button = byId(`copy-mode-${mode}`);
+    button.disabled = !currentCopy;
+    button.setAttribute("aria-pressed", String(copyMode === mode));
+  }
+  byId("preview-page").hidden = !currentCopy;
+  byId("preview-empty").hidden = Boolean(currentCopy);
+  byId("preview-headline").textContent = preview?.headline || "Headline is empty";
+  byId("preview-intro").textContent = preview?.briefIntro || "Introduction is empty";
+
+  const state = copyOperation || (copyConflict ? "conflict" : currentCopy ? (changed ? "draft" : "published") : "unavailable");
+  const label = {
+    loading: "Loading…",
+    publishing: "Publishing…",
+    conflict: "Refresh required",
+    draft: "Unsaved changes",
+    published: "Published",
+    unavailable: "Copy unavailable",
+  }[state];
+  const status = byId("copy-state");
+  status.dataset.state = state;
+  if (status.textContent !== label) status.textContent = label;
 }
 
 function fillCopy(copy) {
   byId("headline").value = copy.headline;
   byId("brief-intro").value = copy.briefIntro;
-  previewCopy();
 }
 
 async function loadCopy() {
+  if (!operator || copyOperation) return;
   const version = sessionVersion;
-  const button = byId("reload-copy");
-  button.disabled = true;
-  byId("publish").disabled = true;
-  notice("copy-notice", "Loading homepage copy…");
+  const previous = currentCopy;
+  const draft = draftCopy();
+  copyOperation = "loading";
+  notice("copy-notice", "");
+  renderCopy();
   try {
     const result = await request("mediahub");
     if (version !== sessionVersion) return;
     currentCopy = result;
-    fillCopy(currentCopy);
-    notice("copy-notice", "");
+    copyConflict = false;
+    fillCopy({
+      headline: previous && draft.headline !== previous.headline ? draft.headline : result.headline,
+      briefIntro: previous && draft.briefIntro !== previous.briefIntro ? draft.briefIntro : result.briefIntro,
+    });
+    if (hasCopyChanges(draftCopy())) {
+      notice("copy-notice", "Published copy refreshed. Your edits are still here.");
+    }
   } catch (error) {
     if (version === sessionVersion) notice("copy-notice", error.message, true);
   } finally {
-    button.disabled = false;
-    byId("publish").disabled = !currentCopy;
+    if (version === sessionVersion) {
+      copyOperation = null;
+      renderCopy();
+    }
   }
 }
 
 byId("nav-inbox").addEventListener("click", () => openView("inbox"));
 byId("nav-copy").addEventListener("click", () => openView("copy"));
+byId("nav-invitations").addEventListener("click", () => {
+  if (unifiedAdmin) openView("invitations");
+});
 byId("reload-inbox").addEventListener("click", loadInbox);
 byId("reload-copy").addEventListener("click", loadCopy);
 byId("search").addEventListener("input", renderInbox);
 byId("filter").addEventListener("change", renderInbox);
-byId("publish-copy").addEventListener("input", previewCopy);
+byId("publish-copy").addEventListener("input", () => {
+  copyMode = "draft";
+  renderCopy();
+});
+for (const mode of ["draft", "published"]) {
+  byId(`copy-mode-${mode}`).addEventListener("click", () => {
+    copyMode = mode;
+    renderCopy();
+  });
+}
+byId("reset-copy").addEventListener("click", () => {
+  fillCopy(currentCopy);
+  renderCopy();
+  notice("copy-notice", "Edits reset to the published copy.");
+  byId("headline").focus();
+});
 
-byId("login-form").addEventListener("submit", async (event) => {
+byId("login-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = byId("submit-login");
   button.disabled = true;
@@ -301,14 +401,53 @@ byId("sign-out").addEventListener("click", async (event) => {
   const message = byId("global-notice");
   message.hidden = true;
   try {
-    await request("logout", {});
+    if (unifiedAdmin) await request("sign-out", {}, "auth");
+    else await request("logout", {});
     showLogin();
-    byId("username").focus();
+    if (!unifiedAdmin) byId("username").focus();
   } catch (error) {
     message.hidden = false;
     notice("global-notice", error.message, true);
   } finally {
     button.disabled = false;
+  }
+});
+
+byId("invite-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!unifiedAdmin || !operator) return;
+  const version = sessionVersion;
+  const button = byId("create-invite");
+  const output = byId("invite-link");
+  output.value = "";
+  byId("invite-result").hidden = true;
+  button.disabled = true;
+  notice("invite-notice", "");
+  try {
+    const result = await request("invitations", { email: byId("invite-email").value.trim() }, "auth");
+    if (version !== sessionVersion) return;
+    if (!/^[a-f0-9]{64}$/.test(result?.invite)) throw new Error("The invitation response was invalid.");
+    const url = new URL("/signup/", "https://bapx.in");
+    url.hash = `invite=${result.invite}`;
+    output.value = url.href;
+    byId("invite-result").hidden = false;
+    notice("invite-notice", "Invitation created.");
+  } catch (error) {
+    if (version === sessionVersion) notice("invite-notice", error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+byId("copy-invite").addEventListener("click", async () => {
+  const output = byId("invite-link");
+  if (!unifiedAdmin || !operator || !output.value) return;
+  try {
+    await navigator.clipboard.writeText(output.value);
+    notice("invite-notice", "Signup link copied.");
+  } catch {
+    output.select();
+    notice("invite-notice", "Select and copy the signup link.");
   }
 });
 
@@ -344,28 +483,52 @@ byId("update-inquiry").addEventListener("submit", async (event) => {
 
 byId("publish-copy").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!currentCopy) return;
+  const draft = draftCopy();
+  if (!hasCopyChanges(draft) || !draft.headline || !draft.briefIntro || copyOperation || copyConflict) return;
   const version = sessionVersion;
-  const button = byId("publish");
-  button.disabled = true;
+  let returnFocus = "publish";
+  copyOperation = "publishing";
   notice("copy-notice", "");
+  renderCopy();
   try {
     const published = await request("mediahub", {
       updatedAt: currentCopy.updatedAt,
-      headline: byId("headline").value,
-      briefIntro: byId("brief-intro").value,
+      ...draft,
     });
     if (version !== sessionVersion) return;
     currentCopy = published;
-    fillCopy(currentCopy);
+    fillCopy(published);
+    copyMode = "published";
+    returnFocus = "copy-mode-published";
     notice("copy-notice", "Published to mediahub.bapx.in.");
   } catch (error) {
-    if (version === sessionVersion) notice("copy-notice", error.message, true);
+    if (version === sessionVersion) {
+      copyConflict = error.status === 409;
+      if (copyConflict) returnFocus = "reload-copy";
+      const message = copyConflict
+        ? "Someone published a newer version. Refresh the published copy to compare it with your edits."
+        : error.message;
+      notice("copy-notice", message, true);
+    }
   } finally {
-    button.disabled = !currentCopy;
+    if (version === sessionVersion) {
+      copyOperation = null;
+      renderCopy();
+      if (view === "copy" && document.activeElement === document.body) byId(returnFocus).focus();
+    }
   }
 });
 
-request("session")
-  .then(({ username }) => showWorkspace(username))
-  .catch((error) => showLogin(error.message === "Sign in to continue." ? "" : error.message));
+if (unifiedAdmin) {
+  addEventListener("bapx:open-admin", (event) => {
+    const identifier = event.detail;
+    if (operator !== identifier) {
+      if (operator) clearWorkspace();
+      showWorkspace(identifier);
+    }
+  });
+} else {
+  request("session")
+    .then(({ username }) => showWorkspace(username))
+    .catch((error) => showLogin(error.message === "Sign in to continue." ? "" : error.message));
+}

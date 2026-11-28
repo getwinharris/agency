@@ -1,0 +1,302 @@
+{
+  "generated_by": "bapx-cli repo inventory generate",
+  "scope": "Tracked source and declared routes. Verify live behavior separately.",
+  "routes": [
+    {
+      "host": "admin.bapx.in",
+      "router": "agency-admin",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "admin.bapx.in",
+      "router": "agency-admin-login",
+      "method": "POST",
+      "path": "/api/admin/login",
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "app.bapx.in",
+      "router": "agency-app",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml",
+      "path_prefix": "/api/auth/"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account-admin",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml",
+      "path_prefix": "/api/admin/"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-web",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account-login",
+      "method": "POST",
+      "path": "/api/auth/sign-in",
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "bapx.in",
+      "router": "agency-account-signup",
+      "method": "POST",
+      "path": "/api/auth/signup",
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "docs.bapx.in",
+      "router": "agency-web",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "mediahub.bapx.in",
+      "router": "agency-web",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "mediahub.bapx.in",
+      "router": "agency-mediahub-brief",
+      "method": "POST",
+      "path": "/api/mediahub/inquiries",
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "sandbox-check.app.bapx.in",
+      "router": "agency-sandbox-check",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    },
+    {
+      "host": "www.bapx.in",
+      "router": "agency-web",
+      "method": null,
+      "path": null,
+      "source": "deploy/compose.web.yml"
+    }
+  ],
+  "docs": {
+    "registry": "gui/apps/www/src/docs/pages.ts",
+    "guides": [
+      {
+        "slug": "build-from-source",
+        "source": "gui/README.md"
+      },
+      {
+        "slug": "desktop-packaging",
+        "source": "gui/apps/desktop/README.md"
+      },
+      {
+        "slug": "private-core",
+        "source": "core/docs/setup.md"
+      },
+      {
+        "slug": "project-skills",
+        "source": "gui/docs/configuration.md"
+      },
+      {
+        "slug": "release-notes",
+        "source": "gui/docs/release-notes.md"
+      }
+    ]
+  },
+  "release": {
+    "workflow": ".github/workflows/web.yml",
+    "smoke_driver": "deploy/deploy-web.sh",
+    "image": "deploy/web.Dockerfile"
+  },
+  "workspace_config": "gui/pnpm-workspace.yaml",
+  "sources": {
+    "workflows": [
+      ".github/workflows/app.yml",
+      ".github/workflows/core.yml",
+      ".github/workflows/desktop-packages.yml",
+      ".github/workflows/source-inventory.yml",
+      ".github/workflows/web.yml"
+    ],
+    "rust_entry_points": [
+      "core/src/api/mod.rs",
+      "core/src/business_sandbox/mod.rs",
+      "core/src/computer_use/mod.rs",
+      "core/src/config.rs",
+      "core/src/fs.rs",
+      "core/src/git.rs",
+      "core/src/gpu/mod.rs",
+      "core/src/helper/mod.rs",
+      "core/src/lib.rs",
+      "core/src/mac/mod.rs",
+      "core/src/main.rs",
+      "core/src/observability/mod.rs",
+      "core/src/preview/mod.rs",
+      "core/src/runtime/mod.rs",
+      "core/src/secrets/mod.rs",
+      "core/src/session/mod.rs",
+      "core/src/site_release.rs",
+      "core/src/site_release_tests.rs",
+      "core/src/sync/mod.rs",
+      "core/src/web.rs",
+      "core/src/workspace/mod.rs"
+    ],
+    "web_runtime_sources": [
+      "core/src/web/accounts.rs",
+      "core/src/web/accounts_tests.rs",
+      "core/src/web/admin.rs",
+      "core/src/web/admin_store.rs",
+      "core/src/web/admin_tests.rs",
+      "core/src/web/inquiry.rs",
+      "core/src/web/published.rs",
+      "core/src/web/tests.rs"
+    ],
+    "web_sources": [
+      "gui/apps/www/src/admin/pages.ts",
+      "gui/apps/www/src/auth/pages.ts",
+      "gui/apps/www/src/brand.ts",
+      "gui/apps/www/src/build.ts",
+      "gui/apps/www/src/docs/markdown.ts",
+      "gui/apps/www/src/docs/pages.ts",
+      "gui/apps/www/src/landing-tour.ts",
+      "gui/apps/www/src/landing.ts",
+      "gui/apps/www/src/mediahub/pages.ts",
+      "gui/apps/www/src/mediahub/portfolio.ts",
+      "gui/apps/www/src/pages.ts",
+      "gui/apps/www/src/recovered-homepage.html",
+      "gui/apps/www/src/walkthrough.ts"
+    ],
+    "workspace_packages": [
+      "gui/apps/app/package.json",
+      "gui/apps/cli/package.json",
+      "gui/apps/connect/package.json",
+      "gui/apps/desktop/package.json",
+      "gui/apps/host-daemon/package.json",
+      "gui/apps/server/package.json",
+      "gui/apps/vps/package.json",
+      "gui/apps/www/package.json",
+      "gui/examples/plugins/agent-enrichment/package.json",
+      "gui/examples/plugins/composer-customization/package.json",
+      "gui/examples/plugins/content-script/package.json",
+      "gui/examples/plugins/echo-provider/package.json",
+      "gui/examples/plugins/replacement-lab-alpha/package.json",
+      "gui/examples/plugins/replacement-lab-beta/package.json",
+      "gui/examples/plugins/sidebar-navigation/package.json",
+      "gui/examples/plugins/slack-bot/package.json",
+      "gui/examples/plugins/thread-chat-demo/package.json",
+      "gui/package.json",
+      "gui/packages/agent-runtime/package.json",
+      "gui/packages/bb-app/package.json",
+      "gui/packages/bundled-plugins/package.json",
+      "gui/packages/client-core/package.json",
+      "gui/packages/config/package.json",
+      "gui/packages/connect-client/package.json",
+      "gui/packages/core-ui/package.json",
+      "gui/packages/db/package.json",
+      "gui/packages/desktop-contract/package.json",
+      "gui/packages/domain/package.json",
+      "gui/packages/environment-provider-host/package.json",
+      "gui/packages/fuzzy-match/package.json",
+      "gui/packages/hono-typed-routes/package.json",
+      "gui/packages/host-daemon-contract/package.json",
+      "gui/packages/host-watcher/package.json",
+      "gui/packages/host-workspace/package.json",
+      "gui/packages/local-open-targets/package.json",
+      "gui/packages/logger/package.json",
+      "gui/packages/plugin-api-map/package.json",
+      "gui/packages/plugin-build/package.json",
+      "gui/packages/plugin-interaction-contracts/package.json",
+      "gui/packages/plugin-registry/package.json",
+      "gui/packages/plugin-sdk/package.json",
+      "gui/packages/process-utils/package.json",
+      "gui/packages/provider-bridge-acp/package.json",
+      "gui/packages/provider-bridge-protocol/package.json",
+      "gui/packages/provider-parity/package.json",
+      "gui/packages/scripts/package.json",
+      "gui/packages/sdk/package.json",
+      "gui/packages/secret-storage/package.json",
+      "gui/packages/server-contract/package.json",
+      "gui/packages/shared-ui/package.json",
+      "gui/packages/templates/package.json",
+      "gui/packages/test-helpers/package.json",
+      "gui/packages/thread-view/package.json",
+      "gui/packages/tsconfig/package.json",
+      "gui/packages/tunnel-client/package.json",
+      "gui/packages/tunnel-contract/package.json",
+      "gui/plugins/accounts/package.json",
+      "gui/plugins/ask-user-question/package.json",
+      "gui/plugins/automations/package.json",
+      "gui/plugins/cloudroom-guide/package.json",
+      "gui/plugins/computer-use/package.json",
+      "gui/plugins/connect/package.json",
+      "gui/plugins/custom-instructions/package.json",
+      "gui/plugins/director/package.json",
+      "gui/plugins/drafts/package.json",
+      "gui/plugins/environment-git-worktree/package.json",
+      "gui/plugins/environment-personal-workspace/package.json",
+      "gui/plugins/environment-project-checkout/package.json",
+      "gui/plugins/github/package.json",
+      "gui/plugins/gpu/package.json",
+      "gui/plugins/inline-vis/package.json",
+      "gui/plugins/internet-watch/package.json",
+      "gui/plugins/keep-awake/package.json",
+      "gui/plugins/machine-ssh/package.json",
+      "gui/plugins/monaco-editor/package.json",
+      "gui/plugins/organization/package.json",
+      "gui/plugins/pdf-preview/package.json",
+      "gui/plugins/plugin-api-docs/package.json",
+      "gui/plugins/plugin-api-tester/package.json",
+      "gui/plugins/provider-acp/package.json",
+      "gui/plugins/provider-claude-code/package.json",
+      "gui/plugins/provider-cloudroom-agent/package.json",
+      "gui/plugins/provider-codex/package.json",
+      "gui/plugins/provider-pi/package.json",
+      "gui/plugins/provider-retry/package.json",
+      "gui/plugins/provider-usage/package.json",
+      "gui/plugins/push-notifications/package.json",
+      "gui/plugins/repo-sync/package.json",
+      "gui/plugins/scheduled-send/package.json",
+      "gui/plugins/secrets/package.json",
+      "gui/plugins/shared-projects/package.json",
+      "gui/plugins/side-chat/package.json",
+      "gui/plugins/snippets/package.json",
+      "gui/plugins/tasks/package.json",
+      "gui/plugins/theme-preview/package.json",
+      "gui/plugins/time-in-cloudroom/package.json",
+      "gui/plugins/wallpaper/package.json",
+      "gui/plugins/workflows/package.json",
+      "gui/tests/integration/package.json",
+      "gui/tests/qa/package.json",
+      "gui/tests/scripted-echo-provider/package.json"
+    ],
+    "bundled_skills": [
+      "skills/adr-verbatim/SKILL.md",
+      "skills/create-loop/SKILL.md",
+      "skills/decisions/SKILL.md",
+      "skills/deepapi/SKILL.md",
+      "skills/ego-browser/SKILL.md",
+      "skills/file-tree/SKILL.md",
+      "skills/malware-scan/SKILL.md",
+      "skills/risky-changes/SKILL.md",
+      "skills/self-archive/SKILL.md",
+      "skills/setup-help/SKILL.md"
+    ]
+  }
+}

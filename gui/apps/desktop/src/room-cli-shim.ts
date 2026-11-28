@@ -13,6 +13,7 @@ const SHIM_TAIL = ` --input-type=module --eval 'if (process.argv.at(-1) === "--n
 interface RoomCliRuntimeDefaults {
   dataDir: string;
   serverUrl: string;
+  hostDaemonPort: number;
 }
 
 export type RoomCliShimResult =
@@ -27,6 +28,7 @@ interface EnsureRoomCliShimArgs {
   appImagePath?: string;
   cliPath: string;
   commandName?: string;
+  preserveExistingLink?: boolean;
   homeDir: string;
   runtimeDefaults?: RoomCliRuntimeDefaults;
 }
@@ -49,7 +51,8 @@ function shellQuote(value: string): string {
 function runtimeExports(defaults: RoomCliRuntimeDefaults | undefined): string {
   if (defaults === undefined) return "";
   return `if [ -z "$ROOM_DATA_DIR" ]; then export ROOM_DATA_DIR=${shellQuote(defaults.dataDir)}; fi
-if [ -z "$ROOM_SERVER_URL" ]; then export ROOM_SERVER_URL=${shellQuote(defaults.serverUrl)}; fi\n`;
+if [ -z "$ROOM_SERVER_URL" ]; then export ROOM_SERVER_URL=${shellQuote(defaults.serverUrl)}; fi
+if [ -z "$ROOM_HOST_DAEMON_PORT" ]; then export ROOM_HOST_DAEMON_PORT=${shellQuote(String(defaults.hostDaemonPort))}; fi\n`;
 }
 
 export function appImageRoomCliShim(
@@ -110,7 +113,7 @@ export async function ensureRoomCliShim(
     }
   } else if (!script && current === args.cliPath) {
     return { kind: "unchanged", shimPath };
-  } else if (current !== null && !BUNDLED_CLI_TARGET.test(current)) {
+  } else if (current !== null && (args.preserveExistingLink || !BUNDLED_CLI_TARGET.test(current))) {
     return { kind: "skipped", reason: "user-owned", shimPath };
   }
 

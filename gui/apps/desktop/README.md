@@ -4,6 +4,9 @@ Electron shell for bapX Agents. The packaged `bb-app` launcher starts the embedd
 web UI, local server, and host daemon. Its upstream license and notices ship in
 each desktop package.
 
+See the [release notes](../../docs/release-notes.md) for the public download
+status. The packaging commands below produce local builds.
+
 ## Development
 
 From `gui/`, run `pnpm dev` in one terminal for the source server and
@@ -146,9 +149,9 @@ PowerShell using `Get-AuthenticodeSignature .\apps\desktop\release.noindex\bapx-
 `afterPack` copies `@parcel/watcher-win32-x64` into the package, because
 electron-builder leaves it out, and loads it with the packaged Electron.
 
-Inside the installed app, `room-cli.cmd` and `room-cli.ps1` run on
+Inside the installed app, `bapx-cli.cmd` and `bapx-cli.ps1` run on
 `bapX Agents.exe` with `ELECTRON_RUN_AS_NODE=1`, so the PC needs no Node.
-PowerShell picks `room-cli.ps1`, which passes arguments as JSON in
+PowerShell picks `bapx-cli.ps1`, which passes arguments as JSON in
 `ROOM_CLI_ARGV`, so cmd.exe never re-parses them.
 
 ### Linux (AppImage, x64)
@@ -167,7 +170,9 @@ pnpm exec turbo run smoke:packaged --filter=@cloudroom/desktop
 
 Running an AppImage normally requires FUSE and, on some distributions, the
 `libfuse2` compatibility package. If FUSE is unavailable, launch it with
-`--appimage-extract-and-run` instead.
+`--appimage-extract-and-run` instead. If your build opens a window but the
+backend still reports a FUSE error, use `APPIMAGE_EXTRACT_AND_RUN=1` when
+launching it to put both processes in extract mode.
 
 Linux users whose window manager supplies all window controls can remove the
 native Electron title bar with `--no-window-frame`:
@@ -192,26 +197,9 @@ window shaping and unreliable resize behavior on some platforms. The flag can
 be combined with `--no-window-frame`, and changing it requires a full desktop
 app restart.
 
-CI builds Linux artifacts on the pinned `ubuntu-22.04` runner. The AppImage
-links against the build machine's glibc, so that pin sets the oldest
-distribution that can run a published build. Raise it deliberately.
-
-Linux gets both update paths, but they are not equivalent:
-
-- The JSON version feed (`desktop-version-linux.json`) is polled on every Linux
-  install and reports that a newer release exists.
-- Self-installing auto-update runs only inside an AppImage whose directory the
-  app can write to. electron-updater detects the AppImage through the `APPIMAGE`
-  environment variable, and its install step unlinks the running file _before_
-  moving the replacement in — so a read-only directory would delete the app and
-  leave nothing behind. Both the startup check and the install handler verify
-  write and search access on the parent directory first.
-- Everything else — an extracted directory, a distribution package, or an
-  AppImage in a read-only location — reports new versions without installing
-  them.
-
-Linux AppImages are available for manual installation. The signed desktop
-update feed covers macOS and Windows.
+The Desktop packages workflow builds the Linux x64 AppImage on Ubuntu 24.04.
+The package links against the build machine's glibc. Agency Linux builds use
+manual installation and updates.
 
 ## Releasing
 
@@ -220,15 +208,23 @@ release version. Both native package commands stamp that version into the
 bundle, installer name, and About panel. Ordinary development builds show
 `dev`. The desktop release has its own version and build process.
 
-The stable app uses bundle and Windows application ID `in.bapx.agents`,
+The Desktop packages workflow builds native Apple Silicon, Windows x64, and
+Linux x64 artifacts and uploads verified packages with SHA-256 checksums.
+The macOS job uses an ad-hoc signature for launch checks. Distributable macOS
+builds require an Apple Developer ID signature and notarization. Windows
+verification uses a silent install on a Windows Server runner. Verify the
+intended desktop OS before publishing the release in Agency.
+
+Stable builds use bundle and Windows application ID `in.bapx.agents`,
 `~/.bapx-agents` for runtime data, and local ports 39888 and 39889. The desktop
-registers `bapx-agents://` and installs the `bapx-agents-cli` shell shim on
+registers `bapx-agents://` and installs the `bapx-cli` shell shim on
 macOS and Linux.
 
 Set `BB_DESKTOP_RELEASE_CHANNEL=nightly` for the separate bapX Agents Nightly
 build. It uses ID `in.bapx.agents.nightly`, runtime data in
 `~/.bapx-agents-nightly`, and ports 39890 and 39891. Nightly artifacts and
-executables carry a nightly name. Its shell shim is `bapx-agents-nightly-cli`.
+executables carry a nightly name. Its shell shim is `bapx-cli-nightly`. Existing
+`bapx-agents-cli` and `bapx-agents-nightly-cli` shims remain supported.
 
 ## About panel
 
@@ -262,6 +258,67 @@ installer-only notarization path, set `CLOUDROOM_NOTARIZE_LATER=1` and run
 `APPLE_KEYCHAIN_PROFILE=<notarytool profile>` does the same with the Keychain's
 Developer ID identity. Local builds with neither sign via keychain
 auto-discovery and skip notarization.
+
+### Build an Apple Silicon release candidate
+
+Use an approved signing Mac or private release runner and a clean checkout of
+the approved version and full Git SHA. Configure the Developer ID Application
+identity and notarization inputs above outside Git. From `gui/`, with
+dependencies installed from the lockfile, pass the approved package version and
+SHA to the candidate command.
+
+```bash
+pnpm --dir apps/desktop run dist:mac:release "$approved_version" "$approved_sha"
+```
+
+The command requires signing and notarization inputs before it builds. It uses
+a new directory under `release.noindex/` and verifies the version, Apple
+Silicon architecture, signed source commit, Developer ID signature, notarization
+ticket, and Gatekeeper assessment of the DMG and packaged apps. It writes
+`SHA256SUMS.txt` and `macos-release.json` after those checks pass. Keep the
+candidate in approved private storage while install testing is pending.
+
+On an isolated Mac, exercise public signup and sign-in with a designated test
+account, then download the same candidate through the intended delivery route.
+Preserve the download's quarantine metadata and use normal Gatekeeper and
+installation. Verify first launch and complete a harmless real task with each
+supported local coding integration using authorized accounts or models. Match
+the tested roster to the release commit and record any providers blocked by a
+missing CLI, account, model, or backend. If updates are enabled, verify the ZIP
+update path on the isolated installation. Record the release tag, version,
+source SHA, checksums, and observed install and task evidence in release notes
+before publishing the installer or adding a public download link. See
+[Mac release acceptance](https://github.com/getwinharris/agency/issues/60).
+
+#### Local coding integration coverage
+
+Use the desktop's [built-in providers](../../apps/server/src/services/plugins/builtin-registry.ts)
+and [ACP agent definitions](../../plugins/provider-acp/src/known-agents.ts) at the
+candidate SHA for the test roster. Each local session runs the integration's
+native CLI and uses the provider's own authentication and model access.
+
+- Codex, Claude Code, and Pi have dedicated provider plugins.
+- Antigravity and Cursor appear in the picker and require their native CLI to
+  start a session.
+- OpenCode, oh-my-pi, Grok Build, fx, Hermes Agent, OpenClaw, Devin, Droid, Kilo
+  Code, Cline, Kimi Code, and Agent Zero appear when their CLI is discovered on
+  the execution host.
+- OpenClaw relies on its configured Gateway. Agent Zero uses its CLI bridge
+  with an authorized server. Cloudroom Agent uses a hosted service and Cloud
+  Credits. Custom ACP agents and private Core sessions have their own setup
+  and acceptance checks.
+
+Record discovery, provider sign-in, and a completed task in a disposable
+workspace separately for each integration. A package smoke test and a CLI
+version check are evidence for packaging and discovery. Real beta availability
+requires the signed installer and observed task results.
+
+Record the execution environment for each task. Test Local on the isolated
+Mac. When an approved cloud VM is in scope, test its sign-in, workspace and
+storage access, task output, and reconnect independently. Confirm the task ran
+on the approved VM and used its storage. A [private Core](../../../core/docs/setup.md)
+has its own pairing and authorization. Record private Core evidence separately
+from hosted signup and enterprise storage provisioning.
 
 ## Auto-update
 

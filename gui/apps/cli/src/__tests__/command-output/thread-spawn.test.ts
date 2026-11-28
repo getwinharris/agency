@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import * as domain from "@cloudroom/domain";
+import { requestThreadId } from "@cloudroom/config/spawn-request";
 import {
   setupCommandOutputTestEnvironment,
   collectLogLines,
@@ -431,7 +432,7 @@ describe("room-cli thread spawn command output", () => {
     expect(helpOutput).toContain("--visibility <visibility>");
     expect(helpOutput).toContain("Exact Git ref");
     expect(helpOutput).toContain("origin/<branch> for a remote ref");
-    expect(helpOutput).toContain("room-cli environment providers");
+    expect(helpOutput).toContain("bapx-cli environment providers");
     expect(helpOutput).not.toContain("cloudroom curl");
     expect(helpOutput).toMatch(/Permission mode: accept-edits, auto, or full/);
   });
@@ -569,6 +570,71 @@ describe("room-cli thread spawn command output", () => {
       ([args]) => (args as { json: { requestId: string } }).json.requestId,
     );
     expect(second).toBe(first);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it("room-cli thread spawn reports the thread a relay 504 hid instead of spawning again (#2446)", async () => {
+    const post = vi.fn(
+      async () =>
+        new Response("cloudroom: timed out waiting for the tunnel client\n", {
+          status: 504,
+        }),
+    );
+    const get = vi.fn(async ({ param }: { param: { id: string } }) =>
+      fixtures.makeThread({
+        id: param.id,
+        projectId: "proj-1",
+        providerId: "codex",
+        status: "starting",
+      }),
+    );
+    stubServerApi({ "v1.threads.$post": post, "v1.threads.:id.$get": get });
+
+    await runCommand(
+      ["thread", "spawn", "--project", "proj-1", "--prompt", "hello"],
+      register,
+    );
+
+    const { requestId } = (
+      post.mock.calls[0] as unknown as [{ json: { requestId: string } }]
+    )[0].json;
+    const id = requestThreadId("proj-1", requestId);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(get.mock.calls[0]?.[0].param.id).toBe(id);
+    expect(collectLogLines(vi.mocked(console.log))).toContain(
+      `Thread spawned: ${id}`,
+    );
+  });
+
+  it("room-cli thread spawn with --request-id retries a relay 504 instead of reading an older thread (#2446)", async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("cloudroom: timed out waiting for the tunnel client\n", {
+          status: 504,
+        }),
+      )
+      .mockResolvedValueOnce(
+        fixtures.makeThread({ id: "thread-1", projectId: "proj-1", providerId: "codex" }),
+      );
+    const get = vi.fn();
+    stubServerApi({ "v1.threads.$post": post, "v1.threads.:id.$get": get });
+
+    await runCommand(
+      [
+        "thread",
+        "spawn",
+        "--project",
+        "proj-1",
+        "--prompt",
+        "hello",
+        "--request-id",
+        "reused-id",
+      ],
+      register,
+    );
+
+    expect(get).not.toHaveBeenCalled();
     expect(post).toHaveBeenCalledTimes(2);
   });
 
@@ -1383,7 +1449,7 @@ describe("room-cli thread spawn command output", () => {
       [
         "a provider with inputs and none given",
         ["--environment-provider", "git-worktree"],
-        "Error: The 'git-worktree' environment provider needs --environment-inputs <json>; `room-cli environment providers --json` shows its schema.",
+        "Error: The 'git-worktree' environment provider needs --environment-inputs <json>; `bapx-cli environment providers --json` shows its schema.",
       ],
       [
         "inputs given to a provider without any",

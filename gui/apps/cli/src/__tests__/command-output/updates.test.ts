@@ -229,7 +229,7 @@ describe("room-cli updates command output", () => {
     vi.mocked(console.log).mockClear();
     await runCommand(["updates", "apply"], register);
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
-      "No updates cloudroom can apply. Run room-cli updates status for manual updates.",
+      "No updates cloudroom can apply. Run bapx-cli updates status for manual updates.",
     ]);
   });
 });

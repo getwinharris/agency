@@ -1,44 +1,14 @@
-export function adminPages(): Record<string, string> {
-  return {
-    "admin/index.html": `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex, nofollow">
-  <title>bapX Admin</title>
-  <link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/admin/index.css">
-  <script src="/admin/index.js" defer></script>
-</head>
-<body>
-  <a class="skip" href="#main">Skip to content</a>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="bapX Admin home">
-      <img src="/brand/mark.svg" alt="" width="30" height="30">
-      <span>bapX</span><span class="brand-divider" aria-hidden="true"></span><span class="domain-word">Admin</span>
-    </a>
-    <div id="operator-bar" class="operator" hidden>
+import { brandLockup, brandStylesheet, faviconLinks, wordmark } from "../brand.ts";
+
+function operatorBar() {
+  return `<div id="operator-bar" class="operator" hidden>
       <span class="operator-name" id="operator-name"></span>
       <button type="button" class="control" id="sign-out">Sign out</button>
-    </div>
-  </header>
-  <div class="shell">
-    <aside id="side-menu" class="sidebar" aria-label="Admin navigation" hidden>
-      <nav aria-label="Workspace">
-        <h2>MediaHub</h2>
-        <button type="button" class="nav-button" id="nav-inbox" aria-controls="inbox" aria-current="page">
-          <span class="nav-icon icon-inbox" aria-hidden="true"></span><span>Inquiries</span>
-        </button>
-        <button type="button" class="nav-button" id="nav-copy" aria-controls="copy">
-          <span class="nav-icon icon-page" aria-hidden="true"></span><span>Homepage</span>
-        </button>
-        <a class="nav-external" href="https://mediahub.bapx.in/" target="_blank" rel="noopener noreferrer">Visit MediaHub <span class="external-arrow" aria-hidden="true"></span></a>
-      </nav>
-    </aside>
-    <main id="main" tabindex="-1">
-      <p class="loading" id="initial-status" role="status">Checking your session…</p>
-      <section class="login-card" id="login" aria-labelledby="login-title" hidden>
+    </div>`;
+}
+
+function legacyLogin() {
+  return `<section class="login-card" id="login" aria-labelledby="login-title" hidden>
         <p class="eyebrow">bapX operator workspace</p>
         <h1 id="login-title">Sign in</h1>
         <form id="login-form" method="post" action="/api/admin/login">
@@ -49,7 +19,32 @@ export function adminPages(): Record<string, string> {
           <button class="control primary" id="submit-login" type="submit">Sign in</button>
           <p class="notice" id="login-notice" role="status"></p>
         </form>
-      </section>
+      </section>`;
+}
+
+export function adminWorkspace(embedded = false) {
+  const section = embedded ? "div" : "main";
+  return `<div id="admin-workspace"${embedded ? ' data-account-admin hidden' : ""}>
+  ${embedded ? `<div class="topbar">${operatorBar()}</div>` : ""}
+  <div class="shell">
+    <aside id="side-menu" class="sidebar" aria-label="Admin navigation" hidden>
+      <nav aria-label="Workspace">
+        <h2>MediaHub</h2>
+        <button type="button" class="nav-button" id="nav-inbox" aria-controls="inbox" aria-current="page">
+          <span class="nav-icon icon-inbox" aria-hidden="true"></span><span>Inquiries</span>
+        </button>
+        <button type="button" class="nav-button" id="nav-copy" aria-controls="copy">
+          <span class="nav-icon icon-page" aria-hidden="true"></span><span>Homepage</span>
+        </button>
+        <button type="button" class="nav-button" id="nav-invitations" aria-controls="invitations" hidden>
+          <span class="nav-icon icon-page" aria-hidden="true"></span><span>Invitations</span>
+        </button>
+        <a class="nav-external" href="https://mediahub.bapx.in/" target="_blank" rel="noopener noreferrer">Visit MediaHub <span class="external-arrow" aria-hidden="true"></span></a>
+      </nav>
+    </aside>
+    <${section} class="admin-main" id="${embedded ? "management" : "main"}" tabindex="-1"${embedded ? ' role="region" aria-label="Admin"' : ""}>
+      <p class="loading" id="initial-status" role="status">Checking your session…</p>
+      ${embedded ? "" : legacyLogin()}
       <p class="notice global-notice" id="global-notice" role="status" hidden></p>
       <section id="inbox" class="workspace" aria-labelledby="inbox-title" hidden>
         <header class="page-heading">
@@ -123,40 +118,104 @@ export function adminPages(): Record<string, string> {
         </div>
       </section>
       <section id="copy" class="workspace" aria-labelledby="copy-title" hidden>
-        <header class="page-heading">
+        <header class="page-heading copy-heading">
           <div>
             <p class="eyebrow">MediaHub</p>
             <h1 id="copy-title">Homepage copy</h1>
             <p class="page-summary">Edit the headline and introduction to the project brief form.</p>
           </div>
-          <button type="button" class="control" id="reload-copy">Refresh</button>
+          <button type="button" class="control" id="reload-copy">Refresh published copy</button>
         </header>
         <div class="copy-grid">
           <section class="panel copy-editor" aria-labelledby="copy-editor-title">
-            <div class="panel-header"><h2 id="copy-editor-title">Editable fields</h2></div>
+            <div class="panel-header">
+              <h2 id="copy-editor-title">Edit copy</h2>
+              <p id="copy-state" class="copy-state" role="status"></p>
+            </div>
             <form id="publish-copy" method="post" action="/api/admin/mediahub">
               <label for="headline">Main headline</label>
-              <input id="headline" name="headline" required maxlength="220">
+              <input id="headline" name="headline" required maxlength="220" disabled>
               <label for="brief-intro">Project brief introduction</label>
-              <textarea id="brief-intro" name="briefIntro" required maxlength="420" rows="4"></textarea>
-              <div class="form-actions">
+              <textarea id="brief-intro" name="briefIntro" required maxlength="420" rows="4" disabled></textarea>
+              <div class="form-actions copy-actions">
                 <button type="submit" class="control primary" id="publish" disabled>Publish to MediaHub</button>
-                <p class="notice" id="copy-notice" role="status"></p>
+                <button type="button" class="control" id="reset-copy" disabled>Reset edits</button>
               </div>
+              <p class="notice copy-notice" id="copy-notice" role="status"></p>
             </form>
           </section>
           <section class="panel copy-preview" aria-labelledby="copy-preview-title">
-            <div class="panel-header"><h2 id="copy-preview-title">Text preview</h2></div>
-            <div class="preview-text">
-              <p class="eyebrow">Homepage</p>
-              <p id="preview-headline" class="preview-headline"></p>
-              <p id="preview-intro" class="preview-intro"></p>
+            <div class="panel-header preview-header">
+              <h2 id="copy-preview-title">Homepage preview</h2>
+              <div class="preview-modes" role="group" aria-label="Preview version">
+                <button type="button" class="control" id="copy-mode-draft" aria-pressed="true" disabled>Draft</button>
+                <button type="button" class="control" id="copy-mode-published" aria-pressed="false" disabled>Published</button>
+              </div>
+            </div>
+            <p id="preview-empty" class="empty">The preview appears when the published copy loads.</p>
+            <div id="preview-page" class="preview-page" hidden>
+              <div class="preview-brand">
+                <img src="${wordmark}" width="66" height="22" alt="bapX"> <strong>MediaHub</strong>
+              </div>
+              <div class="preview-hero">
+                <h3 id="preview-headline" class="preview-headline"></h3>
+              </div>
+              <div class="preview-brief">
+                <h3>Tell us what you need to move forward.</h3>
+                <p id="preview-intro" class="preview-intro"></p>
+              </div>
             </div>
           </section>
         </div>
       </section>
-    </main>
+      <section id="invitations" class="workspace" aria-labelledby="invitations-title" hidden>
+        <header class="page-heading">
+          <div>
+            <h1 id="invitations-title">Invite a bapX member</h1>
+            <p class="page-summary">Create a single-use signup link and send it to the person you’re inviting.</p>
+          </div>
+        </header>
+        <form class="panel invite-form" id="invite-form" method="post" action="/api/auth/invitations">
+          <label for="invite-email">Email address</label>
+          <input id="invite-email" name="email" type="email" autocomplete="off" maxlength="254" required>
+          <div class="form-actions">
+            <button type="submit" class="control primary" id="create-invite">Create invitation</button>
+          </div>
+          <div id="invite-result" hidden>
+            <label for="invite-link">Signup link</label>
+            <input id="invite-link" type="text" autocomplete="off" readonly>
+            <button class="control" id="copy-invite" type="button">Copy signup link</button>
+          </div>
+          <p class="notice" id="invite-notice" role="status"></p>
+        </form>
+      </section>
+    </${section}>
   </div>
+</div>`;
+}
+
+export function adminPages(): Record<string, string> {
+  return {
+    "admin/index.html": `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>bapX Admin</title>
+  ${brandStylesheet}
+  ${faviconLinks}
+  <link rel="stylesheet" href="/admin/index.css">
+  <script src="/admin/index.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    ${brandLockup("brand", 90, "Admin")}
+    ${operatorBar()}
+  </header>
+  ${adminWorkspace()}
 </body>
 </html>`,
   };

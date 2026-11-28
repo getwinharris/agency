@@ -3,7 +3,7 @@
 # running from the mount then dies with SIGBUS. Run the app as a child, then kill leftovers first.
 # Only from its own mount: extracted or unpacked copies share a folder with other instances.
 
-self="$(readlink -f "$0")"
+self="$(command -p readlink -f "$0")"
 appdir="${self%/*}"
 app="$self.bin"
 
@@ -11,6 +11,12 @@ mounted=0
 while read -r _ _ _ _ point _; do
   [ "$point" = "${appdir// /\\040}" ] && mounted=1 && break
 done < /proc/self/mountinfo
+
+# The AppImage runtime consumes the extract flag before reaching this launcher.
+# Keep extract mode for the backend, which launches the AppImage again.
+if [ "$mounted" -eq 0 ] && [ -n "${APPIMAGE:-}" ] && [ -n "${APPDIR:-}" ]; then
+  export APPIMAGE_EXTRACT_AND_RUN=1
+fi
 
 if [ -n "$ELECTRON_RUN_AS_NODE" ] || [ "$mounted" -eq 0 ]; then
   exec -a "$0" "$app" "$@"
@@ -40,7 +46,7 @@ trap - TERM INT HUP QUIT
 for ((round = 0; round < 20; round++)); do
   left=()
   for proc in /proc/[0-9]*; do
-    exe="$(readlink "$proc/exe" 2>/dev/null)" || continue
+    exe="$(command -p readlink "$proc/exe" 2>/dev/null)" || continue
     [[ "$exe" == "$appdir"/* ]] && left+=("${proc#/proc/}")
   done
   [ "${#left[@]}" -eq 0 ] && break

@@ -3,11 +3,15 @@ import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { cloudroomThreads, threads } from "@cloudroom/db";
 import { eq } from "drizzle-orm";
 import { cloudroom } from "../../src/services/cloudroom/commands.js";
+import { CloudAccountAuth } from "../../src/services/cloudroom/account-auth.js";
 import { cloudroomAccount, CloudroomAccountService, pendingLoginTimeoutMs } from "../../src/services/cloudroom/account.js";
+import { CloudHostBridge } from "../../src/services/cloudroom/host-bridge.js";
+import { CloudRuntime } from "../../src/services/cloudroom/runtime.js";
+import * as sandboxServices from "../../src/services/cloudroom/sandboxes.js";
 import { createTestAppHarness } from "../helpers/test-app.js";
 import { seedHostSession, seedProjectWithSource, seedThread } from "../helpers/seed.js";
 
@@ -94,7 +98,8 @@ it("pairs through a loopback callback, keeps secrets out of status, persists/rec
     expect(callbackResponse.headers.get("content-type")).toContain("text/html");
     const confirmation = await callbackResponse.text();
     expect(confirmation).toContain("<h1>You’re signed in</h1>");
-    expect(confirmation).toContain('href="cloudroom://open"');
+    expect(confirmation).toContain('href="bapx-agents://open"');
+    expect(confirmation).toContain("Open bapX Agents");
     expect(confirmation).toContain("--accent:#bfff00");
     expect(confirmation).not.toContain("#fd360e");
     for (const secret of [token, gateToken, url.searchParams.get("state")!, "c".repeat(64)]) expect(confirmation).not.toContain(secret);
@@ -162,6 +167,58 @@ it("pairs through a loopback callback, keeps secrets out of status, persists/rec
     account.cancel(); cloudroom(harness.deps).stop(); await close(website); await close(core); await harness.cleanup();
   }
 }, 15000);
+
+it("revokes only the displaced hosted device after saving a different account", async () => {
+  const harness = await createTestAppHarness();
+  const runtime = new CloudRuntime(new CloudHostBridge(harness.deps));
+  const auth = new CloudAccountAuth(runtime, { start() {}, stop() {}, async retryStart() {} });
+  const revoked: (string | undefined)[] = [];
+  const issuer = createServer((req, res) => {
+    if (req.method !== "POST" || req.url !== "/api/desktop/sign-out") {
+      res.writeHead(404).end();
+      return;
+    }
+    revoked.push(req.headers.authorization);
+    res.writeHead(204).end();
+  });
+  const website = await listen(issuer);
+  const previous = owners[0]!;
+  const replacement = owners[1]!;
+  const previousToken = "a".repeat(64);
+  const replacementToken = "b".repeat(64);
+  const revoke = vi.spyOn(sandboxServices, "revokeDesktopToken");
+
+  try {
+    await auth.configure(null, previous, undefined, website, previousToken);
+    await auth.configure(null, previous, undefined, website, previousToken);
+    const cancellation = new AbortController();
+    const save = runtime.saveConnection.bind(runtime);
+    const saveSpy = vi.spyOn(runtime, "saveConnection").mockImplementationOnce(async (value) => {
+      await save(value);
+      cancellation.abort();
+    });
+    try {
+      await expect(auth.configure(null, replacement, cancellation.signal, website, replacementToken)).rejects.toThrow();
+    } finally {
+      saveSpy.mockRestore();
+    }
+    expect(await runtime.savedConnection()).toMatchObject({ account: previous, sandboxToken: previousToken });
+    expect(revoke).not.toHaveBeenCalled();
+    expect(revoked).toEqual([]);
+
+    await auth.configure(null, replacement, undefined, website, replacementToken);
+
+    expect(await runtime.savedConnection()).toMatchObject({ account: replacement, sandboxToken: replacementToken });
+    const priorAuthorization = Buffer.from(`${previous.id}:${previousToken}`).toString("base64");
+    await expect.poll(() => revoked).toEqual([`Basic ${priorAuthorization}`]);
+    await auth.disconnect(previousToken);
+    expect(await runtime.savedConnection()).toMatchObject({ account: replacement, sandboxToken: replacementToken });
+  } finally {
+    revoke.mockRestore();
+    await close(issuer);
+    await harness.cleanup();
+  }
+});
 
 it("keeps browser sign-in open while a VM is provisioned and does not call the website or hosting when it expires", async () => {
   const harness = await createTestAppHarness();

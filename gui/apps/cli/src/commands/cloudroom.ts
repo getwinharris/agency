@@ -29,7 +29,7 @@ const TAR = process.platform === "win32" ? `${process.env.SystemRoot ?? "C:\\Win
 // skipping it also left nothing to unpack (#1454).
 export const WINDOWS_PULL_ARCHIVE = `ls -d -- "$n" >/dev/null && { l=$(find -H "$n" -type l | wc -l); [ "$l" = 0 ] || printf 'Skipped %s symlink(s): Windows tar cannot create them.\\n' "$l" >&2; find -H "$n" ! -type l -print0 | tar -h --null --no-recursion -czf - -T -; }`;
 
-const THIS_COMPUTER = process.platform === "win32" ? "this PC" : "this Mac";
+const THIS_COMPUTER = process.platform === "win32" ? "this PC" : process.platform === "darwin" ? "this Mac" : "this computer";
 const COMPUTER_TITLE = process.platform === "darwin" ? "Mac" : "Computer";
 
 function endsWithSeparator(path: string): boolean {
@@ -129,7 +129,7 @@ export async function placePull(archive: Buffer, source: string, target: string,
       return target;
     }
     const name = pullName(source);
-    const hint = `Give the copy a new name instead: room-cli vm pull ${source} ${join(target, "<new-name>")}`;
+    const hint = `Give the copy a new name instead: bapx-cli vm pull ${source} ${join(target, "<new-name>")}`;
     if (name === null && (!/^[\p{L}\p{N}]/u.test(entry) || !kind.isDirectory())) throw new Error(`The VM named this copy "${entry}". ${hint}`);
     if (name !== null && process.platform === "win32" && /[\\:]/.test(name)) throw new Error(`"${name}" isn't a file name on ${THIS_COMPUTER}. ${hint}`);
     const to = join(await realpath(target), name ?? entry);
@@ -159,14 +159,14 @@ export function registerVmCommands(program: Command, getUrl: () => string): void
       if (result.truncated) process.stderr.write("Output exceeded 16 MiB and was truncated.\n");
       // #1817: cut output must not pass `&&` or `set -e` as complete. A failed command keeps its own code.
       const cut = result.truncated && result.code === 0;
-      if (cut) process.stderr.write("The command exited 0, but its output was cut, so this exits 1. Write it to a file and copy it with `room-cli vm pull`.\n");
+      if (cut) process.stderr.write("The command exited 0, but its output was cut, so this exits 1. Write it to a file and copy it with `bapx-cli vm pull`.\n");
       process.exitCode = cut ? 1 : result.code ?? 1;
     }));
   vm.command("pull <vm-path> [local-path]").description(`Copy a VM or sandbox file or folder to ${THIS_COMPUTER}, like cp: into an existing folder or a path ending in / (default: current folder), else under that new name, which must not exist yet.`)
     .option(...THREAD_OPTION)
     .action(action(async (source: string, target = ".", options: VmTarget = {}) => {
-      // Git Bash turns /code/x into C:/Program Files/Git/code/x before room-cli sees it (#1454).
-      if (process.platform === "win32" && /^[A-Za-z]:[\\/]/.test(source)) throw new Error(`${source} is a path on ${THIS_COMPUTER}, not the VM. Git Bash rewrites arguments that start with /; run MSYS_NO_PATHCONV=1 room-cli vm pull <vm-path> <local-path> instead.`);
+      // Git Bash turns /code/x into C:/Program Files/Git/code/x before bapx-cli sees it (#1454).
+      if (process.platform === "win32" && /^[A-Za-z]:[\\/]/.test(source)) throw new Error(`${source} is a path on ${THIS_COMPUTER}, not the VM. Git Bash rewrites arguments that start with /; run MSYS_NO_PATHCONV=1 bapx-cli vm pull <vm-path> <local-path> instead.`);
       const inside = endsWithSeparator(target) || await stat(target).then((s) => s.isDirectory(), () => false);
       const taken = new Error(`${target} already exists; nothing was copied.`);
       if (!inside && await lstat(target).then(() => true, () => false)) throw taken;
@@ -292,7 +292,7 @@ export function registerCloudCommands(program: Command, getUrl: () => string): v
   }));
   group.command("check").description(`Make ${COMPUTER_TITLE} access and previews check their connection to Cloudroom now`).option("--json", "Print JSON").action(action(async (options: JsonOutputOptions) => {
     await createCliRoomSdk(getUrl()).cloudroom.checkPreviews();
-    if (!outputJson(options, { ok: true })) console.log("Checking now. Run room-cli cloud status in a few seconds for the result.");
+    if (!outputJson(options, { ok: true })) console.log("Checking now. Run bapx-cli cloud status in a few seconds for the result.");
   }));
   const codex = group.command("codex").description("Connect Codex on your cloud VM");
   codex.command("status").option("--json", "Print JSON").action(action(async (options: JsonOutputOptions) => {
@@ -301,7 +301,7 @@ export function registerCloudCommands(program: Command, getUrl: () => string): v
   }));
   codex.command("login").requiredOption("--request-id <id>", "Reuse this ID after an uncertain response").option("--json", "Print JSON").action(action(async (options: JsonOutputOptions & { requestId: string }) => {
     const result = await createCliRoomSdk(getUrl()).cloudroom.codexLogin(options.requestId);
-    if (!outputJson(options, result)) console.log(result.state === "waiting" ? `Open ${result.verification_url}\nEnter code: ${result.user_code}\nRun room-cli cloud codex status to verify.` : result.message ?? result.state);
+    if (!outputJson(options, result)) console.log(result.state === "waiting" ? `Open ${result.verification_url}\nEnter code: ${result.user_code}\nRun bapx-cli cloud codex status to verify.` : result.message ?? result.state);
   }));
   codex.command("cancel <request-id>").option("--json", "Print JSON").action(action(async (id: string, options: JsonOutputOptions) => {
     const result = await createCliRoomSdk(getUrl()).cloudroom.cancelCodexLogin(id);
@@ -327,7 +327,7 @@ export function registerCloudCommands(program: Command, getUrl: () => string): v
   }));
   github.command("login").requiredOption("--request-id <id>", "Reuse this ID after an uncertain response").option("--json", "Print JSON").action(action(async (options: JsonOutputOptions & { requestId: string }) => {
     const result = await createCliRoomSdk(getUrl()).cloudroom.githubLogin(options.requestId);
-    if (!outputJson(options, result)) console.log(result.state === "waiting" ? `${githubNext(result)}\nRun room-cli cloud github status to verify.` : result.message ?? result.state);
+    if (!outputJson(options, result)) console.log(result.state === "waiting" ? `${githubNext(result)}\nRun bapx-cli cloud github status to verify.` : result.message ?? result.state);
   }));
   github.command("cancel <request-id>").option("--json", "Print JSON").action(action(async (id: string, options: JsonOutputOptions) => {
     const result = await createCliRoomSdk(getUrl()).cloudroom.cancelGithubLogin(id);
@@ -340,7 +340,7 @@ export function registerCloudCommands(program: Command, getUrl: () => string): v
   }));
   cursor.command("login").requiredOption("--request-id <id>", "Reuse this ID after an uncertain response").option("--json", "Print JSON").action(action(async (options: JsonOutputOptions & { requestId: string }) => {
     const result = await createCliRoomSdk(getUrl()).cloudroom.cursorLogin(options.requestId);
-    if (!outputJson(options, result)) console.log(result.verification_url ? `Open ${result.verification_url}` : `${result.message ?? result.state}\nRun room-cli cloud cursor status for the sign-in link.`);
+    if (!outputJson(options, result)) console.log(result.verification_url ? `Open ${result.verification_url}` : `${result.message ?? result.state}\nRun bapx-cli cloud cursor status for the sign-in link.`);
   }));
   cursor.command("cancel <request-id>").option("--json", "Print JSON").action(action(async (id: string, options: JsonOutputOptions) => {
     const result = await createCliRoomSdk(getUrl()).cloudroom.cancelCursorLogin(id);
@@ -416,8 +416,8 @@ export function registerCloudCommands(program: Command, getUrl: () => string): v
       if (!outputJson(options, { ok: true })) console.log(name === "logout" ? "Signed out of this app. Cloud agents keep running." : "Sign-in cancelled.");
     }));
   }
-  group.command("teleport <thread-id>").description("Move a local Codex, Pi, Claude Code, or opencode thread to Cloud without changing its conversation. Checks first that Cloud can run the same model and effort. Use --to-local to bring a Cloud Codex, Pi, Claude Code, opencode, or Cursor thread back to this Mac")
-    .option("--to-local", "Move a Cloud thread back to this Mac with its conversation and code changes")
+  group.command("teleport <thread-id>").description(`Move a local Codex, Pi, Claude Code, or opencode thread to Cloud without changing its conversation. Checks first that Cloud can run the same model and effort. Use --to-local to bring a Cloud Codex, Pi, Claude Code, opencode, or Cursor thread back to ${THIS_COMPUTER}`)
+    .option("--to-local", `Move a Cloud thread back to ${THIS_COMPUTER} with its conversation and code changes`)
     .option("--cancel", "Cancel before cloud execution starts")
     .option("--status", "Read transfer progress without changing it")
     .option("--check", "Check whether Teleport would work, without moving anything")
@@ -430,7 +430,7 @@ export function registerCloudCommands(program: Command, getUrl: () => string): v
       const sdk = createCliRoomSdk(getUrl());
       if (options.toLocal) {
         const moved = await sdk.cloudroom.teleportLocal(threadId);
-        if (!outputJson(options, moved)) console.log(`Moved to this Mac.${moved.conflicts ? ` ${moved.conflicts} changed files were kept in both versions; cloud copies are in .cloudroom/teleport/.` : ""}`);
+        if (!outputJson(options, moved)) console.log(`Moved to ${THIS_COMPUTER}.${moved.conflicts ? ` ${moved.conflicts} changed files were kept in both versions; cloud copies are in .cloudroom/teleport/.` : ""}`);
         return;
       }
       if (Boolean(options.model) !== Boolean(options.reasoning)) throw new Error("Use --model and --reasoning together.");

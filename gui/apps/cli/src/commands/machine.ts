@@ -94,7 +94,7 @@ async function reportMachineCleanup(
     host.lifecycle.teardown?.status === "failed"
   ) {
     throw new Error(
-      `Machine ${hostId} cleanup failed: ${host.lifecycle.message ?? "unknown error"}\nRetry with: room-cli machine retry-cleanup ${hostId}`,
+      `Machine ${hostId} cleanup failed: ${host.lifecycle.message ?? "unknown error"}\nRetry with: bapx-cli machine retry-cleanup ${hostId}`,
     );
   }
   console.log(done);
@@ -377,7 +377,7 @@ export function registerMachineCommands(
         } catch (error) {
           if (controller.signal.aborted) {
             throw new CliExitError(
-              "Stopped following; creation continues. Use room-cli machine remove <host-id> to cancel.",
+              "Stopped following; creation continues. Use bapx-cli machine remove <host-id> to cancel.",
               130,
             );
           }
@@ -437,7 +437,7 @@ export function registerMachineCommands(
         else if (!vps?.connected) console.log("No machines found");
         if (vps?.connected)
           console.log(
-            `VPS: ${vps.name ?? "your VPS"} (${vpsStatus(vps)}). Start threads on it from the app's new-thread picker; \`room-cli machine show vps\` shows it.`,
+            `VPS: ${vps.name ?? "your VPS"} (${vpsStatus(vps)}). Start threads on it from the app's new-thread picker; \`bapx-cli machine show vps\` shows it.`,
           );
       }),
     );

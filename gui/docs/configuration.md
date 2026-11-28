@@ -7,11 +7,11 @@ contains `url`, `token`, and `projectId`, with permissions `0600`. Configure it
 through `POST /api/v1/cloudroom`; remote core URLs require HTTPS. See
 [Cloudroom](cloudroom.md) for the pilot's setup, supported operations, and limits.
 
-Cloud Codex first reuses an existing local file-backed login when the VM has none. **Connect Codex** is the fallback; ongoing two-way token-file sync remains disabled. Use `room-cli cloud codex status --json`, `login --request-id ID`, or `cancel ID`; see [the login flow](cloudroom.md#connect-codex). No environment variable or API key is required.
+Cloud Codex first reuses an existing local file-backed login when the VM has none. **Connect Codex** is the fallback; ongoing two-way token-file sync remains disabled. Use `bapx-cli cloud codex status --json`, `login --request-id ID`, or `cancel ID`; see [the login flow](cloudroom.md#connect-codex). No environment variable or API key is required.
 
 ## Cloudroom CLI
 
-Use `room-cli`, not official BB's `bb`. Standalone `room-cli` defaults to `http://127.0.0.1:39886` and daemon port `39887`. `room-cli status --json` reports the selected server and profile. The same backend controls Local and Cloud threads.
+Use `bapx-cli` for bapX Agents. Existing scripts can still call `room-cli`. Standalone `bapx-cli` defaults to `http://127.0.0.1:39886` and daemon port `39887`. `bapx-cli status --json` reports the selected server and profile. The same backend controls Local and Cloud threads.
 
 Cloudroom supplies these automatically to Local agent shells and thread-scoped terminals:
 
@@ -150,12 +150,12 @@ Closing a laptop lid or choosing Sleep manually still sleeps the Mac. Configure 
 terminal with:
 
 ```sh
-room-cli keep-awake status [--json]
-room-cli keep-awake level <off|working|always> [--json]
-room-cli keep-awake enable [--json]    # same as: level always
-room-cli keep-awake disable [--json]   # same as: level off
-room-cli keep-awake hosts all
-room-cli keep-awake hosts <host-id>...
+bapx-cli keep-awake status [--json]
+bapx-cli keep-awake level <off|working|always> [--json]
+bapx-cli keep-awake enable [--json]    # same as: level always
+bapx-cli keep-awake disable [--json]   # same as: level off
+bapx-cli keep-awake hosts all
+bapx-cli keep-awake hosts <host-id>...
 ```
 
 The **Remove AI co-authors** toggle in Settings → Defaults defaults to on. Cloudroom
@@ -170,14 +170,14 @@ real repositories: the session's own (any worktree or submodule), `/repos/<name>
 and `/code/<name>` in a Personal thread. Test fixture repos in `/tmp` or nested in
 a project keep their trailers. Local still touches every repository, and Cloud
 OpenClaw sessions always strip, even with the setting off. Use
-`room-cli settings general stripAiCoAuthorsEnabled <true|false>`. Start a new
+`bapx-cli settings general stripAiCoAuthorsEnabled <true|false>`. Start a new
 session after changing it. Cloud threads need a core with `strip_ai_co_authors`
 support.
 
 The **Command Guard** toggle in Settings → Agents → Command Guard defaults to on. It blocks a
 small set of catastrophic shell-command patterns in new Local Codex/Pi/Claude
 Code sessions and Cloud Codex/Pi sessions. Use
-`room-cli settings general commandGuardEnabled <true|false>` or the existing
+`bapx-cli settings general commandGuardEnabled <true|false>` or the existing
 `system.updateGeneralSettings` API. Start a new session after changing it.
 Personal guards and running commands are unchanged. Cloud starts require a core
 with `command_guard` support when enabled. This is accident prevention, not a
@@ -201,7 +201,7 @@ queued message waits and then runs when the agent stops. A steer message goes
 to the agent during the current run. The picker defaults to "Queue": Enter
 queues and Command+Enter steers. "Steer" swaps them. Ctrl+Enter is the same
 modifier shortcut on Windows and Linux. Existing saved preferences are preserved.
-Set it with `room-cli settings general steerActiveThreadOnEnter <true|false>`,
+Set it with `bapx-cli settings general steerActiveThreadOnEnter <true|false>`,
 where `true` is "Steer".
 
 The "Streamer mode" toggle in Settings → General hides every `customModels`
@@ -603,6 +603,48 @@ Grok reads recursive paths from `[skills].paths` in `config.toml`. It also reads
 enabled Grok and Claude-compatible plugin skills. Its Cursor and Claude
 compatibility roots follow the related config and environment switches.
 
+### Install an Agency skill in native agents
+
+The [release notes](release-notes.md) track public availability. Discovery of a
+project skill depends on the locally installed agent and its configuration.
+
+From the target Git checkout, install the bundled `file-tree` skill from
+Agency’s GitHub repository. Keep any existing project copy. Use Node.js and
+Git for the installer and the bundled tree command. Set `agency_revision` to
+a reviewed Git commit to pin the skill source.
+
+```sh
+agency_revision=main
+if [ ! -e .agents/skills/file-tree ] && [ ! -L .agents/skills/file-tree ]; then
+  npx --yes skills@1.9.0 add "https://github.com/getwinharris/agency/tree/$agency_revision/skills" \
+    --agent codex opencode --skill file-tree --copy --yes &&
+    node .agents/skills/file-tree/scripts/tree.mjs .
+fi
+```
+
+Codex and OpenCode discover the same `.agents/skills/file-tree/SKILL.md` from
+the target workspace. In a fresh Codex session, open the skills picker with
+`$`. Run `opencode debug skill` from the workspace to see OpenCode's discovery.
+
+For Hermes, add the target workspace's absolute `.agents/skills` path to
+`skills.external_dirs` in the chosen profile's `config.yaml`, keeping any
+existing entries. Run `hermes skills list --source local --enabled-only` in
+that profile and check for `file-tree`. An external directory remains available
+to that Hermes profile when it changes projects, so use a dedicated profile if
+the skill should stay with one workspace.
+
+Agent Skills package instructions and supporting files. Install bb extensions
+that add desktop UI, background jobs, or server routes through `bb plugin install`.
+For callable MCP tools, register the tool server separately through the native
+client's MCP commands. Codex, OpenCode, and Hermes each provide `mcp add` and
+`mcp list` for managing their own server connections.
+
+#### Ego browser in Agency
+
+For real-browser work, use the bundled `ego-browser` skill and the @ego
+integration on an authorized host. The skill guides browser usage and
+verification. Confirm availability with `ego-browser --help` on that host.
+
 ## Multi-machine
 
 Settings → Machines offers Manual machine setup (the built-in `manual` provider)
@@ -696,6 +738,7 @@ client wrote first, so a stale window cannot silently clobber a newer value.
 | `sidebar.navigationProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `sidebar.threadListProvider`      | Plugin key, `__automatic__`, or `__builtin__`       |
 | `appearance.theme`                | `light`, `dark`, or `system` (default)              |
+| `appearance.showSubagentBar`     | `false` hides the subagent bar under thread titles  |
 | `defaults.startingMachine`        | `last` (default: Cloud, except a project where Local was picked in the last 24 hours) or `cloud` |
 | `defaults.showUltraEfforts`       | `true` adds Claude Ultracode and Codex Ultra to the effort menu (default `false`) |
 
@@ -752,7 +795,7 @@ Settings → Thread purpose turns it off (`threadPurpose.enabled`, on by default
 Its Show in sidebar switch (`threadPurpose.showInSidebar`, on by default) hides only the card on sidebar threads.
 The default model is Haiku 5.5 on Claude Code, falling back to GPT-6 Luna on Codex. Codex-only users get GPT-6 Luna.
 With neither signed in on this Mac, no purposes are written.
-`room-cli thread show` prints it.
+`bapx-cli thread show` prints it.
 
 ### Wrong-project hint
 
@@ -865,9 +908,9 @@ and holds the tunnel in its background service: it proxies relayed requests to
 the server's own loopback and reconnects with capped backoff. There is no
 foreground client and no pairing step.
 
-- `room-cli connect phone` prints the phone setup link, cloudroom.dev/m.
-  `room-cli connect sign-out-phones` ends every phone session.
-- `room-cli connect expose <port>` run from a thread shares that thread
+- `bapx-cli connect phone` prints the phone setup link, cloudroom.dev/m.
+  `bapx-cli connect sign-out-phones` ends every phone session.
+- `bapx-cli connect expose <port>` run from a thread shares that thread
   environment's enrolled host. Server-host URLs are
   `https://<id>--<port>.cloudroom.run`; remote hosts use
   `https://<machine-id>--<port>.cloudroom.run` and proxy directly through the
@@ -883,8 +926,8 @@ foreground client and no pairing step.
   `x-bb-connect-machine`. The relay forwards their `/internal` and `/api/v1`
   calls as a machine and refuses host-management changes. Removing the machine
   revokes the credential.
-- Disabling the plugin (`room-cli plugin disable connect`) cuts off all remote
-  access; `room-cli plugin enable connect` restores it.
+- Disabling the plugin (`bapx-cli plugin disable connect`) cuts off all remote
+  access; `bapx-cli plugin enable connect` restores it.
 
 ## Message editing
 
@@ -1412,7 +1455,7 @@ while no builds are running. See [build performance](build-performance.md) for
 its identity, portability, and verification contract.
 
 Usage telemetry can be disabled in Settings → General → Privacy & diagnostics → Share usage data and setup errors,
-or with `room-cli settings general telemetryEnabled false`. The saved server-wide preference
+or with `bapx-cli settings general telemetryEnabled false`. The saved server-wide preference
 takes effect immediately and persists across restarts. SDK callers can use
 `system.updateGeneralSettings` with `telemetryEnabled`. `CLOUDROOM_TELEMETRY=false`,
 `BB_TELEMETRY=false`, or `DO_NOT_TRACK=1` always disables telemetry, even when the saved

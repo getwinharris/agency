@@ -22,6 +22,7 @@ WIN = sys.platform == "win32"
 CLI = (shutil.which("room-cli") if WIN else None) or "room-cli"
 ID = re.compile(r"(?<![A-Za-z0-9-])([a-z]-[0-9a-f]{8})(?![A-Za-z0-9])(?:, *| +)?")  # a chat ID as extract.py writes it, plus the separator after it
 LEAD = re.compile(r"[\s#|*_`>\[(\d.)+-]*")  # markup before a chat line's own ID: headings, tables, lists, bold, code
+NOT_READ = re.compile(r"^[\s`*>-]*(error \| .*?)[\s`*]*$", re.I | re.M)  # the Cyber reader's clone-error row, on any line, fenced or not (#2710)
 PENDING = 300  # seconds a reader may wait to start; past it, it is restarted once, then failed (#2515)
 
 
@@ -92,12 +93,26 @@ def start(d, state, n):
     return thread.get("status")
 
 
+def max_readers():
+    """The scan's reader cap that the app saved on its thread (Free plans, #2645); None when uncapped or unknown."""
+    if not os.environ.get("ROOM_THREAD_ID"):
+        return None
+    try:
+        return json.loads(cli("loop", "scan-progress", "--data={}", "--json", check=True, timeout=60).stdout).get("maxReaders")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, AttributeError):
+        return None
+
+
 def spawn(d, provider, model):
     started = os.path.exists(os.path.join(d, "readers.json"))
     state = load(d) if started else {"provider": provider, "model": model, "readers": {}, "all": [],
                                      "prompt": os.environ.get("SCAN_READER_PROMPT"), "title": os.environ.get("SCAN_TITLE"),
                                      "reasoning": os.environ.get("SCAN_READER_REASONING")}
-    for path in sorted(glob.glob(os.path.join(d, "slices", "slice-*.txt"))):
+    paths = sorted(glob.glob(os.path.join(d, "slices", "slice-*.txt")))
+    cap = max_readers()
+    if cap is not None and len(paths) > cap:  # the lead skipped --max-readers: start none rather than spend Free's threads
+        sys.exit(f"The Free plan allows {cap} readers here, not {len(paths)}. Run step 1 again with --max-readers {cap}, then spawn again.")
+    for path in paths:
         n = os.path.basename(path)[6:-4]
         if n not in state["readers"]:
             try:
@@ -172,7 +187,8 @@ def wait(d, limit=540):
             if got is None:
                 continue
             output = (got.get("output") or "").strip()
-            if " | " in output:
+            error = NOT_READ.search(output)
+            if " | " in output and not error:  # a clone error is a failed reader, never a read (#2710)
                 r["output"], r["invented"] = drop_invented(output, slice_ids(d, n))
                 continue
             if r["tries"] < 2:
@@ -183,7 +199,7 @@ def wait(d, limit=540):
                 except (subprocess.CalledProcessError, ValueError):  # Cloud unreachable; never print e: it holds the prompt (#2376)
                     stuck = True
             # the last try: an answer with no line (a usage limit message) is a failed reader (#2515)
-            r["output"], r["stuck"], r["last"] = "", stuck, output.splitlines()[-1] if output else ""
+            r["output"], r["stuck"], r["last"] = "", stuck, error[1] if error else output.splitlines()[-1] if output else ""
         save(d, state)
         done = sum("output" in r for r in state["readers"].values())
         if not errors:  # its own retries would add ~50 s to a stalled pass

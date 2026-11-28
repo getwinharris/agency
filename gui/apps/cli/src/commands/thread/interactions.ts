@@ -231,7 +231,7 @@ function formatAnswerCommand(
       ? `--choice ${question.id}=<${values.join("|")}>`
       : `--text ${question.id}='<text>'`;
   });
-  return `room-cli thread interactions answer ${interaction.id} ${interaction.threadId} ${flags.join(" ")}`;
+  return `bapx-cli thread interactions answer ${interaction.id} ${interaction.threadId} ${flags.join(" ")}`;
 }
 
 function printApprovalInteraction(
@@ -283,8 +283,8 @@ function printApprovalInteraction(
       interaction.payload.subject.kind === "permission_grant"
         ? `grant ${target} [--scope turn|session]`
         : `approve ${target}`;
-    console.log(`  Answer: room-cli thread interactions ${allow}`);
-    console.log(`      or: room-cli thread interactions deny ${target}`);
+    console.log(`  Answer: bapx-cli thread interactions ${allow}`);
+    console.log(`      or: bapx-cli thread interactions deny ${target}`);
   }
 
   if (interaction.resolution) {
@@ -363,7 +363,7 @@ function printPluginRequestInteraction(
   );
   console.log(`  Data: ${JSON.stringify(interaction.payload.data)}`);
   console.log(
-    `  Answer: room-cli thread interactions respond ${interaction.id} ${interaction.threadId} --value '<json>'`,
+    `  Answer: bapx-cli thread interactions respond ${interaction.id} ${interaction.threadId} --value '<json>'`,
   );
 }
 
@@ -646,7 +646,7 @@ function buildBinaryResolution(
     approvalInteraction.payload.subject.kind === "permission_grant"
   ) {
     throw new Error(
-      `Interaction ${interaction.id} is a permission grant; use room-cli thread interactions grant.`,
+      `Interaction ${interaction.id} is a permission grant; use bapx-cli thread interactions grant.`,
     );
   }
   const decision = pickApprovalDecision(approvalInteraction, action);

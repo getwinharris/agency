@@ -1,8 +1,8 @@
 /// The same layout as the Local CLI's help (ADR 20261110-235800).
 #[cfg(unix)]
-const HELP: &str = "Usage: room-cli [command]
+const HELP: &str = "Usage: bapx-cli [command]
 
-Cloudroom CLI in a Cloud thread: this thread, its children, and this sandbox
+bapX CLI in a Cloud thread: this thread, its children, and this sandbox
 
 Commands:
   status        Show this thread and its children
@@ -43,6 +43,16 @@ fn main() {
 
 #[cfg(unix)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let executable = match std::env::args_os()
+        .next()
+        .as_deref()
+        .and_then(|arg| std::path::Path::new(arg).file_name())
+        .and_then(|name| name.to_str())
+    {
+        Some("bapx-core") => "bapx-core",
+        Some("bapx-cli") => "bapx-cli",
+        _ => "cloudroom",
+    };
     // `std::env::args()` panics on an argument that isn't UTF-8 (#705).
     let mut args = Vec::new();
     for (index, arg) in std::env::args_os().enumerate().skip(1) {
@@ -50,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(arg) => args.push(arg),
             Err(arg) => {
                 eprintln!(
-                    "Argument {index} isn't valid UTF-8: {}. Pass text; send bytes on stdin instead (room-cli mac run --stdin).",
+                    "Argument {index} isn't valid UTF-8: {}. Pass text; send bytes on stdin instead (bapx-cli mac run --stdin).",
                     arg.to_string_lossy()
                 );
                 std::process::exit(2);
@@ -58,7 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     if args.first().map(String::as_str) == Some("--version") {
-        println!("cloudroom {} ({})", cloudroom::VERSION, cloudroom::COMMIT);
+        println!(
+            "{executable} {} ({})",
+            cloudroom::VERSION,
+            cloudroom::COMMIT
+        );
         return Ok(());
     }
     if args.first().map(String::as_str) == Some("--features") {
@@ -74,21 +88,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.first().map(String::as_str) == Some("terminal") {
         std::process::exit(cloudroom::runtime::terminal::local_cli(&args[1..]));
     }
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("publish-site") {
+        return Ok(cloudroom::site_release::cli(&args[1..])?);
+    }
     // Everything else runs on the async runtime; the short commands above, which the app runs often, skip its start.
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?
-        .block_on(run(args))
+        .block_on(run(args, executable))
 }
 
 #[cfg(unix)]
-async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Vec<String>, executable: &str) -> Result<(), Box<dyn std::error::Error>> {
     if args.first().map(String::as_str) == Some("serve-web") {
         if args.len() != 1 {
-            return Err("Usage: cloudroom serve-web".into());
+            return Err(format!("Usage: {executable} serve-web").into());
         }
         return cloudroom::web::serve().await;
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().map(String::as_str) == Some("serve-business-sandbox") {
+        let [_, policy] = args.as_slice() else {
+            return Err(format!("Usage: {executable} serve-business-sandbox POLICY.json").into());
+        };
+        return cloudroom::business_sandbox::serve(policy.as_ref()).await;
     }
     if args.first().map(String::as_str) == Some("helper") {
         if let Err(error) = cloudroom::helper::cli(&args[1..]).await {
