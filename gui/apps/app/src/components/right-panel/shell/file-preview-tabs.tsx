@@ -231,6 +231,7 @@ export function ProjectFilePreviewTabContent({
     { environmentId, hostId },
     {
       enabled: isPanelOpen,
+      rootPath,
     },
   );
   const routing = useMemo(
