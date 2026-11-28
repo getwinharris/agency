@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { codexGuardConfig } from "../../../../../core/src/runtime/command-guard.mjs";
+import { checkCommand, codexGuardConfig } from "../../../../../core/src/runtime/command-guard.mjs";
 import { commandGuardBlockReason, prepareCodexGuard } from "./command-guard.js";
 
 const fixture = { directory: "" };
@@ -129,6 +129,16 @@ describe("Codex Command Guard", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
   });
+
+  it.each(["bapx-cli", "room-cli", "cloudroom"])(
+    "applies the computer write guard through %s",
+    (cli) => {
+      // Inspect command text only. Neither command is executed.
+      const write = `${cli} mac run --write 'gh repo delete guard-test' `;
+      expect(checkCommand(write)).toContain("deleting a hosted repository");
+      expect(checkCommand(`${cli} mac run 'git status'`)).toBeNull();
+    },
+  );
 
   it("writes the guard again after the OS removed its folder", () => {
     const config = prepareCodexGuard(fixture.directory);

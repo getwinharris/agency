@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "bin": {
+    "bapx-cli": "./bin/bapx-cli",
     "room-cli": "./bin/room-cli",
     "title": "./bin/title"
   },

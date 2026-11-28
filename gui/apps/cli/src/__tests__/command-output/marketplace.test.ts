@@ -70,7 +70,7 @@ describe("room-cli marketplace", () => {
     const output = collectLogPayloads(vi.mocked(console.log)).join("\n");
     expect(output).toContain("Added marketplace acme-plugins");
     expect(output).toContain("Adding a marketplace installs nothing");
-    expect(output).toContain("room-cli plugin install <id>@acme-plugins");
+    expect(output).toContain("bapx-cli plugin install <id>@acme-plugins");
   });
 
   it("resolves a relative path: source on the invoking machine", async () => {

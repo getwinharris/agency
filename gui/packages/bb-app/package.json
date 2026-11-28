@@ -13,12 +13,16 @@
   ],
   "bin": {
     "bb-app": "dist/bb-app.js",
+    "bapx-cli": "dist/room-cli.js",
     "room-cli": "dist/room-cli.js"
   },
   "files": [
     "app/dist",
     "dist",
     "!dist/*.map",
+    "host-daemon/dist/bapx-cli",
+    "host-daemon/dist/bapx-cli.cmd",
+    "host-daemon/dist/bapx-cli.ps1",
     "host-daemon/dist/room-cli",
     "host-daemon/dist/room-cli.cmd",
     "host-daemon/dist/room-cli.ps1",

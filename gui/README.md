@@ -14,6 +14,29 @@ pnpm exec turbo run build typecheck --filter=@cloudroom/app --filter=@cloudroom/
 
 SQLite, file watching, and terminals use native modules, so their install scripts must run: `pnpm-workspace.yaml` lists the allowed ones. If your pnpm version differs, use `npx --yes pnpm@10.34.9`.
 
+Use `bapx-cli --help` after installing and launching bapX Agents. On Linux and
+macOS the stable app sets up `~/.local/bin/bapx-cli`. On Windows use
+`bapx-cli.cmd` or `bapx-cli.ps1` in the installed host-daemon directory.
+Existing scripts can continue to use `room-cli`. For development from this
+checkout, run `pnpm bapx-cli --help` from `gui/`.
+
+## Work with repository skills
+
+From the Agency checkout root, list the tracked skill names, read the one you
+need, and explicitly update its `SKILL.md`:
+
+```sh
+./gui/apps/cli/bin/bapx-cli repo skills list
+./gui/apps/cli/bin/bapx-cli repo skills read ego-browser
+./gui/apps/cli/bin/bapx-cli repo skills edit ego-browser --stdin < revised-skill.md
+git diff -- skills/ego-browser/SKILL.md
+```
+
+Use `list --json` for scripts. On Windows or from `gui/`, the workspace command
+is `pnpm bapx-cli repo skills list`. Repository commands act on the tracked
+`skills/<name>/SKILL.md` files in the source checkout. To work with skills
+installed in bapX Agents, use `bapx-cli skill --help`.
+
 ## Run in dev mode
 
 Start the backend and browser UI, then Electron in a second terminal:

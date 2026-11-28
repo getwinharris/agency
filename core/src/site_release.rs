@@ -153,8 +153,7 @@ struct Budget {
 }
 
 pub fn is_site_host(name: &str) -> bool {
-    let name = name.trim_end_matches('.');
-    name == "app.bapx.in" || name.ends_with(SITE_SUFFIX)
+    name.trim_end_matches('.').ends_with(SITE_SUFFIX)
 }
 
 pub fn cli(args: &[String]) -> io::Result<()> {

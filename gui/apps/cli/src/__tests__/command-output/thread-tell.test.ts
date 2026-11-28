@@ -56,7 +56,7 @@ describe("room-cli thread tell command output", () => {
     [
       { kind: "interaction" },
       null,
-      "waiting for a pending interaction); it dispatches once that is resolved. `room-cli thread interactions list thread-q` shows it, and `show` prints how to answer.",
+      "waiting for a pending interaction); it dispatches once that is resolved. `bapx-cli thread interactions list thread-q` shows it, and `show` prints how to answer.",
     ],
     [
       {
@@ -65,12 +65,12 @@ describe("room-cli thread tell command output", () => {
         reason: "4 of 4 running",
       },
       null,
-      "concurrency-limit: 4 of 4 running); it dispatches when that clears unless Stop pauses the queue, then run `room-cli thread queue send thread-q qm_1`",
+      "concurrency-limit: 4 of 4 running); it dispatches when that clears unless Stop pauses the queue, then run `bapx-cli thread queue send thread-q qm_1`",
     ],
     [
       { kind: "time" },
       sendAt,
-      `scheduled for ${new Date(sendAt).toLocaleString()}); it dispatches at that time on its own. Do not run \`room-cli thread queue send thread-q qm_1\`: it sends the message now.`,
+      `scheduled for ${new Date(sendAt).toLocaleString()}); it dispatches at that time on its own. Do not run \`bapx-cli thread queue send thread-q qm_1\`: it sends the message now.`,
     ],
   ])(
     "room-cli thread tell names the typed reason a message queued for (%j)",
@@ -99,7 +99,7 @@ describe("room-cli thread tell command output", () => {
     await runCommand(["thread", "tell", "thread-legacy", "hello"], register);
 
     expect(vi.mocked(console.log).mock.calls[0]?.[0]).toBe(
-      "Thread thread-legacy message sent; the agent has not confirmed it yet. If it fails, `room-cli thread show thread-legacy` shows status error and why.",
+      "Thread thread-legacy message sent; the agent has not confirmed it yet. If it fails, `bapx-cli thread show thread-legacy` shows status error and why.",
     );
   });
 
@@ -127,12 +127,12 @@ describe("room-cli thread tell command output", () => {
     [
       "may already have been sent",
       () => Promise.reject(new TypeError("fetch failed")),
-      "Error: Cloudroom did not confirm the message, so it may already have been sent (fetch failed). Check `room-cli thread log thread-x` and `room-cli thread queue list thread-x` before sending it again.",
+      "Error: Cloudroom did not confirm the message, so it may already have been sent (fetch failed). Check `bapx-cli thread log thread-x` and `bapx-cli thread queue list thread-x` before sending it again.",
     ],
     [
       "may already have been sent when Cloudroom never answers (#1832)",
       () => Promise.reject(new BbRequestTimeoutError(75_000)),
-      "Error: Cloudroom did not confirm the message, so it may already have been sent (no answer within 75 seconds; it may be busy). Check `room-cli thread log thread-x` and `room-cli thread queue list thread-x` before sending it again. The server may still be handling it, so an empty log and queue don't prove it wasn't sent: wait a minute and check again before resending.",
+      "Error: Cloudroom did not confirm the message, so it may already have been sent (no answer within 75 seconds; it may be busy). Check `bapx-cli thread log thread-x` and `bapx-cli thread queue list thread-x` before sending it again. The server may still be handling it, so an empty log and queue don't prove it wasn't sent: wait a minute and check again before resending.",
     ],
     [
       "may already have been sent after a tunnel timeout (#1513)",
@@ -153,7 +153,7 @@ describe("room-cli thread tell command output", () => {
           }),
           { status: 500 },
         ),
-      "Error: Cloudroom did not confirm the message, so it may already have been sent (HTTP 500: Internal server error, error ID ab12cd34). Check `room-cli thread log thread-x`",
+      "Error: Cloudroom did not confirm the message, so it may already have been sent (HTTP 500: Internal server error, error ID ab12cd34). Check `bapx-cli thread log thread-x`",
     ],
   ])(
     "room-cli thread tell says a failed message %s",

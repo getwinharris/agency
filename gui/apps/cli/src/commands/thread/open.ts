@@ -144,7 +144,7 @@ function resolveThreadOpenTarget(
       }
       if (explicitThreadId !== contextThreadId && !allowsExplicitThreadTarget) {
         throw new Error(
-          "ROOM_THREAD_ID is set, so room-cli thread open targets the current thread. Omit the thread ID.",
+          "ROOM_THREAD_ID is set, so bapx-cli thread open targets the current thread. Omit the thread ID.",
         );
       }
       return {

@@ -17,7 +17,9 @@ export function resolveCliExecution(
   delete env.ROOM_CLI;
   delete env.ROOM_CLI_REEXEC;
   let args = ["apps/cli/dist/index.js", ...forwardedArgs];
-  if (process.env.NODE_ENV !== "production") {
+  if (forwardedArgs[0] === "repo") {
+    args = ["apps/cli/scripts/repository-cli.mjs", ...forwardedArgs.slice(1)];
+  } else if (process.env.NODE_ENV !== "production") {
     const devEnv = resolveCurrentDevProcessEnv(repoRoot, process.env);
     env.ROOM_SERVER_URL = process.env.ROOM_SERVER_URL ?? devEnv.BB_SERVER_URL;
     env.ROOM_HOST_DAEMON_PORT =

@@ -14,7 +14,7 @@ You can use either story independently or combine them.
 The simplest managed route is **Cloudroom Connect**. Once you are signed in to
 Cloudroom, the server registers itself with our relay at cloudroom.run, holds the
 tunnel, and reconnects after restart. On a phone, open cloudroom.dev/m and sign in
-with your Cloudroom account (`room-cli connect phone` prints the link).
+with your Cloudroom account (`bapx-cli connect phone` prints the link).
 
 For a private tailnet route, keep bb on its loopback default and publish it
 through Tailscale Serve:
@@ -68,7 +68,7 @@ there, then map the server/work-host to that SSH target:
 ```
 
 Save that as `client.json` in the browser device's data folder. Copy the
-work-host ID from `room-cli machine list`. A browser running on an enrolled execution
+work-host ID from `bapx-cli machine list`. A browser running on an enrolled execution
 machine needs no SSH mapping for that same machine: connected daemons report
 their helper ports to the server, and the browser discovers the matching local
 helper after you enable integration.
