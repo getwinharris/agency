@@ -381,7 +381,7 @@ function SidebarTriggerOverlay({
 const routeTitles: Record<string, { title: string }> = {
   "/": { title: "bapX Agents" },
   "/settings": { title: "Settings" },
-  "/automations": { title: "Loops" },
+  "/automations": { title: "Automations" },
   "/skills": { title: "Skills" },
 };
 

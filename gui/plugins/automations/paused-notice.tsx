@@ -257,7 +257,7 @@ export function PausedLoopsLabel() {
             onClick={() => navigate.toPluginPanel("automations")}
             className="text-muted-foreground hover:text-foreground"
           >
-            Open Loops
+            Open Automations
           </button>
           {paused.filter((loop) => !loginOf(loop)).length > 1 && (
             <button
