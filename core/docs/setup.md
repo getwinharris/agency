@@ -212,6 +212,41 @@ processes keep their current environment.
 
 **History:** to back it up, run `sudo systemctl stop cloudroom`, copy `CLOUDROOM_STATE_DIR` (default `/var/lib/cloudroom/history`), then start it again. Moving history from Cloudroom Cloud to your server isn't supported yet.
 
+## Managed workspace device access
+
+A bapX-managed device can use a time-limited credential on a dedicated Linux
+Core once the workspace issuer and its server-side grants are configured.
+Keep the private Core on loopback behind its approved HTTPS ingress, with
+protected storage, local history, a dedicated workspace volume, and an
+isolated runtime identity. Keep its operator token in the private service
+configuration. The public web Core does not run the native API.
+
+A managed Core opts in with `BAPX_CORE_DEVICE_ACCESS_FILE`, the canonical path
+to a private registry. Use a protected Linux Core with its own workload UID,
+delegated cgroups, and an agent account without sudo. Use a fresh state directory
+for each assigned member. Before first start, provision the registered workspace
+and write `device-owner.json` in that state directory using the same JSON object
+as the registry's `binding`. The Core checks it on every start. Keep it fixed
+for the life of the state directory, including restarts and volume restores.
+
+The version 1 registry binds one Core ID, registered workspace ID, and bapX
+member UUID in `binding.core_id`, `binding.workspace_id`, and
+`binding.account_id`. Set `CLOUDROOM_INSTANCE` to the approved Core ID. The
+`grants` map uses lowercase SHA-256 digests of the complete
+`bapx-device-v1.` credential. Each grant has `issued_at` and `expires_at` in Unix
+seconds. Replace the ledger atomically. Keep both files outside the source
+checkout, owned by the Core service user with mode 0600. Protect every ancestor
+against workload writes and symlinks. Treat the private Core, volume, and
+harness account as dedicated to this member.
+
+Device credentials cover new sessions, prompts, requests and event history in
+the bound workspace. The Core filters session lists and lookups by workspace.
+Provider credentials, operator settings, the Core dashboard, file transfer,
+terminals, fork and cross-workspace continuation require another authorization
+path. Expiry and grant removal end active event streams. The hosted issuer
+and deployment acceptance are tracked under
+[#85](https://github.com/getwinharris/agency/issues/85).
+
 ## Upgrade
 
 A verified in-place upgrade procedure for Agency is pending. The [source

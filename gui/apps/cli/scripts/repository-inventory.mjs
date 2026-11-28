@@ -244,12 +244,13 @@ function projectSources() {
     throw new Error(`Unsupported workspace package filter in ${workspaceConfig}: ${pattern}.`);
   });
   const tracked = sorted(run("git", ["ls-files", "-z", "--", ".github/workflows", "gui/apps/www/src", "core/src/web",
-    ":(glob)core/src/*.rs", ":(glob)core/src/*/mod.rs", ":(glob)skills/**/SKILL.md",
+    ":(glob)core/src/api/device_access*.rs", ":(glob)core/src/*.rs", ":(glob)core/src/*/mod.rs", ":(glob)skills/**/SKILL.md",
     "gui/package.json", ...filters,
   ]).split("\0").filter(Boolean));
   return {
     workflows: tracked.filter((file) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file)),
     rust_entry_points: tracked.filter((file) => /^core\/src\/([^/]+\.rs|[^/]+\/mod\.rs)$/.test(file)),
+    device_access: tracked.filter((file) => file.startsWith("core/src/api/device_access")),
     web_runtime_sources: tracked.filter((file) => file.startsWith("core/src/web/")),
     web_sources: tracked.filter((file) => file.startsWith("gui/apps/www/src/")),
     workspace_packages: tracked.filter((file) => file.startsWith("gui/") && file.endsWith("/package.json")),
@@ -362,11 +363,13 @@ ${edges.join("\n")}
     package["macOS, Windows and Linux builds · gui/apps/desktop/"]
     desktop["Electron and bb-app local UI, server and host daemon"]
     coreApi["Private Core API · core/src/lib.rs and core/docs/setup.md"]
+    deviceAccess["Scoped managed device access · core/src/api/device_access.rs"]
     harnesses["Native agent harnesses · core/src/runtime/"]
     journal["Private sessions, history and agent account credentials"]
     skills["Agent Skills · skills/ and local .agents/skills/"]
     desktopCI --> package --> desktop
     desktop -->|"Private bearer-authenticated HTTP/SSE"| coreApi
+    deviceAccess -->|"Limit device operations and revoke event streams"| coreApi
     coreApi --> harnesses
     coreApi --> journal
     skills -->|"Native discovery"| harnesses

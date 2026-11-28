@@ -124,6 +124,7 @@ fn launch_path(
 pub async fn serve(mut config: config::Config) -> Result<(), Box<dyn std::error::Error>> {
     use std::{future::IntoFuture, time::Duration};
     use tokio::signal::unix::{SignalKind, signal};
+    let devices = api::DeviceAccess::from_env(&config)?;
     config.account_home = config.account_home.canonicalize()?;
     config.repository = config.repository.canonicalize()?;
     for (kind, profile) in config.harnesses.iter_mut() {
@@ -193,12 +194,15 @@ pub async fn serve(mut config: config::Config) -> Result<(), Box<dyn std::error:
     eprintln!("Cloudroom listening on {}", listener.local_addr()?);
     let shutdown = manager.clone();
     let mut changed = manager.subscribe();
-    let server = axum::serve(listener, api::router(manager.clone(), config.token))
-        .with_graceful_shutdown(async move {
-            tokio::select! { _=interrupt.recv()=>{}, _=terminate.recv()=>{} }
-            shutdown.shutdown().await;
-        })
-        .into_future();
+    let server = axum::serve(
+        listener,
+        api::router_with_devices(manager.clone(), config.token, devices),
+    )
+    .with_graceful_shutdown(async move {
+        tokio::select! { _=interrupt.recv()=>{}, _=terminate.recv()=>{} }
+        shutdown.shutdown().await;
+    })
+    .into_future();
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => result?,
