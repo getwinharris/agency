@@ -162,8 +162,13 @@ superseded releases.
    Follow the existing version policy and record the version or tag where it
    applies. Record why if no docs, changelog, or version update is warranted;
    do not invent a version bump or mark pending work as shipped.
-3. **Verify before merge.** Run builds and focused regression tests on the
-   actual change. Every engineering loop must include actual browser
+3. **Verify before opening a PR and before merging.** Fetch the intended base
+   and check the candidate merges without conflicts. Run the changed
+   component's formatter, compilation/type checks, and focused regressions
+   against that candidate before opening the PR. A draft is not a substitute
+   for those checks. If the required toolchain cannot run, preserve the patch
+   and state the blocker instead of opening an unchecked PR. After any
+   integration or new commit, verify the exact updated head again. Every engineering loop must include actual browser
    verification. Use Ego on relevant viewports for affected UI flows; for
    backend-only changes, run a relevant browser smoke test. Use an authorized
    browser environment. If the VPS cannot run it, serialize or retry within its
