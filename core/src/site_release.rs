@@ -15,7 +15,7 @@ const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_RELEASE_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 8192;
 const MAX_DEPTH: usize = 12;
-const USAGE: &str = "Usage: cloudroom publish-site stage USERS_ROOT SNAPSHOT SLUG ACCOUNT BUSINESS PROJECT\n       cloudroom publish-site release SNAPSHOT RELEASE_ROOT SLUG ACCOUNT BUSINESS PROJECT";
+const USAGE: &str = "Usage: cloudroom publish-site stage USERS_ROOT SNAPSHOT SLUG ACCOUNT BUSINESS PROJECT\n       cloudroom publish-site release SNAPSHOT RELEASE_ROOT SLUG ACCOUNT BUSINESS PROJECT\n       cloudroom publish-site status RELEASE_ROOT SLUG ACCOUNT BUSINESS PROJECT";
 
 /// Taken from the operator's authorization mapping, never from an HTTP request.
 pub struct SiteGrant<'a> {
@@ -161,6 +161,25 @@ pub fn cli(args: &[String]) -> io::Result<()> {
         println!("{USAGE}");
         return Ok(());
     }
+    if let [operation, root, slug, account, business, project] = args
+        && operation == "status"
+    {
+        let grant = SiteGrant {
+            slug,
+            account,
+            business,
+            project,
+        };
+        let store = SiteStore::open(Path::new(root))?;
+        match store.active_revision(&grant)? {
+            Some(revision) => {
+                println!("Published snapshot for https://{slug}{SITE_SUFFIX}/: {revision}");
+                println!("Public reachability is not checked.");
+            }
+            None => println!("No published snapshot for this site."),
+        }
+        return Ok(());
+    }
     let [operation, source, target, slug, account, business, project] = args else {
         return Err(invalid(USAGE));
     };
@@ -302,6 +321,25 @@ fn copy_build(source: &File, target: &Path, depth: usize, budget: &mut Budget) -
     sync_directory(target)
 }
 
+fn selected_revision(site: &File) -> io::Result<(String, File)> {
+    let pointer = child(site, "current").map_err(|_| missing())?;
+    let metadata = pointer.metadata()?;
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() != 33 {
+        return Err(missing());
+    }
+    let mut current = String::new();
+    File::open(ref_path(&pointer))?
+        .take(33)
+        .read_to_string(&mut current)?;
+    let revision = current
+        .strip_suffix('\n')
+        .filter(|id| revision_id(id))
+        .ok_or_else(missing)?;
+    let revisions = child_directory(site, "revisions").map_err(|_| missing())?;
+    let entry = child_directory(&revisions, revision).map_err(|_| missing())?;
+    Ok((revision.to_owned(), entry))
+}
+
 impl SiteStore {
     /// The public reader receives only this separate publication store.
     pub fn open(published_root: &Path) -> io::Result<Self> {
@@ -368,6 +406,40 @@ impl SiteStore {
         Ok(revision)
     }
 
+    /// Inspect the local release store for an operator-approved binding.
+    /// This neither checks public routing nor contacts the site's HTTPS origin.
+    pub fn active_revision(&self, grant: &SiteGrant<'_>) -> io::Result<Option<String>> {
+        validate_grant(grant)?;
+        let directory = open_reference(&self.published)?;
+        let site = match child_directory(&directory, grant.slug) {
+            Ok(site) => site,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+
+        let expected = format!("{}/{}/{}\n", grant.account, grant.business, grant.project);
+        let owner = child(&site, "owner")?;
+        let metadata = owner.metadata()?;
+        if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() != expected.len() as u64 {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        let mut identity = Vec::new();
+        File::open(ref_path(&owner))?
+            .take(expected.len() as u64 + 1)
+            .read_to_end(&mut identity)?;
+        if identity.as_slice() != expected.as_bytes() {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+
+        let (revision, entry) = selected_revision(&site)?;
+        let index = child(&entry, "index.html")?;
+        let metadata = index.metadata()?;
+        if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() > MAX_FILE_BYTES {
+            return Err(missing());
+        }
+        Ok(Some(revision))
+    }
+
     /// Resolve only an exact hostname and the immutable published revision.
     /// The HTTP router owns GET/HEAD enforcement, MIME selection and response headers.
     pub fn resolve(&self, hostname: &str, request_path: &str) -> io::Result<SiteAsset> {
@@ -391,21 +463,7 @@ impl SiteStore {
 
         let directory = open_reference(&self.published)?;
         let site = child_directory(&directory, host_slug).map_err(|_| missing())?;
-        let pointer = child(&site, "current").map_err(|_| missing())?;
-        let metadata = pointer.metadata()?;
-        if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() != 33 {
-            return Err(missing());
-        }
-        let mut current = String::new();
-        File::open(ref_path(&pointer))?
-            .take(33)
-            .read_to_string(&mut current)?;
-        let revision = current
-            .strip_suffix('\n')
-            .filter(|id| revision_id(id))
-            .ok_or_else(missing)?;
-        let revisions = child_directory(&site, "revisions").map_err(|_| missing())?;
-        let mut entry = child_directory(&revisions, revision).map_err(|_| missing())?;
+        let (_, mut entry) = selected_revision(&site)?;
         for (index, segment) in segments.iter().enumerate() {
             if index + 1 == segments.len() {
                 let asset = child(&entry, segment).map_err(|_| missing())?;
