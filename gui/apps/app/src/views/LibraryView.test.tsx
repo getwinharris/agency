@@ -127,19 +127,15 @@ function renderLibrary() {
 beforeEach(() => {
   mocks.localHostId = "host-local";
   mocks.download.mockReset().mockResolvedValue({ ok: false });
-  mocks.sessionLocation
-    .mockReset()
-    .mockResolvedValue({
-      hostId: "host-local",
-      storageRootPath: "/sessions/one",
-    });
-  mocks.sessionList
-    .mockReset()
-    .mockResolvedValue({
-      files: [{ name: "notes.md", path: "notes.md" }],
-      truncated: false,
-      storageRootPath: "/sessions/one",
-    });
+  mocks.sessionLocation.mockReset().mockResolvedValue({
+    hostId: "host-local",
+    storageRootPath: "/sessions/one",
+  });
+  mocks.sessionList.mockReset().mockResolvedValue({
+    files: [{ name: "notes.md", path: "notes.md" }],
+    truncated: false,
+    storageRootPath: "/sessions/one",
+  });
   mocks.list
     .mockReset()
     .mockImplementation(
@@ -272,5 +268,43 @@ describe("Library session files", () => {
       "Could not load files",
     );
     expect(screen.queryByRole("button", { name: "notes.md" })).toBeNull();
+  });
+
+  it("searches the selected session and not the project folder", async () => {
+    renderLibrary();
+    chooseSession();
+    await screen.findByRole("button", { name: "notes.md" });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Find session files" }),
+      {
+        target: { value: "notes" },
+      },
+    );
+    await waitFor(() =>
+      expect(mocks.sessionList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: "notes",
+          threadId: "one-local",
+        }),
+      ),
+    );
+    expect(mocks.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ query: "notes" }),
+    );
+  });
+
+  it("does not download the file when the selected session moves", async () => {
+    renderLibrary();
+    chooseSession();
+    fireEvent.click(await screen.findByRole("button", { name: "notes.md" }));
+    mocks.sessionLocation.mockResolvedValue({
+      hostId: "host-remote",
+      storageRootPath: "/sessions/one",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Could not download",
+    );
+    expect(mocks.download).not.toHaveBeenCalled();
   });
 });

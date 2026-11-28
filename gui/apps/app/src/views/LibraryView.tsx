@@ -275,9 +275,12 @@ function LocalSessionFiles({
   hostId: string;
 }) {
   const [path, setPath] = useState<string | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<
-    "idle" | "running" | "failed"
-  >("idle");
+  const [search, setSearch] = useState("");
+  const query = useDebouncedValue(search.trim(), 200);
+  const [download, setDownload] = useState<{
+    path: string;
+    status: "running" | "failed";
+  } | null>(null);
   const files = useQuery({
     queryKey: [
       "library",
@@ -286,6 +289,7 @@ function LocalSessionFiles({
       hostId,
       session.id,
       session.environmentId,
+      query,
     ],
     queryFn: async ({ signal }) => {
       const location = await sdk.threads.storageLocation({
@@ -297,6 +301,7 @@ function LocalSessionFiles({
       const list = await sdk.threads.storageFiles({
         threadId: session.id,
         limit: PAGE_LIMIT,
+        ...(query ? { query } : {}),
         signal,
       });
       const current = await sdk.threads.storageLocation({
@@ -324,7 +329,13 @@ function LocalSessionFiles({
         className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border"
       >
         <div className="flex items-center justify-between gap-2 border-b p-3">
-          <span className="text-sm font-medium">Files in this session</span>
+          <Input
+            aria-label="Find session files"
+            placeholder="Find files in this session…"
+            maxLength={FILE_LIST_QUERY_MAX_LENGTH}
+            value={search}
+            onChange={(event) => setSearch(event.currentTarget.value)}
+          />
           <Button
             type="button"
             size="sm"
@@ -332,7 +343,9 @@ function LocalSessionFiles({
             disabled={files.isFetching}
             onClick={() => {
               setPath(null);
-              setDownloadStatus("idle");
+              setDownload((current) =>
+                current?.status === "running" ? current : null,
+              );
               void files.refetch();
             }}
           >
@@ -351,7 +364,7 @@ function LocalSessionFiles({
         ) : null}
         {files.isSuccess && files.data.files.length === 0 ? (
           <p className="m-3 text-sm text-muted-foreground">
-            No files in this session.
+            {query ? "No matching session files." : "No files in this session."}
           </p>
         ) : null}
         {files.isSuccess && files.data.files.length > 0 ? (
@@ -362,10 +375,7 @@ function LocalSessionFiles({
                   type="button"
                   aria-pressed={file.path === active?.path}
                   className="w-full break-all rounded-md px-3 py-2 text-left text-sm hover:bg-accent aria-pressed:bg-accent"
-                  onClick={() => {
-                    setPath(file.path);
-                    setDownloadStatus("idle");
-                  }}
+                  onClick={() => setPath(file.path)}
                 >
                   {file.path}
                 </button>
@@ -375,7 +385,8 @@ function LocalSessionFiles({
         ) : null}
         {files.isSuccess && files.data.truncated ? (
           <p className="border-t p-3 text-xs text-muted-foreground">
-            Only the first {PAGE_LIMIT} files are shown.
+            Only the first {PAGE_LIMIT} matches are shown. Search to narrow the
+            results.
           </p>
         ) : null}
       </section>
@@ -394,9 +405,9 @@ function LocalSessionFiles({
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                disabled={downloadStatus === "running"}
+                disabled={download?.status === "running"}
                 onClick={() => {
-                  setDownloadStatus("running");
+                  setDownload({ path: active.path, status: "running" });
                   void (async () => {
                     const location = await sdk.threads.storageLocation({
                       threadId: session.id,
@@ -412,15 +423,17 @@ function LocalSessionFiles({
                       active.name,
                     );
                   })().then(
-                    () => setDownloadStatus("idle"),
-                    () => setDownloadStatus("failed"),
+                    () => setDownload(null),
+                    () => setDownload({ path: active.path, status: "failed" }),
                   );
                 }}
               >
-                {downloadStatus === "running" ? "Downloading…" : "Download"}
+                {download?.path === active.path && download.status === "running"
+                  ? "Downloading…"
+                  : "Download"}
               </Button>
             </div>
-            {downloadStatus === "failed" ? (
+            {download?.path === active.path && download.status === "failed" ? (
               <p
                 role="alert"
                 className="border-b p-3 text-sm text-muted-foreground"

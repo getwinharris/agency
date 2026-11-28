@@ -49,7 +49,8 @@ existing rendered preview and source view; images referenced inside the project
 can render without publishing the file.
 
 Choose **Session files** and select a session to preview or download files
-stored by that session on this computer. The selector shows sessions for the
+stored for that session on this computer. Search the selected session by
+filename or path. The selector shows sessions for the
 chosen project only. A file's presence records where it was stored, not who
 created it. Library does not index cloud sessions, publish files to the web, or
 enable hosted Library access.
